@@ -2,6 +2,7 @@
 
 #include "bsp/bsp_delay.h"
 #include "wchlink_family.h"
+#include "rvswd_frame.h"
 #include "rvswd_target.h"
 #include "rvswd_types.h"
 
@@ -143,29 +144,6 @@ static bool rvswd_gpio_wait_abstract_idle_timeout(uint32_t *abstractcs,
                                                   uint32_t timeout_us);
 static bool rvswd_gpio_wait_abstract_idle(uint32_t *abstractcs);
 static bool rvswd_gpio_write_raw_gpr(uint8_t regno, uint32_t value);
-
-static uint8_t rvswd_xor_bits(uint32_t value) {
-    value ^= value >> 16u;
-    value ^= value >> 8u;
-    value ^= value >> 4u;
-    value ^= value >> 2u;
-    value ^= value >> 1u;
-    return (uint8_t)(value & 1u);
-}
-
-static void rvswd_set_bit(uint8_t *buffer, uint8_t position, uint8_t value) {
-    uint8_t mask = (uint8_t)(1u << (7u - (position & 7u)));
-
-    if (value != 0u) {
-        buffer[position >> 3u] |= mask;
-    } else {
-        buffer[position >> 3u] &= (uint8_t)~mask;
-    }
-}
-
-static uint8_t rvswd_get_bit(const uint8_t *buffer, uint8_t position) {
-    return (uint8_t)((buffer[position >> 3u] >> (7u - (position & 7u))) & 1u);
-}
 
 static void rvswd_config_data_output(void) {
     GPIOA->CFGLR = (GPIOA->CFGLR & ~(0xfu << RVSWD_DATA_CFG_SHIFT)) |
@@ -310,7 +288,7 @@ static void rvswd_drive_range(const uint8_t *frame, uint8_t first_bit, uint8_t b
         return;
     }
     for (uint8_t bit = 0u; bit < bit_count; ++bit) {
-        rvswd_drive_bit(rvswd_get_bit(frame, (uint8_t)(first_bit + bit)));
+        rvswd_drive_bit(rvswd_frame_get_bit(frame, (uint8_t)(first_bit + bit)));
     }
 }
 
@@ -335,7 +313,7 @@ static void rvswd_sample_range(uint8_t *frame, uint8_t first_bit, uint8_t bit_co
         return;
     }
     for (uint8_t bit = 0u; bit < bit_count; ++bit) {
-        rvswd_set_bit(frame, (uint8_t)(first_bit + bit), rvswd_sample_bit());
+        rvswd_frame_set_bit(frame, (uint8_t)(first_bit + bit), rvswd_sample_bit());
     }
 }
 
@@ -446,45 +424,6 @@ static bool rvswd_transaction(const uint8_t *host, uint8_t *target, bool read) {
     return true;
 }
 
-static void rvswd_pack_common(uint8_t *frame, uint8_t address, uint8_t operation) {
-    frame[0] = (uint8_t)((address & 0x7fu) << 1u | (operation & 1u));
-    rvswd_set_bit(frame, 8u, (uint8_t)(rvswd_xor_bits(address & 0x7fu) ^ operation));
-    rvswd_set_bit(frame, 13u, 1u);
-    rvswd_set_bit(frame, 51u, 1u);
-}
-
-static void rvswd_pack_write(uint8_t *frame, uint8_t address, uint32_t value) {
-    rvswd_pack_common(frame, address, 1u);
-    for (uint8_t bit = 0u; bit < 32u; ++bit) {
-        rvswd_set_bit(frame, (uint8_t)(14u + bit), (uint8_t)((value >> (31u - bit)) & 1u));
-    }
-    rvswd_set_bit(frame, 46u, rvswd_xor_bits(value));
-    rvswd_set_bit(frame, 50u, 1u);
-}
-
-static void rvswd_pack_read(uint8_t *frame, uint8_t address) {
-    rvswd_pack_common(frame, address, 0u);
-    rvswd_set_bit(frame, 50u, 1u);
-}
-
-static uint8_t rvswd_unpack_handshake(const uint8_t *target) {
-    return (uint8_t)(rvswd_get_bit(target, 48u) << 1u |
-                     rvswd_get_bit(target, 49u));
-}
-
-static bool rvswd_status_is_ok(uint8_t status) {
-    return status == RVSWD_STATUS_OK;
-}
-
-static uint32_t rvswd_unpack_data(const uint8_t *target) {
-    uint32_t value = 0u;
-
-    for (uint8_t bit = 0u; bit < 32u; ++bit) {
-        value = (value << 1u) | rvswd_get_bit(target, (uint8_t)(14u + bit));
-    }
-    return value;
-}
-
 void rvswd_gpio_init(void) {
     RCC->APB2PCENR |= RCC_APB2Periph_GPIOA;
     // PA1 通过 5.1 kOhm 外部电阻给 PA3 SWDIO 提供上拉，首帧前保持高电平
@@ -557,16 +496,16 @@ bool rvswd_gpio_write_dmi(uint8_t address, uint32_t value) {
     uint8_t target[7] = {0};
     uint8_t status;
 
-    rvswd_pack_write(frame, address, value);
+    rvswd_frame_pack_write(frame, address, value);
     rvswd_dmi_failure_retryable = false;
     for (uint8_t retry = 0u; retry < RVSWD_DMI_WRITE_RETRY_COUNT; ++retry) {
         if (!rvswd_transaction(frame, target, false)) {
             return false;
         }
 
-        status = rvswd_unpack_handshake(target);
+        status = rvswd_frame_unpack_handshake(target);
         rvswd_dmi_last_status = status;
-        if (rvswd_status_is_ok(status)) {
+        if (rvswd_frame_status_is_ok(status)) {
             if (address == 0x17u) {
                 // COMMAND 写入完成后留出执行窗口，避免下一次 DMI 访问撞上 abstract busy
                 bsp_delay_us(RVSWD_ABSTRACT_COMMAND_DELAY_US);
@@ -2135,27 +2074,27 @@ bool rvswd_gpio_read_dmi(uint8_t address, uint32_t *value) {
     uint8_t target[7] = {0};
     uint8_t status;
 
-    rvswd_pack_read(frame, address);
+    rvswd_frame_pack_read(frame, address);
     rvswd_dmi_failure_retryable = false;
     for (uint8_t retry = 0u; retry < RVSWD_DMI_READ_RETRY_COUNT; ++retry) {
         if (!rvswd_transaction(frame, target, true)) {
             return false;
         }
 
-        status = rvswd_unpack_handshake(target);
+        status = rvswd_frame_unpack_handshake(target);
         rvswd_dmi_last_status = status;
         if (status == RVSWD_STATUS_BUSY) {
             rvswd_dmi_failure_retryable = true;
             bsp_delay_us(RVSWD_DMI_BUSY_DELAY_US);
             continue;
         }
-        if (!rvswd_status_is_ok(status)) {
+        if (!rvswd_frame_status_is_ok(status)) {
             rvswd_dmi_failure_retryable = false;
             bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
             continue;
         }
-        *value = rvswd_unpack_data(target);
-        if (rvswd_get_bit(target, 46u) != rvswd_xor_bits(*value)) {
+        *value = rvswd_frame_unpack_data(target);
+        if (rvswd_frame_get_bit(target, 46u) != rvswd_frame_xor_bits(*value)) {
             rvswd_dmi_failure_retryable = true;
             bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
             continue;

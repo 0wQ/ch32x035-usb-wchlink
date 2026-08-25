@@ -2,6 +2,7 @@
 
 #include "bsp/bsp_delay.h"
 #include "rvswd_frame.h"
+#include "rvswd_dmi.h"
 #include "rvswd_phy_gpio.h"
 #include "rvswd_target.h"
 #include "rvswd_types.h"
@@ -118,13 +119,10 @@
 
 static uint32_t rvswd_flash_last_error;
 static uint8_t rvswd_connect_last_error;
-static enum rvswd_packet_mode rvswd_packet_mode = RVSWD_PACKET_SHORT;
 static uint8_t rvswd_memory_last_error;
 static uint8_t rvswd_memory_failure_dmi_status;
 static uint32_t rvswd_memory_failure_address;
 static uint32_t rvswd_memory_failure_abstractcs;
-static uint8_t rvswd_dmi_last_status;
-static bool rvswd_dmi_failure_retryable;
 
 extern const uint8_t ch5xx_flash_erase_stub_start[];
 extern const uint8_t ch5xx_flash_erase_stub_end[];
@@ -209,6 +207,7 @@ static bool rvswd_transaction(const uint8_t *host, uint8_t *target, bool read) {
 }
 
 void rvswd_gpio_init(void) {
+    rvswd_dmi_reset();
     rvswd_phy_gpio_init();
 }
 
@@ -231,18 +230,18 @@ static bool rvswd_gpio_restore_debug_module(void) {
 }
 
 bool rvswd_gpio_write_dmi(uint8_t address, uint32_t value) {
-    if (rvswd_packet_mode == RVSWD_PACKET_LONG) {
+    if (rvswd_dmi_packet_mode() == RVSWD_PACKET_LONG) {
         uint8_t status;
 
-        rvswd_dmi_failure_retryable = false;
+        rvswd_dmi_set_failure_retryable(false);
         for (uint8_t retry = 0u; retry < RVSWD_DMI_WRITE_RETRY_COUNT; ++retry) {
             if (!rvswd_transaction_long(2u, address, value, 0u, NULL, NULL, &status)) {
-                rvswd_dmi_failure_retryable = true;
+                rvswd_dmi_set_failure_retryable(true);
                 bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
                 continue;
             }
 
-            rvswd_dmi_last_status = status;
+            rvswd_dmi_set_last_status(status);
             if (status == RVSWD_LONG_STATUS_OK) {
                 if (address == 0x17u) {
                     // COMMAND 写入完成后留出执行窗口，避免下一次 DMI 访问撞上 abstract busy
@@ -251,10 +250,10 @@ bool rvswd_gpio_write_dmi(uint8_t address, uint32_t value) {
                 return true;
             }
             if (status == RVSWD_LONG_STATUS_BUSY) {
-                rvswd_dmi_failure_retryable = true;
+                rvswd_dmi_set_failure_retryable(true);
                 bsp_delay_us(RVSWD_DMI_BUSY_DELAY_US);
             } else {
-                rvswd_dmi_failure_retryable = false;
+                rvswd_dmi_set_failure_retryable(false);
                 bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
             }
         }
@@ -266,14 +265,14 @@ bool rvswd_gpio_write_dmi(uint8_t address, uint32_t value) {
     uint8_t status;
 
     rvswd_frame_pack_write(frame, address, value);
-    rvswd_dmi_failure_retryable = false;
+    rvswd_dmi_set_failure_retryable(false);
     for (uint8_t retry = 0u; retry < RVSWD_DMI_WRITE_RETRY_COUNT; ++retry) {
         if (!rvswd_transaction(frame, target, false)) {
             return false;
         }
 
         status = rvswd_frame_unpack_handshake(target);
-        rvswd_dmi_last_status = status;
+        rvswd_dmi_set_last_status(status);
         if (rvswd_frame_status_is_ok(status)) {
             if (address == 0x17u) {
                 // COMMAND 写入完成后留出执行窗口，避免下一次 DMI 访问撞上 abstract busy
@@ -282,10 +281,10 @@ bool rvswd_gpio_write_dmi(uint8_t address, uint32_t value) {
             return true;
         }
         if (status == RVSWD_STATUS_BUSY) {
-            rvswd_dmi_failure_retryable = true;
+            rvswd_dmi_set_failure_retryable(true);
             bsp_delay_us(RVSWD_DMI_BUSY_DELAY_US);
         } else {
-            rvswd_dmi_failure_retryable = false;
+            rvswd_dmi_set_failure_retryable(false);
             // 非成功状态允许短暂重试，避免单次线噪声中断连续内存传输
             bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
         }
@@ -552,7 +551,7 @@ static bool rvswd_gpio_wait_abstract_idle_timeout(uint32_t *abstractcs,
 
     do {
         if (!rvswd_gpio_read_dmi(0x16u, abstractcs)) {
-            if (!rvswd_dmi_failure_retryable) {
+            if (!rvswd_dmi_failure_retryable()) {
                 return false;
             }
             continue;
@@ -666,27 +665,27 @@ static bool rvswd_gpio_write_memory_slow(uint32_t address, const uint8_t *data,
 
         rvswd_memory_failure_address = address + offset;
         if (!rvswd_gpio_write_dmi(0x16u, 0x00000700u)) {
-            rvswd_memory_last_error = 0x10u | (rvswd_dmi_last_status & 0x03u);
+            rvswd_memory_last_error = 0x10u | (rvswd_dmi_last_status() & 0x03u);
             return false;
         }
         if (!rvswd_gpio_write_dmi(0x04u, address + offset)) {
-            rvswd_memory_last_error = 0x20u | (rvswd_dmi_last_status & 0x03u);
+            rvswd_memory_last_error = 0x20u | (rvswd_dmi_last_status() & 0x03u);
             return false;
         }
         if (!rvswd_gpio_write_dmi(0x17u, 0x00231009u)) {
-            rvswd_memory_last_error = 0x30u | (rvswd_dmi_last_status & 0x03u);
+            rvswd_memory_last_error = 0x30u | (rvswd_dmi_last_status() & 0x03u);
             return false;
         }
         if (!rvswd_gpio_write_dmi(0x04u, value)) {
-            rvswd_memory_last_error = 0x40u | (rvswd_dmi_last_status & 0x03u);
+            rvswd_memory_last_error = 0x40u | (rvswd_dmi_last_status() & 0x03u);
             return false;
         }
         if (!rvswd_gpio_write_dmi(0x17u, 0x00271008u)) {
-            rvswd_memory_last_error = 0x50u | (rvswd_dmi_last_status & 0x03u);
+            rvswd_memory_last_error = 0x50u | (rvswd_dmi_last_status() & 0x03u);
             return false;
         }
         if (!rvswd_gpio_wait_abstract_idle(&abstractcs)) {
-            rvswd_memory_last_error = 0x60u | (rvswd_dmi_last_status & 0x03u);
+            rvswd_memory_last_error = 0x60u | (rvswd_dmi_last_status() & 0x03u);
             return false;
         }
         if (((abstractcs >> 8u) & 0x07u) != 0u) {
@@ -733,7 +732,7 @@ bool rvswd_gpio_write_memory(uint32_t address, const uint8_t *data, uint32_t len
         success = rvswd_gpio_write_memory_slow(address, data, length);
     }
     if (!success) {
-        rvswd_memory_failure_dmi_status = rvswd_dmi_last_status;
+        rvswd_memory_failure_dmi_status = rvswd_dmi_last_status();
         (void)rvswd_gpio_read_dmi(0x16u, &rvswd_memory_failure_abstractcs);
     }
     return success;
@@ -1811,28 +1810,28 @@ bool rvswd_gpio_read_dmi(uint8_t address, uint32_t *value) {
     if (value == NULL) {
         return false;
     }
-    if (rvswd_packet_mode == RVSWD_PACKET_LONG) {
+    if (rvswd_dmi_packet_mode() == RVSWD_PACKET_LONG) {
         uint8_t status;
         uint32_t data;
 
-        rvswd_dmi_failure_retryable = false;
+        rvswd_dmi_set_failure_retryable(false);
         for (uint8_t retry = 0u; retry < RVSWD_DMI_READ_RETRY_COUNT; ++retry) {
             if (!rvswd_transaction_long(1u, address, 0u, 0u, NULL, &data, &status)) {
-                rvswd_dmi_failure_retryable = true;
+                rvswd_dmi_set_failure_retryable(true);
                 bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
                 continue;
             }
 
-            rvswd_dmi_last_status = status;
+            rvswd_dmi_set_last_status(status);
             if (status == RVSWD_LONG_STATUS_OK) {
                 *value = data;
                 return true;
             }
             if (status == RVSWD_LONG_STATUS_BUSY) {
-                rvswd_dmi_failure_retryable = true;
+                rvswd_dmi_set_failure_retryable(true);
                 bsp_delay_us(RVSWD_DMI_BUSY_DELAY_US);
             } else {
-                rvswd_dmi_failure_retryable = false;
+                rvswd_dmi_set_failure_retryable(false);
                 bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
             }
         }
@@ -1844,27 +1843,27 @@ bool rvswd_gpio_read_dmi(uint8_t address, uint32_t *value) {
     uint8_t status;
 
     rvswd_frame_pack_read(frame, address);
-    rvswd_dmi_failure_retryable = false;
+    rvswd_dmi_set_failure_retryable(false);
     for (uint8_t retry = 0u; retry < RVSWD_DMI_READ_RETRY_COUNT; ++retry) {
         if (!rvswd_transaction(frame, target, true)) {
             return false;
         }
 
         status = rvswd_frame_unpack_handshake(target);
-        rvswd_dmi_last_status = status;
+        rvswd_dmi_set_last_status(status);
         if (status == RVSWD_STATUS_BUSY) {
-            rvswd_dmi_failure_retryable = true;
+            rvswd_dmi_set_failure_retryable(true);
             bsp_delay_us(RVSWD_DMI_BUSY_DELAY_US);
             continue;
         }
         if (!rvswd_frame_status_is_ok(status)) {
-            rvswd_dmi_failure_retryable = false;
+            rvswd_dmi_set_failure_retryable(false);
             bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
             continue;
         }
         *value = rvswd_frame_unpack_data(target);
         if (rvswd_frame_get_bit(target, 46u) != rvswd_frame_xor_bits(*value)) {
-            rvswd_dmi_failure_retryable = true;
+            rvswd_dmi_set_failure_retryable(true);
             bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
             continue;
         }
@@ -1875,7 +1874,7 @@ bool rvswd_gpio_read_dmi(uint8_t address, uint32_t *value) {
 }
 
 bool rvswd_gpio_dmi_failure_retryable(void) {
-    return rvswd_dmi_failure_retryable;
+    return rvswd_dmi_failure_retryable();
 }
 
 static bool rvswd_gpio_identify_target(void) {
@@ -1930,7 +1929,7 @@ static bool rvswd_gpio_identify_target(void) {
 static bool rvswd_try_connect(void) {
     rvswd_connect_last_error = 0u;
     rvswd_target_reset();
-    if (rvswd_packet_mode == RVSWD_PACKET_LONG) {
+    if (rvswd_dmi_packet_mode() == RVSWD_PACKET_LONG) {
         // CH58x 的 V4A 调试模块连接前需要先清空两线接口的唤醒状态
         rvswd_phy_gpio_wakeup(true);
         rvswd_phy_gpio_wakeup(false);
@@ -1979,9 +1978,9 @@ static bool rvswd_try_connect(void) {
             rvswd_connect_last_error = config_read ? 0x11u : 0x12u;
         }
     }
-    if (rvswd_packet_mode == RVSWD_PACKET_SHORT) {
+    if (rvswd_dmi_packet_mode() == RVSWD_PACKET_SHORT) {
         // OpenOCD 可能未预先提供 CH58x family，补一次 long frame 探测
-        rvswd_packet_mode = RVSWD_PACKET_LONG;
+        rvswd_dmi_set_packet_mode(RVSWD_PACKET_LONG);
         return rvswd_try_connect();
     }
     return false;
@@ -2057,7 +2056,7 @@ bool rvswd_gpio_connect(void) {
 
         // wlink status 使用通用 RISC-V 值 1，未知 family 先按官方 LinkE 序列自动识别
         // 自动识别先发送一个探测帧和 201 个轮询帧，再回到 short frame 连接 CH32
-        rvswd_packet_mode = RVSWD_PACKET_LONG;
+        rvswd_dmi_set_packet_mode(RVSWD_PACKET_LONG);
         // V30X 的长帧把 host parity 设为 operation 的奇偶校验位，CH5xx 长帧则固定为 0
         (void)rvswd_transaction_long(0u, 0x11u, 0x19u, 0u, &target_address,
                                      &target_data, &status);
@@ -2069,14 +2068,14 @@ bool rvswd_gpio_connect(void) {
                 ++long_signature_count;
             }
         }
-        rvswd_packet_mode = RVSWD_PACKET_SHORT;
+        rvswd_dmi_set_packet_mode(RVSWD_PACKET_SHORT);
         if (rvswd_try_connect_short_autodetect()) {
             return true;
         }
         if (long_signature_count >= 8u) {
             uint8_t short_error = rvswd_connect_last_error;
 
-            rvswd_packet_mode = RVSWD_PACKET_LONG;
+            rvswd_dmi_set_packet_mode(RVSWD_PACKET_LONG);
             if (rvswd_try_connect()) {
                 return true;
             }
@@ -2098,9 +2097,9 @@ uint32_t rvswd_gpio_target_chip_id(void) {
 void rvswd_gpio_set_target_wchlink_family_hint(uint8_t family) {
     rvswd_target_set_family_hint(family);
     rvswd_target_set_family_hint_active(false);
-    rvswd_packet_mode = family == WCHLINK_TARGET_FAMILY_CH58X
-                            ? RVSWD_PACKET_LONG
-                            : RVSWD_PACKET_SHORT;
+    rvswd_dmi_set_packet_mode(family == WCHLINK_TARGET_FAMILY_CH58X
+                                   ? RVSWD_PACKET_LONG
+                                   : RVSWD_PACKET_SHORT);
 }
 
 uint8_t rvswd_gpio_target_wchlink_family(void) {

@@ -1,23 +1,14 @@
 #include "rvswd_gpio.h"
 
 #include "bsp/bsp_delay.h"
-#include "wchlink_family.h"
 #include "rvswd_frame.h"
+#include "rvswd_phy_gpio.h"
 #include "rvswd_target.h"
 #include "rvswd_types.h"
 
 #include <stddef.h>
 
 #include <ch32x035.h>
-
-#define RVSWD_CLOCK_PIN GPIO_Pin_2
-#define RVSWD_DATA_PIN  GPIO_Pin_3
-#define RVSWD_DATA_PULLUP_PIN GPIO_Pin_1
-#define RVSWD_CLOCK_CFG_SHIFT 8u
-#define RVSWD_DATA_CFG_SHIFT 12u
-#define RVSWD_DATA_PULLUP_CFG_SHIFT 4u
-#define RVSWD_CLOCK_MODE_OUTPUT_50MHZ 0x03u
-#define RVSWD_PINS      (RVSWD_DATA_PULLUP_PIN | RVSWD_CLOCK_PIN | RVSWD_DATA_PIN)
 
 #define RVSWD_DMI_CONTROL 0x10u
 #define RVSWD_DMI_CONFIG  0x7du
@@ -37,14 +28,13 @@
 #define RVSWD_STATUS_BUSY 3u
 #define RVSWD_LONG_STATUS_OK 0u
 #define RVSWD_LONG_STATUS_BUSY 3u
-#define RVSWD_WAKEUP_CLOCKS 100u
+#define RVSWD_INTERFRAME_GUARD_US 0u
 
 #define RVSWD_DMI_WRITE_RETRY_COUNT     16u
 #define RVSWD_DMI_READ_RETRY_COUNT      64u
 #define RVSWD_MEMORY_READ_RETRY_COUNT   3u
 #define RVSWD_DMI_BUSY_DELAY_US         100u
 #define RVSWD_DMI_ERROR_DELAY_US        50u
-#define RVSWD_INTERFRAME_GUARD_US       0u
 #define RVSWD_ABSTRACT_COMMAND_DELAY_US 100u
 #define RVSWD_ABSTRACT_TIMEOUT_US       10000u
 #define RVSWD_RESUME_MIN_DELAY_US       1000u
@@ -135,7 +125,6 @@ static uint32_t rvswd_memory_failure_address;
 static uint32_t rvswd_memory_failure_abstractcs;
 static uint8_t rvswd_dmi_last_status;
 static bool rvswd_dmi_failure_retryable;
-static bool rvswd_fast_timing;
 
 extern const uint8_t ch5xx_flash_erase_stub_start[];
 extern const uint8_t ch5xx_flash_erase_stub_end[];
@@ -144,211 +133,6 @@ static bool rvswd_gpio_wait_abstract_idle_timeout(uint32_t *abstractcs,
                                                   uint32_t timeout_us);
 static bool rvswd_gpio_wait_abstract_idle(uint32_t *abstractcs);
 static bool rvswd_gpio_write_raw_gpr(uint8_t regno, uint32_t value);
-
-static void rvswd_config_data_output(void) {
-    GPIOA->CFGLR = (GPIOA->CFGLR & ~(0xfu << RVSWD_DATA_CFG_SHIFT)) |
-                   (0x01u << RVSWD_DATA_CFG_SHIFT);
-}
-
-static inline __attribute__((always_inline)) void rvswd_half_period(void) {
-    if (rvswd_fast_timing) {
-        // 快时序目标由 GPIO 写入间隔形成半周期
-        __asm volatile("");
-    } else {
-        __asm volatile(
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n");
-    }
-}
-
-static inline __attribute__((always_inline)) void rvswd_clock_low(void) {
-    GPIOA->BSHR = RVSWD_CLOCK_PIN << 16u;
-}
-
-static inline __attribute__((always_inline)) void rvswd_clock_high(void) {
-    GPIOA->BSHR = RVSWD_CLOCK_PIN;
-}
-
-static inline __attribute__((always_inline)) void rvswd_data_low(void) {
-    GPIOA->BSHR = RVSWD_DATA_PIN << 16u;
-}
-
-static inline __attribute__((always_inline)) void rvswd_data_high(void) {
-    GPIOA->BSHR = RVSWD_DATA_PIN;
-}
-
-static inline __attribute__((always_inline)) void rvswd_fast_half_period(void) {
-    __asm volatile(
-        "nop\n"
-        "nop\n");
-}
-
-static inline __attribute__((always_inline)) void rvswd_drive_bit_fast(
-    uint8_t value) {
-    GPIOA->BSHR = (RVSWD_CLOCK_PIN << 16u) |
-                  (value != 0u ? RVSWD_DATA_PIN
-                               : (RVSWD_DATA_PIN << 16u));
-    rvswd_fast_half_period();
-    GPIOA->BSHR = RVSWD_CLOCK_PIN;
-    rvswd_fast_half_period();
-}
-
-static inline __attribute__((always_inline)) uint8_t rvswd_sample_bit_fast(void) {
-    uint8_t value;
-
-    GPIOA->BSHR = RVSWD_CLOCK_PIN << 16u;
-    rvswd_fast_half_period();
-    GPIOA->BSHR = RVSWD_CLOCK_PIN;
-    value = (GPIOA->INDR & RVSWD_DATA_PIN) != 0u ? 1u : 0u;
-    rvswd_fast_half_period();
-    return value;
-}
-
-static void rvswd_config_data_input(void) {
-    // turnaround 开始前将锁存置高，释放 PA3 SWDIO，PA1 通过外部电阻提供上拉
-    GPIOA->BSHR = RVSWD_DATA_PIN;
-    GPIOA->CFGLR = (GPIOA->CFGLR & ~(0xfu << RVSWD_DATA_CFG_SHIFT)) |
-                   (0x08u << RVSWD_DATA_CFG_SHIFT);
-}
-
-static void rvswd_start(void) {
-    rvswd_config_data_output();
-    rvswd_clock_high();
-    rvswd_data_high();
-    rvswd_half_period();
-    rvswd_data_low();
-    rvswd_half_period();
-}
-
-static void rvswd_stop(void) {
-    // 采样结束时 SWCLK 仍为高，先接管数据线，再结束当前位
-    rvswd_config_data_output();
-    rvswd_clock_low();
-    rvswd_data_low();
-    rvswd_half_period();
-    rvswd_clock_high();
-    rvswd_half_period();
-    rvswd_data_high();
-    rvswd_half_period();
-}
-
-static inline __attribute__((always_inline)) void rvswd_drive_bit(uint8_t value) {
-    // 先拉低时钟，再更新数据，给 V30X 保留完整的数据建立窗口
-    rvswd_clock_low();
-    if (value != 0u) {
-        rvswd_data_high();
-    } else {
-        rvswd_data_low();
-    }
-    rvswd_half_period();
-    rvswd_clock_high();
-    rvswd_half_period();
-}
-
-static inline __attribute__((always_inline)) uint8_t rvswd_sample_bit(void) {
-    uint8_t value;
-
-    rvswd_clock_low();
-    rvswd_half_period();
-    rvswd_clock_high();
-    // 上升沿后立即读取目标驱动的 SWDIO 电平
-    value = (GPIOA->INDR & RVSWD_DATA_PIN) != 0u ? 1u : 0u;
-    rvswd_half_period();
-    return value;
-}
-
-static void rvswd_drive_range(const uint8_t *frame, uint8_t first_bit, uint8_t bit_count) {
-    if (rvswd_fast_timing) {
-        const uint8_t *byte = &frame[first_bit >> 3u];
-        uint8_t mask = (uint8_t)(0x80u >> (first_bit & 7u));
-
-        // 快时序路径按字节推进，保持固定采样窗口并减少 bit 定位开销
-        for (uint8_t bit = 0u; bit < bit_count; ++bit) {
-            rvswd_drive_bit_fast((*byte & mask) != 0u ? 1u : 0u);
-            mask >>= 1u;
-            if (mask == 0u) {
-                mask = 0x80u;
-                ++byte;
-            }
-        }
-        return;
-    }
-    for (uint8_t bit = 0u; bit < bit_count; ++bit) {
-        rvswd_drive_bit(rvswd_frame_get_bit(frame, (uint8_t)(first_bit + bit)));
-    }
-}
-
-static void rvswd_sample_range(uint8_t *frame, uint8_t first_bit, uint8_t bit_count) {
-    if (rvswd_fast_timing) {
-        uint8_t *byte = &frame[first_bit >> 3u];
-        uint8_t mask = (uint8_t)(0x80u >> (first_bit & 7u));
-
-        // 快时序路径复用字节 mask 写回采样结果，保持目标建立时间
-        for (uint8_t bit = 0u; bit < bit_count; ++bit) {
-            if (rvswd_sample_bit_fast() != 0u) {
-                *byte |= mask;
-            } else {
-                *byte &= (uint8_t)~mask;
-            }
-            mask >>= 1u;
-            if (mask == 0u) {
-                mask = 0x80u;
-                ++byte;
-            }
-        }
-        return;
-    }
-    for (uint8_t bit = 0u; bit < bit_count; ++bit) {
-        rvswd_frame_set_bit(frame, (uint8_t)(first_bit + bit), rvswd_sample_bit());
-    }
-}
-
-static void rvswd_drive_value(uint32_t value, uint8_t bit_count) {
-    for (uint8_t bit = bit_count; bit > 0u; --bit) {
-        rvswd_drive_bit((uint8_t)((value >> (bit - 1u)) & 1u));
-    }
-}
-
-static uint32_t rvswd_sample_value(uint8_t bit_count) {
-    uint32_t value = 0u;
-
-    for (uint8_t bit = 0u; bit < bit_count; ++bit) {
-        value = (value << 1u) | rvswd_sample_bit();
-    }
-    return value;
-}
-
-static void rvswd_wakeup(bool stop_condition) {
-    __disable_irq();
-    rvswd_config_data_output();
-    rvswd_clock_high();
-    rvswd_data_high();
-    for (uint8_t clock = 0u; clock < RVSWD_WAKEUP_CLOCKS; ++clock) {
-        rvswd_clock_low();
-        rvswd_half_period();
-        rvswd_clock_high();
-        rvswd_half_period();
-    }
-    if (stop_condition) {
-        rvswd_stop();
-    }
-    __enable_irq();
-    bsp_delay_us(RVSWD_INTERFRAME_GUARD_US);
-}
 
 static bool rvswd_transaction_long(uint8_t operation, uint8_t address, uint32_t value,
                                     uint8_t host_parity,
@@ -359,19 +143,19 @@ static bool rvswd_transaction_long(uint8_t operation, uint8_t address, uint32_t 
     uint32_t target_status;
     uint32_t target_parity;
     __disable_irq();
-    rvswd_start();
-    rvswd_drive_value(address & 0x7fu, 7u);
-    rvswd_drive_value(value, 32u);
-    rvswd_drive_value(operation, 2u);
-    rvswd_drive_value(host_parity, 1u);
+    rvswd_phy_gpio_start();
+    rvswd_phy_gpio_drive_value(address & 0x7fu, 7u);
+    rvswd_phy_gpio_drive_value(value, 32u);
+    rvswd_phy_gpio_drive_value(operation, 2u);
+    rvswd_phy_gpio_drive_value(host_parity, 1u);
 
-    rvswd_config_data_input();
-    target_address = rvswd_sample_value(7u);
-    target_data = rvswd_sample_value(32u);
-    target_status = rvswd_sample_value(2u);
-    target_parity = rvswd_sample_value(1u);
-    rvswd_config_data_output();
-    rvswd_stop();
+    rvswd_phy_gpio_config_data_input();
+    target_address = rvswd_phy_gpio_sample_value(7u);
+    target_data = rvswd_phy_gpio_sample_value(32u);
+    target_status = rvswd_phy_gpio_sample_value(2u);
+    target_parity = rvswd_phy_gpio_sample_value(1u);
+    rvswd_phy_gpio_config_data_output();
+    rvswd_phy_gpio_stop();
     __enable_irq();
     bsp_delay_us(RVSWD_INTERFRAME_GUARD_US);
 
@@ -391,31 +175,31 @@ static bool rvswd_transaction_long(uint8_t operation, uint8_t address, uint32_t 
 
 static bool rvswd_transaction(const uint8_t *host, uint8_t *target, bool read) {
     __disable_irq();
-    rvswd_start();
+    rvswd_phy_gpio_start();
 
     // 头部校验后切换一次方向，保留目标确认窗口
-    rvswd_drive_range(host, 0u, 9u);
-    rvswd_config_data_input();
-    rvswd_sample_range(target, 9u, 3u);
-    rvswd_config_data_output();
-    rvswd_drive_range(host, 12u, 2u);
+    rvswd_phy_gpio_drive_range(host, 0u, 9u);
+    rvswd_phy_gpio_config_data_input();
+    rvswd_phy_gpio_sample_range(target, 9u, 3u);
+    rvswd_phy_gpio_config_data_output();
+    rvswd_phy_gpio_drive_range(host, 12u, 2u);
 
     if (read) {
         // 读操作由目标返回数据、校验和状态，主机发送两个收尾位
-        rvswd_config_data_input();
-        rvswd_sample_range(target, 14u, 36u);
-        rvswd_config_data_output();
-        rvswd_drive_range(host, 50u, 2u);
+        rvswd_phy_gpio_config_data_input();
+        rvswd_phy_gpio_sample_range(target, 14u, 36u);
+        rvswd_phy_gpio_config_data_output();
+        rvswd_phy_gpio_drive_range(host, 50u, 2u);
     } else {
         // 写操作由主机发送数据和校验，目标返回三位状态
-        rvswd_drive_range(host, 14u, 33u);
-        rvswd_config_data_input();
-        rvswd_sample_range(target, 47u, 3u);
-        rvswd_config_data_output();
-        rvswd_drive_range(host, 50u, 2u);
+        rvswd_phy_gpio_drive_range(host, 14u, 33u);
+        rvswd_phy_gpio_config_data_input();
+        rvswd_phy_gpio_sample_range(target, 47u, 3u);
+        rvswd_phy_gpio_config_data_output();
+        rvswd_phy_gpio_drive_range(host, 50u, 2u);
     }
 
-    rvswd_stop();
+    rvswd_phy_gpio_stop();
     __enable_irq();
 
     // 目标在 STOP 后完成 DMI 状态更新，下一帧从空闲高电平开始
@@ -425,26 +209,11 @@ static bool rvswd_transaction(const uint8_t *host, uint8_t *target, bool read) {
 }
 
 void rvswd_gpio_init(void) {
-    RCC->APB2PCENR |= RCC_APB2Periph_GPIOA;
-    // PA1 通过 5.1 kOhm 外部电阻给 PA3 SWDIO 提供上拉，首帧前保持高电平
-    GPIOA->BSHR = RVSWD_DATA_PULLUP_PIN | RVSWD_CLOCK_PIN | RVSWD_DATA_PIN;
-    GPIOA->CFGLR = (GPIOA->CFGLR & ~((0xfu << RVSWD_DATA_CFG_SHIFT) |
-                                     (0xfu << RVSWD_CLOCK_CFG_SHIFT) |
-                                     (0xfu << RVSWD_DATA_PULLUP_CFG_SHIFT))) |
-                   (0x08u << RVSWD_DATA_CFG_SHIFT) |
-                   (RVSWD_CLOCK_MODE_OUTPUT_50MHZ << RVSWD_CLOCK_CFG_SHIFT) |
-                   (0x01u << RVSWD_DATA_PULLUP_CFG_SHIFT);
+    rvswd_phy_gpio_init();
 }
 
 void rvswd_gpio_disconnect(void) {
-    GPIOA->BSHR = RVSWD_PINS;
-    // 会话结束后释放 PA1 上拉控制和两根调试线，目标断电时禁止经 IO 反向供电
-    GPIOA->CFGLR = (GPIOA->CFGLR & ~((0xfu << RVSWD_DATA_CFG_SHIFT) |
-                                     (0xfu << RVSWD_CLOCK_CFG_SHIFT) |
-                                     (0xfu << RVSWD_DATA_PULLUP_CFG_SHIFT))) |
-                   (0x04u << RVSWD_DATA_CFG_SHIFT) |
-                   (0x04u << RVSWD_CLOCK_CFG_SHIFT) |
-                   (0x04u << RVSWD_DATA_PULLUP_CFG_SHIFT);
+    rvswd_phy_gpio_disconnect();
 }
 
 static bool rvswd_gpio_restore_debug_module(void) {
@@ -2123,7 +1892,7 @@ static bool rvswd_gpio_identify_target(void) {
         direct_profile = rvswd_target_profile_from_chip_id(direct_chip_id);
         if (direct_profile != NULL && !direct_profile->ch5xx_protocol) {
             rvswd_target_set_chip_id(direct_chip_id);
-            rvswd_fast_timing = direct_profile->fast_timing;
+            rvswd_phy_gpio_set_fast_timing(direct_profile->fast_timing);
             return true;
         }
     }
@@ -2144,7 +1913,8 @@ static bool rvswd_gpio_identify_target(void) {
         memory_chip_id != 0u) {
         rvswd_target_set_chip_id(memory_chip_id);
         direct_profile = rvswd_target_profile_from_chip_id(memory_chip_id);
-        rvswd_fast_timing = direct_profile != NULL && direct_profile->fast_timing;
+        rvswd_phy_gpio_set_fast_timing(direct_profile != NULL &&
+                                       direct_profile->fast_timing);
         return true;
     }
     if (expected_profile != NULL &&
@@ -2162,8 +1932,8 @@ static bool rvswd_try_connect(void) {
     rvswd_target_reset();
     if (rvswd_packet_mode == RVSWD_PACKET_LONG) {
         // CH58x 的 V4A 调试模块连接前需要先清空两线接口的唤醒状态
-        rvswd_wakeup(true);
-        rvswd_wakeup(false);
+        rvswd_phy_gpio_wakeup(true);
+        rvswd_phy_gpio_wakeup(false);
     }
     for (uint8_t attempt = 0u; attempt < 3u; ++attempt) {
         uint32_t config = 0u;
@@ -2278,7 +2048,7 @@ static bool rvswd_try_connect_short_autodetect(void) {
 }
 
 bool rvswd_gpio_connect(void) {
-    rvswd_fast_timing = false;
+    rvswd_phy_gpio_set_fast_timing(false);
     if (rvswd_target_profile_from_family(rvswd_target_family_hint()) == NULL) {
         uint8_t status;
         uint8_t target_address;

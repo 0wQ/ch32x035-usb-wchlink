@@ -40,7 +40,6 @@ SECTIONS
         PROVIDE(_highcode_vma_start = .);
         *(.highcode);
         *(.highcode.*);
-        *(.text.DAP_ProcessCommand);
         . = ALIGN(4);
         PROVIDE(_highcode_vma_end = .);
     } > RAM AT > FLASH

@@ -5,6 +5,7 @@
 #include "rvswd_dmi.h"
 #include "rvswd_debug.h"
 #include "rvswd_memory.h"
+#include "rvswd_reset.h"
 #include "rvswd_phy_gpio.h"
 #include "rvswd_target.h"
 #include "rvswd_types.h"
@@ -183,6 +184,18 @@ uint32_t rvswd_gpio_memory_failure_address(void) {
 
 uint32_t rvswd_gpio_memory_failure_abstractcs(void) {
     return rvswd_memory_failure_abstractcs();
+}
+
+bool rvswd_gpio_reset_and_halt(void) {
+    return rvswd_reset_and_halt();
+}
+
+bool rvswd_gpio_soft_reset_and_run(void) {
+    return rvswd_soft_reset_and_run();
+}
+
+bool rvswd_gpio_reset_and_run(void) {
+    return rvswd_reset_and_run();
 }
 
 static bool rvswd_gpio_read_memory8_ch5xx(uint32_t address, uint8_t *value) {
@@ -1232,35 +1245,6 @@ bool rvswd_gpio_flash_set_read_protected(bool protected) {
 
 uint32_t rvswd_gpio_flash_last_error(void) {
     return rvswd_flash_last_error;
-}
-
-bool rvswd_gpio_reset_and_halt(void) {
-    // ndmreset 保持 Debug Module 工作，释放后重新停住目标核
-    if (!rvswd_gpio_write_dmi(RVSWD_DMI_CONTROL, 0x80000003u)) {
-        return false;
-    }
-    bsp_delay_us(1000u);
-    return rvswd_gpio_write_dmi(RVSWD_DMI_CONTROL, 0x80000001u) &&
-           rvswd_debug_wait_dmstatus(1u << 9u, true, 100u);
-}
-
-bool rvswd_gpio_soft_reset_and_run(void) {
-    // 软复位后显式发送 resumereq，确保目标从复位向量继续运行
-    if (!rvswd_gpio_write_dmi(RVSWD_DMI_CONTROL, 0x00000003u) ||
-        !rvswd_gpio_write_dmi(RVSWD_DMI_CONTROL, 0x00000001u)) {
-        return false;
-    }
-    bsp_delay_us(RVSWD_RESUME_MIN_DELAY_US);
-    return rvswd_gpio_write_dmi(RVSWD_DMI_CONTROL, 0x40000001u);
-}
-
-bool rvswd_gpio_reset_and_run(void) {
-    // 不设置 haltreq，释放 ndmreset 后让目标从复位向量继续运行
-    if (!rvswd_gpio_write_dmi(RVSWD_DMI_CONTROL, 0x00000003u)) {
-        return false;
-    }
-    bsp_delay_us(1000u);
-    return rvswd_gpio_write_dmi(RVSWD_DMI_CONTROL, 0x00000001u);
 }
 
 bool rvswd_gpio_read_dmi(uint8_t address, uint32_t *value) {

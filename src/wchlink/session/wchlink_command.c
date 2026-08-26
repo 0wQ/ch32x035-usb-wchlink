@@ -8,7 +8,6 @@
 #include "wchlink/target/wchlink_target_control.h"
 #include "wchlink/target/wchlink_target_dmi.h"
 #include "wchlink/target/wchlink_target_flash.h"
-#include "wchlink/target/wchlink_target_transfer.h"
 
 #include <stdbool.h>
 
@@ -66,50 +65,28 @@ static bool wchlink_command_target_uses_ch5xx_loader(
 static struct wchlink_session_command_result wchlink_handle_chip_info(
     struct wchlink_command_context *context, uint8_t *response,
     size_t capacity) {
-    struct rvswd_target_info target_info =
-        wchlink_target_ports_info(context->target);
-    struct wchlink_wire_chip_info info = {
-        .ch5xx = target_info.loader == RVSWD_TARGET_LOADER_CH5XX,
-        .chip_id = target_info.chip_id,
-    };
-    struct rvswd_target_result read_result;
+    struct rvswd_target_chip_info_result target_info;
+    struct wchlink_wire_chip_info wire_info;
 
     if (capacity < 20u) {
         return wchlink_command_result(WCHLINK_SESSION_COMMAND_MALFORMED, 0u);
     }
-    if (!info.ch5xx) {
-        read_result = wchlink_target_ports_read_memory32(
-            context->target, 0x1ffff7e0u);
-        if (!read_result.ok) {
-            return wchlink_command_result(
-                WCHLINK_SESSION_COMMAND_TARGET_FAILED, 0u);
-        }
-        info.flash_size = read_result.value;
-        read_result = wchlink_target_ports_read_memory32(
-            context->target, 0x1ffff7e8u);
-        if (!read_result.ok) {
-            return wchlink_command_result(
-                WCHLINK_SESSION_COMMAND_TARGET_FAILED, 0u);
-        }
-        info.uid_low = read_result.value;
-        read_result = wchlink_target_ports_read_memory32(
-            context->target, 0x1ffff7ecu);
-        if (!read_result.ok) {
-            return wchlink_command_result(
-                WCHLINK_SESSION_COMMAND_TARGET_FAILED, 0u);
-        }
-        info.uid_high = read_result.value;
-        read_result = wchlink_target_ports_read_memory32(
-            context->target, 0x1ffff7f0u);
-        if (!read_result.ok) {
-            return wchlink_command_result(
-                WCHLINK_SESSION_COMMAND_TARGET_FAILED, 0u);
-        }
-        info.uid_tail = read_result.value;
+    target_info = wchlink_target_ports_read_chip_info(context->target);
+    if (!target_info.result.ok) {
+        return wchlink_command_result(WCHLINK_SESSION_COMMAND_TARGET_FAILED,
+                                      0u);
     }
+    wire_info = (struct wchlink_wire_chip_info){
+        .ch5xx = target_info.info.ch5xx,
+        .flash_size = target_info.info.flash_size,
+        .uid_low = target_info.info.uid_low,
+        .uid_high = target_info.info.uid_high,
+        .uid_tail = target_info.info.uid_tail,
+        .chip_id = target_info.info.chip_id,
+    };
     return wchlink_command_result(
         WCHLINK_SESSION_COMMAND_COMPLETED,
-        wchlink_wire_chip_info(response, capacity, &info));
+        wchlink_wire_chip_info(response, capacity, &wire_info));
 }
 
 static struct wchlink_session_command_result wchlink_handle_dmi(

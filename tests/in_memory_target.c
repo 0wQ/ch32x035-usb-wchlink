@@ -200,6 +200,48 @@ struct rvswd_target_info wchlink_target_ports_info(
     return target->info;
 }
 
+struct rvswd_target_chip_info_result wchlink_target_ports_read_chip_info(
+    struct wchlink_target_ports *target) {
+    struct rvswd_target_chip_info_result chip_info = {
+        .info = {
+            .ch5xx = target->info.loader == RVSWD_TARGET_LOADER_CH5XX,
+            .chip_id = target->info.chip_id,
+        },
+    };
+    struct rvswd_target_result read_result;
+
+    if (chip_info.info.ch5xx) {
+        chip_info.result = rvswd_target_result_success();
+        return chip_info;
+    }
+    read_result = wchlink_target_ports_read_memory32(target, 0x1ffff7e0u);
+    if (!read_result.ok) {
+        chip_info.result = read_result;
+        return chip_info;
+    }
+    chip_info.info.flash_size = read_result.value;
+    read_result = wchlink_target_ports_read_memory32(target, 0x1ffff7e8u);
+    if (!read_result.ok) {
+        chip_info.result = read_result;
+        return chip_info;
+    }
+    chip_info.info.uid_low = read_result.value;
+    read_result = wchlink_target_ports_read_memory32(target, 0x1ffff7ecu);
+    if (!read_result.ok) {
+        chip_info.result = read_result;
+        return chip_info;
+    }
+    chip_info.info.uid_high = read_result.value;
+    read_result = wchlink_target_ports_read_memory32(target, 0x1ffff7f0u);
+    if (!read_result.ok) {
+        chip_info.result = read_result;
+        return chip_info;
+    }
+    chip_info.info.uid_tail = read_result.value;
+    chip_info.result = rvswd_target_result_success();
+    return chip_info;
+}
+
 struct rvswd_target_result wchlink_target_ports_read_dmi(
     struct wchlink_target_ports *target, uint8_t address) {
     struct rvswd_target_result result;

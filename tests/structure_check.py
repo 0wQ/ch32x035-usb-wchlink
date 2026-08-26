@@ -92,7 +92,6 @@ TARGET_PORT_HEADER_CONSUMERS = {
         "src/wchlink/target/wchlink_target_ports.c",
     },
     "wchlink/target/wchlink_target_transfer.h": {
-        "src/wchlink/session/wchlink_command.c",
         "src/wchlink/session/wchlink_transfer.c",
         "src/wchlink/target/wchlink_target_ports.c",
     },

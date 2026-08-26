@@ -132,6 +132,53 @@ struct rvswd_target_info wchlink_target_ports_info(
     return ports->info;
 }
 
+struct rvswd_target_chip_info_result wchlink_target_ports_read_chip_info(
+    struct wchlink_target_ports *ports) {
+    struct rvswd_target_chip_info_result chip_info = {0};
+    struct rvswd_target_result read_result;
+
+    if (ports == NULL) {
+        chip_info.result = wchlink_target_ports_invalid_result(
+            RVSWD_TARGET_RESULT_MEMORY);
+        return chip_info;
+    }
+    chip_info.info.ch5xx =
+        ports->info.loader == RVSWD_TARGET_LOADER_CH5XX;
+    chip_info.info.chip_id = ports->info.chip_id;
+    if (chip_info.info.ch5xx) {
+        chip_info.result = rvswd_target_result_success();
+        return chip_info;
+    }
+
+    // 非 CH5xx 目标通过 ESIG 提供 Flash 容量和 96 位 UID
+    read_result = wchlink_target_ports_read_memory32(ports, 0x1ffff7e0u);
+    if (!read_result.ok) {
+        chip_info.result = read_result;
+        return chip_info;
+    }
+    chip_info.info.flash_size = read_result.value;
+    read_result = wchlink_target_ports_read_memory32(ports, 0x1ffff7e8u);
+    if (!read_result.ok) {
+        chip_info.result = read_result;
+        return chip_info;
+    }
+    chip_info.info.uid_low = read_result.value;
+    read_result = wchlink_target_ports_read_memory32(ports, 0x1ffff7ecu);
+    if (!read_result.ok) {
+        chip_info.result = read_result;
+        return chip_info;
+    }
+    chip_info.info.uid_high = read_result.value;
+    read_result = wchlink_target_ports_read_memory32(ports, 0x1ffff7f0u);
+    if (!read_result.ok) {
+        chip_info.result = read_result;
+        return chip_info;
+    }
+    chip_info.info.uid_tail = read_result.value;
+    chip_info.result = rvswd_target_result_success();
+    return chip_info;
+}
+
 struct rvswd_target_result wchlink_target_ports_read_dmi(
     struct wchlink_target_ports *ports, uint8_t address) {
     uint32_t value = 0u;

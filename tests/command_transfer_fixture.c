@@ -83,6 +83,33 @@ static void wchlink_test_command_connect_and_dmi(void) {
         0x07u,
         0x10u,
     };
+    const uint8_t info_request[] = {0x81u, 0x11u};
+    const uint8_t info_reply[] = {
+        0xffu,
+        0xffu,
+        0x12u,
+        0x34u,
+        0x01u,
+        0x02u,
+        0x03u,
+        0x04u,
+        0x11u,
+        0x22u,
+        0x33u,
+        0x44u,
+        0xaau,
+        0xbbu,
+        0xccu,
+        0xddu,
+        0x10u,
+        0x32u,
+        0x07u,
+        0x10u,
+    };
+    const uint8_t flash_size[] = {0x34u, 0x12u, 0u, 0u};
+    const uint8_t uid_low[] = {0x04u, 0x03u, 0x02u, 0x01u};
+    const uint8_t uid_high[] = {0x44u, 0x33u, 0x22u, 0x11u};
+    const uint8_t uid_tail[] = {0xddu, 0xccu, 0xbbu, 0xaau};
     const uint8_t dmi_request[] = {
         0x81u,
         0x08u,
@@ -135,6 +162,31 @@ static void wchlink_test_command_connect_and_dmi(void) {
     assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
     wchlink_test_expect_bytes(response, result.response_length, connect_reply,
                               sizeof(connect_reply));
+
+    assert(wchlink_test_target_store(&fixture.target, 0x1ffff7e0u,
+                                     flash_size, sizeof(flash_size)));
+    assert(wchlink_test_target_store(&fixture.target, 0x1ffff7e8u, uid_low,
+                                     sizeof(uid_low)));
+    assert(wchlink_test_target_store(&fixture.target, 0x1ffff7ecu, uid_high,
+                                     sizeof(uid_high)));
+    assert(wchlink_test_target_store(&fixture.target, 0x1ffff7f0u, uid_tail,
+                                     sizeof(uid_tail)));
+    result = wchlink_command_process(&fixture.command, info_request,
+                                     sizeof(info_request), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    wchlink_test_expect_bytes(response, result.response_length, info_reply,
+                              sizeof(info_reply));
+
+    wchlink_test_target_fail_next(
+        &fixture.target, WCHLINK_TEST_TARGET_READ_MEMORY,
+        rvswd_target_result_failure(RVSWD_TARGET_RESULT_MEMORY, 0x15u,
+                                    false));
+    result = wchlink_command_process(&fixture.command, info_request,
+                                     sizeof(info_request), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_TARGET_FAILED);
+    assert(result.response_length == 0u);
 
     wchlink_test_target_set_dmi(&fixture.target, 0x11u, 0x12345678u);
     result = wchlink_command_process(

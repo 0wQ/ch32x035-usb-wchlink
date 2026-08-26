@@ -61,6 +61,14 @@ FLASH_INTERNAL_HEADER_CONSUMERS = {
     },
 }
 
+TARGET_INTERNAL_HEADER_CONSUMERS = {
+    "wchlink/target/wchlink_target_ports_internal.h": {
+        "src/wchlink/session/wchlink_session.c",
+        "src/wchlink/target/rvswd_target_connect.c",
+        "src/wchlink/target/wchlink_target_ports.c",
+    },
+}
+
 
 def source_files() -> list[Path]:
     return sorted(
@@ -135,6 +143,9 @@ def find_violations() -> list[str]:
         for header, consumers in FLASH_INTERNAL_HEADER_CONSUMERS.items():
             if header in text and relative.as_posix() not in consumers:
                 violations.append(f"调用者绕过 Flash 私有 seam: {relative}")
+        for header, consumers in TARGET_INTERNAL_HEADER_CONSUMERS.items():
+            if header in text and relative.as_posix() not in consumers:
+                violations.append(f"调用者读取 target 私有存储: {relative}")
         if relative.as_posix().startswith("src/wchlink/flash/"):
             if re.search(r'#include\s+["<]wchlink/(?:session|protocol|usb)/', text):
                 violations.append(f"Flash backend 反向依赖上层模块: {relative}")

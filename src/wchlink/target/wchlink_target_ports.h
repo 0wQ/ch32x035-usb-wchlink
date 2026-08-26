@@ -2,20 +2,13 @@
 
 #include "wchlink/target/rvswd_target_info.h"
 #include "wchlink/target/rvswd_target_result.h"
-#include "wchlink/transport/rvswd_transport.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
 // target ports 是 session 与 RVSWD target 深模块之间的唯一内部 seam
 // transport、目标身份和连接状态归该模块所有，调用者只接收本次操作结果
-struct wchlink_target_ports {
-    struct rvswd_transport transport;
-    struct rvswd_target_info info;
-    uint8_t family_hint;
-    uint8_t connect_error;
-    bool family_hint_active;
-};
+struct wchlink_target_ports;
 
 void wchlink_target_ports_init(struct wchlink_target_ports *ports);
 void wchlink_target_ports_disconnect(struct wchlink_target_ports *ports);

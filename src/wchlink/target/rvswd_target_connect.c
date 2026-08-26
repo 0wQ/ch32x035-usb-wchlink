@@ -4,7 +4,7 @@
 #include "wchlink/rvswd/rvswd_operation.h"
 #include "wchlink/rvswd/rvswd_types.h"
 #include "wchlink/target/rvswd_target_profile.h"
-#include "wchlink/target/wchlink_target_ports.h"
+#include "wchlink/target/wchlink_target_ports_internal.h"
 #include "wchlink/transport/rvswd_transport.h"
 
 #include <stddef.h>

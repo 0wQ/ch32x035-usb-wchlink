@@ -4,16 +4,7 @@
 
 #include <stddef.h>
 
-#define RVSWD_CHIP_FAMILY_MASK  0xfff00000u
-#define RVSWD_CHIP_FAMILY_X035  0x03500000u
-#define RVSWD_CHIP_FAMILY_L103  0x10300000u
-#define RVSWD_CHIP_FAMILY_V303  0x30300000u
-#define RVSWD_CHIP_FAMILY_V305  0x30500000u
-#define RVSWD_CHIP_FAMILY_V307  0x30700000u
-#define RVSWD_CHIP_FAMILY_CH591 0x91000000u
-#define RVSWD_CHIP_FAMILY_CH592 0x92000000u
-#define RVSWD_CHIP_FAMILY_CH582 0x82000000u
-#define RVSWD_CHIP_FAMILY_CH583 0x83000000u
+static const uint32_t rvswd_chip_family_mask = 0xfff00000u;
 
 static const struct rvswd_target_profile rvswd_target_profile_x035 = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_X035,
@@ -67,26 +58,37 @@ static const struct rvswd_target_profile rvswd_target_profile_ch58x = {
     .option_base = 0u,
 };
 
+struct rvswd_chip_profile_match {
+    uint32_t family;
+    const struct rvswd_target_profile *profile;
+};
+
+// ChipID 高位只负责选择 profile，目标行为继续由 profile 字段描述
+static const struct rvswd_chip_profile_match rvswd_chip_profile_matches[] = {
+    {0x03500000u, &rvswd_target_profile_x035},
+    {0x10300000u, &rvswd_target_profile_l103},
+    {0x30300000u, &rvswd_target_profile_v30x},
+    {0x30500000u, &rvswd_target_profile_v30x},
+    {0x30700000u, &rvswd_target_profile_v30x},
+    {0x91000000u, &rvswd_target_profile_ch59x},
+    {0x92000000u, &rvswd_target_profile_ch59x},
+    {0x82000000u, &rvswd_target_profile_ch58x},
+    {0x83000000u, &rvswd_target_profile_ch58x},
+};
+
 const struct rvswd_target_profile *rvswd_target_profile_from_chip_id(
     uint32_t chip_id) {
-    switch (chip_id & RVSWD_CHIP_FAMILY_MASK) {
-        case RVSWD_CHIP_FAMILY_X035:
-            return &rvswd_target_profile_x035;
-        case RVSWD_CHIP_FAMILY_L103:
-            return &rvswd_target_profile_l103;
-        case RVSWD_CHIP_FAMILY_V303:
-        case RVSWD_CHIP_FAMILY_V305:
-        case RVSWD_CHIP_FAMILY_V307:
-            return &rvswd_target_profile_v30x;
-        case RVSWD_CHIP_FAMILY_CH591:
-        case RVSWD_CHIP_FAMILY_CH592:
-            return &rvswd_target_profile_ch59x;
-        case RVSWD_CHIP_FAMILY_CH582:
-        case RVSWD_CHIP_FAMILY_CH583:
-            return &rvswd_target_profile_ch58x;
-        default:
-            return NULL;
+    uint32_t family = chip_id & rvswd_chip_family_mask;
+
+    for (size_t index = 0u;
+         index < sizeof(rvswd_chip_profile_matches) /
+                     sizeof(rvswd_chip_profile_matches[0]);
+         ++index) {
+        if (rvswd_chip_profile_matches[index].family == family) {
+            return rvswd_chip_profile_matches[index].profile;
+        }
     }
+    return NULL;
 }
 
 const struct rvswd_target_profile *rvswd_target_profile_from_family(

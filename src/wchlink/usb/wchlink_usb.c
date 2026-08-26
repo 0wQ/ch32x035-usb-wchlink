@@ -169,6 +169,8 @@ static volatile bool wchlink_data_out_active;
 static volatile bool wchlink_data_out_pending;
 static volatile uint16_t wchlink_data_out_length;
 static volatile bool wchlink_configured;
+// Bus reset callback 只置位，RVSWD 总线释放由主循环执行
+static volatile bool wchlink_session_reset_pending;
 static uint8_t wchlink_cdc_packet[WCHLINK_MPS] __attribute__((aligned(4)));
 static struct cdc_line_coding wchlink_cdc_line_coding;
 static volatile bool wchlink_cdc_out_active;
@@ -211,7 +213,6 @@ static void wchlink_in_callback(uint8_t busid, uint8_t ep, uint32_t nbytes) {
     wchlink_response_pending = false;
     wchlink_response_recovery_pending = false;
     wchlink_response_expiring = false;
-    wchlink_arm_request();
 }
 
 static void wchlink_data_in_callback(uint8_t busid, uint8_t ep, uint32_t nbytes) {
@@ -248,7 +249,6 @@ static void wchlink_cdc_in_callback(uint8_t busid, uint8_t ep, uint32_t nbytes) 
     (void)ep;
     (void)nbytes;
     wchlink_cdc_in_pending = false;
-    wchlink_cdc_arm_read();
 }
 
 static void wchlink_event_handler(uint8_t busid, uint8_t event) {
@@ -268,7 +268,7 @@ static void wchlink_event_handler(uint8_t busid, uint8_t event) {
             wchlink_cdc_out_active = false;
             wchlink_cdc_out_pending = false;
             wchlink_cdc_in_pending = false;
-            wchlink_session_reset();
+            wchlink_session_reset_pending = true;
             break;
         case USBD_EVENT_CONFIGURED:
             wchlink_configured = true;
@@ -283,8 +283,6 @@ static void wchlink_event_handler(uint8_t busid, uint8_t event) {
             wchlink_cdc_out_active = false;
             wchlink_cdc_out_pending = false;
             wchlink_cdc_in_pending = false;
-            wchlink_arm_request();
-            wchlink_cdc_arm_read();
             break;
         case USBD_EVENT_SUSPEND:
         case USBD_EVENT_RESUME:
@@ -476,10 +474,18 @@ void wchlink_usb_process(void) {
     struct wchlink_session_command_result command_result;
     size_t response_length;
 
+    if (wchlink_session_reset_pending) {
+        __disable_irq();
+        wchlink_session_reset_pending = false;
+        __enable_irq();
+        wchlink_session_reset();
+    }
     if (!wchlink_configured) {
         return;
     }
 
+    // Callback 只更新完成标志，主循环统一决定何时重挂端点
+    wchlink_arm_request();
     wchlink_service_response_timeout();
     wchlink_service_data_out();
     wchlink_service_data_in();

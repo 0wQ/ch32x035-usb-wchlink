@@ -99,6 +99,12 @@ TARGET_PORT_HEADER_CONSUMERS = {
     },
 }
 
+USB_CALLBACK_FORBIDDEN_CALLS = {
+    "wchlink_arm_request": r"\bwchlink_arm_request\s*\(",
+    "wchlink_cdc_arm_read": r"\bwchlink_cdc_arm_read\s*\(",
+    "wchlink_session_*": r"\bwchlink_session_[A-Za-z0-9_]+\s*\(",
+}
+
 
 def source_files() -> list[Path]:
     return sorted(
@@ -167,6 +173,16 @@ def find_violations() -> list[str]:
         if relative.as_posix().startswith("src/wchlink/usb/"):
             if re.search(r"\bWCHLINK_(?:FAMILY|CONTROL)_", text):
                 violations.append(f"USB adapter 仍解释 WCH-Link wire command: {relative}")
+            callback_pattern = re.compile(
+                r"static void \w+(?:_callback|_event_handler)\([^)]*\)\s*\{(.*?)^\}",
+                re.MULTILINE | re.DOTALL,
+            )
+            for callback_body in callback_pattern.findall(text):
+                for name, pattern in sorted(USB_CALLBACK_FORBIDDEN_CALLS.items()):
+                    if re.search(pattern, callback_body):
+                        violations.append(
+                            f"USB callback 越过端点状态所有权 {name}: {relative}"
+                        )
         for header, consumers in FLASH_BACKEND_HEADER_CONSUMERS.items():
             if header in text and relative.as_posix() not in consumers:
                 violations.append(f"调用者绕过 Flash facade: {relative}")

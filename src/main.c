@@ -3,11 +3,11 @@
 #include "drv/drv_power_switch.h"
 #include "drv/drv_uart_mux.h"
 #include "drv/drv_ws2816c.h"
-#include "wchlink/wchlink_usb.h"
+#include "wchlink/usb/wchlink_usb.h"
 
 #include <system_ch32x035.h>
 
-#define WS2816C_DIM_LEVEL 0x0100u
+#define WS2816C_DIM_LEVEL      0x0100u
 #define WS2816C_EFFECT_STEP_MS 100u
 
 static void ws2816c_show_startup_effect(void) {

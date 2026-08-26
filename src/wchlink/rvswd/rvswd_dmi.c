@@ -8,19 +8,18 @@
 
 #include <ch32x035.h>
 
-#define RVSWD_STATUS_OK 1u
-#define RVSWD_STATUS_BUSY 3u
-#define RVSWD_LONG_STATUS_OK 0u
-#define RVSWD_LONG_STATUS_BUSY 3u
-#define RVSWD_DMI_WRITE_RETRY_COUNT 16u
-#define RVSWD_DMI_READ_RETRY_COUNT 64u
-#define RVSWD_DMI_BUSY_DELAY_US 100u
-#define RVSWD_DMI_ERROR_DELAY_US 50u
-#define RVSWD_INTERFRAME_GUARD_US 0u
+#define RVSWD_STATUS_OK                 1u
+#define RVSWD_STATUS_BUSY               3u
+#define RVSWD_LONG_STATUS_OK            0u
+#define RVSWD_LONG_STATUS_BUSY          3u
+#define RVSWD_DMI_WRITE_RETRY_COUNT     16u
+#define RVSWD_DMI_READ_RETRY_COUNT      64u
+#define RVSWD_DMI_BUSY_DELAY_US         100u
+#define RVSWD_DMI_ERROR_DELAY_US        50u
+#define RVSWD_INTERFRAME_GUARD_US       0u
 #define RVSWD_ABSTRACT_COMMAND_DELAY_US 100u
 
-static enum rvswd_packet_mode rvswd_dmi_current_packet_mode =
-    RVSWD_PACKET_SHORT;
+static enum rvswd_packet_mode rvswd_dmi_current_packet_mode = RVSWD_PACKET_SHORT;
 static uint8_t rvswd_dmi_current_last_status;
 static bool rvswd_dmi_current_failure_retryable;
 
@@ -90,8 +89,7 @@ bool rvswd_dmi_transaction_long(uint8_t operation, uint8_t address,
     return true;
 }
 
-static bool rvswd_dmi_transaction(const uint8_t *host, uint8_t *target,
-                                  bool read) {
+static bool rvswd_dmi_transaction(const uint8_t *host, uint8_t *target, bool read) {
     __disable_irq();
     rvswd_phy_gpio_start();
     rvswd_phy_gpio_drive_range(host, 0u, 9u);
@@ -124,7 +122,7 @@ bool rvswd_dmi_write(uint8_t address, uint32_t value) {
         rvswd_dmi_set_failure_retryable(false);
         for (uint8_t retry = 0u; retry < RVSWD_DMI_WRITE_RETRY_COUNT; ++retry) {
             if (!rvswd_dmi_transaction_long(2u, address, value, 0u, NULL,
-                                             NULL, &status)) {
+                                            NULL, &status)) {
                 rvswd_dmi_set_failure_retryable(true);
                 bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
                 continue;
@@ -186,8 +184,7 @@ bool rvswd_dmi_read(uint8_t address, uint32_t *value) {
 
         rvswd_dmi_set_failure_retryable(false);
         for (uint8_t retry = 0u; retry < RVSWD_DMI_READ_RETRY_COUNT; ++retry) {
-            if (!rvswd_dmi_transaction_long(1u, address, 0u, 0u, NULL, &data,
-                                             &status)) {
+            if (!rvswd_dmi_transaction_long(1u, address, 0u, 0u, NULL, &data, &status)) {
                 rvswd_dmi_set_failure_retryable(true);
                 bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
                 continue;

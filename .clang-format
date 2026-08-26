@@ -1,0 +1,28 @@
+---
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+TabWidth: 4
+ColumnLimit: 0
+SpacesBeforeTrailingComments: 2
+
+IndentCaseLabels: true
+AllowShortLoopsOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: true
+AlignTrailingComments: true
+AlignConsecutiveBitFields: true
+AllowShortCaseLabelsOnASingleLine: true
+
+IndentPPDirectives: None
+IncludeBlocks: Regroup
+SortIncludes: CaseSensitive
+IncludeCategories:
+  - Regex: '^".*"$'
+    Priority: 1
+  - Regex: '^<(assert|complex|ctype|errno|fenv|float|inttypes|iso646|limits|locale|math|setjmp|signal|stdarg|stdbool|stddef|stdint|stdio|stdlib|string|time|uchar|wchar|wctype)\.h>$'
+    Priority: 2
+  - Regex: '^<.*>$'
+    Priority: 3
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: false

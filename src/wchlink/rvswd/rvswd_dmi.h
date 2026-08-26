@@ -1,9 +1,9 @@
 #pragma once
 
+#include "rvswd_types.h"
+
 #include <stdbool.h>
 #include <stdint.h>
-
-#include "rvswd_types.h"
 
 void rvswd_dmi_reset(void);
 void rvswd_dmi_set_packet_mode(enum rvswd_packet_mode mode);

@@ -1,9 +1,9 @@
 #pragma once
 
+#include "rvswd_types.h"
+
 #include <stdbool.h>
 #include <stdint.h>
-
-#include "rvswd_types.h"
 
 const struct rvswd_target_profile *rvswd_target_profile_from_chip_id(
     uint32_t chip_id);

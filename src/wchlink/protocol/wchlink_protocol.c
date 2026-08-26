@@ -1,13 +1,13 @@
 #include "wchlink_protocol.h"
 
-#include <string.h>
-
 #include "bsp/bsp_delay.h"
 #include "drv/drv_dp_pullup.h"
 #include "drv/drv_power_switch.h"
-#include "wchlink_wire.h"
-#include "wchlink_family.h"
 #include "rvswd_gpio.h"
+#include "wchlink_family.h"
+#include "wchlink_wire.h"
+
+#include <string.h>
 
 struct wchlink_loader_layout {
     uint32_t entry;
@@ -552,7 +552,7 @@ void wchlink_protocol_write_data(const uint8_t *data, size_t length) {
         success = wchlink_partial_write_flash_page();
         wchlink_write_mode = 0u;
         wchlink_data_reply_status = success ? WCHLINK_PARTIAL_WRITE_REPLY_OK
-                                             : WCHLINK_PARTIAL_WRITE_REPLY_FAILED;
+                                            : WCHLINK_PARTIAL_WRITE_REPLY_FAILED;
         wchlink_data_reply_pending = true;
         return;
     }
@@ -576,7 +576,8 @@ void wchlink_protocol_write_data(const uint8_t *data, size_t length) {
                 // MRS 和 wlink 以数据端点包长对齐尾包，首包长度就是本次包长
                 wchlink_flash_transfer_length =
                     ((wchlink_flash_chunk_length + (uint32_t)length - 1u) /
-                     (uint32_t)length) * (uint32_t)length;
+                     (uint32_t)length) *
+                    (uint32_t)length;
             }
         }
         transfer_length = wchlink_flash_transfer_length;
@@ -594,8 +595,7 @@ void wchlink_protocol_write_data(const uint8_t *data, size_t length) {
             if (write_length != 0u) {
                 if (wchlink_target_supports_memory_streaming()) {
                     // 支持连续写入的目标每个 4 KiB chunk 只建立一次 RVSWD 上下文
-                    memcpy(&wchlink_flash_chunk_data[
-                               wchlink_flash_transfer_received],
+                    memcpy(&wchlink_flash_chunk_data[wchlink_flash_transfer_received],
                            data, write_length);
                 } else {
                     if (!rvswd_gpio_write_memory(
@@ -788,7 +788,7 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
             return SIZE_MAX;
         }
         return wchlink_unsupported(response, response_capacity,
-                                    WCHLINK_FAMILY_DEVICE_MODE);
+                                   WCHLINK_FAMILY_DEVICE_MODE);
     }
     if (family == WCHLINK_FAMILY_PARTIAL_WRITE && request_length >= 8u) {
         uint32_t address = ((uint32_t)request[3] << 24u) |
@@ -798,7 +798,7 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
         if (!wchlink_connected || request[7] == 0u ||
             request[7] > sizeof(wchlink_partial_write_data)) {
             return wchlink_unsupported(response, response_capacity,
-                                        WCHLINK_FAMILY_PARTIAL_WRITE);
+                                       WCHLINK_FAMILY_PARTIAL_WRITE);
         }
         wchlink_partial_write_address = address;
         wchlink_partial_write_length = request[7];
@@ -935,11 +935,11 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
                     // CH5xx 的 OpenOCD 路径只执行编程，V30x Prepare 路径附带校验
                     wchlink_flash_loader_mode = request[3] == 0x0bu
                                                     ? 0x10u
-                                                    : wchlink_target_uses_ch5xx_loader()
-                                                          ? 0x08u
-                                                          : (wchlink_flash_prepare_seen
-                                                                 ? 0x18u
-                                                                 : 0x08u);
+                                                : wchlink_target_uses_ch5xx_loader()
+                                                    ? 0x08u
+                                                    : (wchlink_flash_prepare_seen
+                                                           ? 0x18u
+                                                           : 0x08u);
                     // WCH OpenOCD 在 0x07 回复后直接发送固定 4096 字节数据
                     wchlink_write_mode = 2u;
                     wchlink_flash_openocd_mode = true;
@@ -974,8 +974,8 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
                 wchlink_flash_checksum = 0u;
                 wchlink_flash_openocd_mode = false;
                 // LinkE 用命令位组合选择 loader 的编程、校验和组合模式
-                wchlink_flash_loader_mode = request[3] == 0x02u ? 0x08u :
-                                            request[3] == 0x03u ? 0x10u : 0x18u;
+                wchlink_flash_loader_mode = request[3] == 0x02u ? 0x08u : request[3] == 0x03u ? 0x10u
+                                                                                              : 0x18u;
                 return wchlink_command_reply(response, response_capacity, family,
                                              request[3]);
             case 0x08u:

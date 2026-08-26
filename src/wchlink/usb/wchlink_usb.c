@@ -9,20 +9,19 @@
 #include <string.h>
 
 #include <ch32x035.h>
+#include <usb_ch32x035_dc_usbfs.h>
 #include <usbd_cdc_acm.h>
 #include <usbd_core.h>
 
-#include <usb_ch32x035_dc_usbfs.h>
-
-#define WCHLINK_MPS 64u
-#define WCHLINK_SERIAL_LEN 13u
-#define WCHLINK_CONFIG_DESC_SIZE 120u
-#define WCHLINK_VID 0x1a86u
-#define WCHLINK_PID 0x8010u
-#define WCHLINK_CONTROL_FAMILY 0x0du
-#define WCHLINK_CONTROL_STOP 0xffu
+#define WCHLINK_MPS                       64u
+#define WCHLINK_SERIAL_LEN                13u
+#define WCHLINK_CONFIG_DESC_SIZE          120u
+#define WCHLINK_VID                       0x1a86u
+#define WCHLINK_PID                       0x8010u
+#define WCHLINK_CONTROL_FAMILY            0x0du
+#define WCHLINK_CONTROL_STOP              0xffu
 #define WCHLINK_STOP_RESPONSE_LIFETIME_US 500000u
-#define WCHLINK_RESPONSE_LIFETIME_US 100000u
+#define WCHLINK_RESPONSE_LIFETIME_US      100000u
 
 static const uint8_t wchlink_device_descriptor[] = {
     USB_DEVICE_DESCRIPTOR_INIT(USB_1_1, 0xef, 0x02, 0x01,
@@ -33,24 +32,69 @@ static const uint8_t wchlink_config_descriptor[] = {
     USB_CONFIG_DESCRIPTOR_INIT(WCHLINK_CONFIG_DESC_SIZE, 3u, 0x01u,
                                USB_CONFIG_BUS_POWERED, 100u),
     // 接口 0 保持 WCH-Link RVSWD 主通道，接口 1 和 2 提供官方 CDC 结构
-    0x08u, USB_DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION, 0u, 1u, 0xffu, 0u, 0u, 2u,
+    0x08u,
+    USB_DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,
+    0u,
+    1u,
+    0xffu,
+    0u,
+    0u,
+    2u,
     USB_INTERFACE_DESCRIPTOR_INIT(0u, 0u, 4u, 0xffu, 0x80u, 0x55u, 0u),
     USB_ENDPOINT_DESCRIPTOR_INIT(0x82u, USB_ENDPOINT_TYPE_BULK, WCHLINK_MPS, 0u),
     USB_ENDPOINT_DESCRIPTOR_INIT(0x02u, USB_ENDPOINT_TYPE_BULK, WCHLINK_MPS, 0u),
     USB_ENDPOINT_DESCRIPTOR_INIT(0x81u, USB_ENDPOINT_TYPE_BULK, WCHLINK_MPS, 0u),
     USB_ENDPOINT_DESCRIPTOR_INIT(0x01u, USB_ENDPOINT_TYPE_BULK, WCHLINK_MPS, 0u),
-    0x08u, USB_DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION, 1u, 2u,
-    USB_DEVICE_CLASS_CDC, CDC_ABSTRACT_CONTROL_MODEL, CDC_COMMON_PROTOCOL_AT_COMMANDS, 4u,
-    0x09u, USB_DESCRIPTOR_TYPE_INTERFACE, 1u, 0u, 1u,
-    USB_DEVICE_CLASS_CDC, CDC_ABSTRACT_CONTROL_MODEL, CDC_COMMON_PROTOCOL_AT_COMMANDS, 0u,
-    0x05u, CDC_CS_INTERFACE, CDC_FUNC_DESC_HEADER, WBVAL(CDC_V1_10),
-    0x05u, CDC_CS_INTERFACE, CDC_FUNC_DESC_CALL_MANAGEMENT, 0u, 1u,
-    0x04u, CDC_CS_INTERFACE, CDC_FUNC_DESC_ABSTRACT_CONTROL_MANAGEMENT, 0x02u,
-    0x05u, CDC_CS_INTERFACE, CDC_FUNC_DESC_UNION, 1u, 2u,
-    0x07u, USB_DESCRIPTOR_TYPE_ENDPOINT, 0x84u, USB_ENDPOINT_TYPE_INTERRUPT,
-    WBVAL(WCHLINK_MPS), 1u,
-    0x09u, USB_DESCRIPTOR_TYPE_INTERFACE, 2u, 0u, 2u,
-    CDC_DATA_INTERFACE_CLASS, 0u, 0u, 0u,
+    0x08u,
+    USB_DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,
+    1u,
+    2u,
+    USB_DEVICE_CLASS_CDC,
+    CDC_ABSTRACT_CONTROL_MODEL,
+    CDC_COMMON_PROTOCOL_AT_COMMANDS,
+    4u,
+    0x09u,
+    USB_DESCRIPTOR_TYPE_INTERFACE,
+    1u,
+    0u,
+    1u,
+    USB_DEVICE_CLASS_CDC,
+    CDC_ABSTRACT_CONTROL_MODEL,
+    CDC_COMMON_PROTOCOL_AT_COMMANDS,
+    0u,
+    0x05u,
+    CDC_CS_INTERFACE,
+    CDC_FUNC_DESC_HEADER,
+    WBVAL(CDC_V1_10),
+    0x05u,
+    CDC_CS_INTERFACE,
+    CDC_FUNC_DESC_CALL_MANAGEMENT,
+    0u,
+    1u,
+    0x04u,
+    CDC_CS_INTERFACE,
+    CDC_FUNC_DESC_ABSTRACT_CONTROL_MANAGEMENT,
+    0x02u,
+    0x05u,
+    CDC_CS_INTERFACE,
+    CDC_FUNC_DESC_UNION,
+    1u,
+    2u,
+    0x07u,
+    USB_DESCRIPTOR_TYPE_ENDPOINT,
+    0x84u,
+    USB_ENDPOINT_TYPE_INTERRUPT,
+    WBVAL(WCHLINK_MPS),
+    1u,
+    0x09u,
+    USB_DESCRIPTOR_TYPE_INTERFACE,
+    2u,
+    0u,
+    2u,
+    CDC_DATA_INTERFACE_CLASS,
+    0u,
+    0u,
+    0u,
     USB_ENDPOINT_DESCRIPTOR_INIT(0x83u, USB_ENDPOINT_TYPE_BULK, WCHLINK_MPS, 0u),
     USB_ENDPOINT_DESCRIPTOR_INIT(0x03u, USB_ENDPOINT_TYPE_BULK, WCHLINK_MPS, 0u),
 };
@@ -476,7 +520,7 @@ void wchlink_usb_process(void) {
     wchlink_response_deadline_us =
         bsp_time_us() +
         (request_length >= 4u && request[1] == WCHLINK_CONTROL_FAMILY &&
-         request[3] == WCHLINK_CONTROL_STOP
+                 request[3] == WCHLINK_CONTROL_STOP
              ? WCHLINK_STOP_RESPONSE_LIFETIME_US
              : WCHLINK_RESPONSE_LIFETIME_US);
     if (usbd_ep_start_write(0u, 0x81u, wchlink_response, (uint32_t)response_length) != 0) {

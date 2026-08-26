@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# Preserve imported specifications as byte-identical binary references.
+docs/references/official/*.pdf -text

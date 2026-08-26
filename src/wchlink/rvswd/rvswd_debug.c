@@ -6,13 +6,13 @@
 
 #include <stddef.h>
 
-#define RVSWD_DMI_CONTROL 0x10u
-#define RVSWD_DMI_ABSTRACTCS 0x16u
-#define RVSWD_DMI_COMMAND 0x17u
-#define RVSWD_DMI_DATA0 0x04u
+#define RVSWD_DMI_CONTROL         0x10u
+#define RVSWD_DMI_ABSTRACTCS      0x16u
+#define RVSWD_DMI_COMMAND         0x17u
+#define RVSWD_DMI_DATA0           0x04u
 #define RVSWD_ABSTRACT_TIMEOUT_US 10000u
 #define RVSWD_RESUME_MIN_DELAY_US 1000u
-#define RVSWD_EXECUTE_TIMEOUT_MS 5000u
+#define RVSWD_EXECUTE_TIMEOUT_MS  5000u
 
 bool rvswd_debug_wait_abstract_idle_timeout(uint32_t *abstractcs,
                                             uint32_t timeout_us) {

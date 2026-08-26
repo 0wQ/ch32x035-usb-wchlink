@@ -7,20 +7,20 @@
 
 #include <stddef.h>
 
-#define RVSWD_DMI_DATA0 0x04u
-#define RVSWD_DMI_DATA1 0x05u
-#define RVSWD_DMI_HARTINFO 0x12u
-#define RVSWD_DMI_ABSTRACTCS 0x16u
-#define RVSWD_DMI_COMMAND 0x17u
+#define RVSWD_DMI_DATA0        0x04u
+#define RVSWD_DMI_DATA1        0x05u
+#define RVSWD_DMI_HARTINFO     0x12u
+#define RVSWD_DMI_ABSTRACTCS   0x16u
+#define RVSWD_DMI_COMMAND      0x17u
 #define RVSWD_DMI_ABSTRACTAUTO 0x18u
-#define RVSWD_DMI_PROGBUF0 0x20u
-#define RVSWD_DMI_PROGBUF1 0x21u
-#define RVSWD_DMI_PROGBUF2 0x22u
+#define RVSWD_DMI_PROGBUF0     0x20u
+#define RVSWD_DMI_PROGBUF1     0x21u
+#define RVSWD_DMI_PROGBUF2     0x22u
 
-#define RVSWD_MEMORY_READ_RETRY_COUNT 3u
-#define RVSWD_DEBUG_DATA_ADDRESS_BASE 0xe0000000u
+#define RVSWD_MEMORY_READ_RETRY_COUNT  3u
+#define RVSWD_DEBUG_DATA_ADDRESS_BASE  0xe0000000u
 #define RVSWD_ABSTRACT_COMMAND_EXECUTE 0x00240000u
-#define RVSWD_ABSTRACTAUTO_DATA0 0x00000001u
+#define RVSWD_ABSTRACTAUTO_DATA0       0x00000001u
 
 static uint8_t rvswd_memory_last_error_value;
 static uint8_t rvswd_memory_failure_dmi_status_value;
@@ -156,8 +156,8 @@ bool rvswd_memory_write32(uint32_t address, uint32_t value) {
 }
 
 static bool rvswd_memory_write_streaming(uint32_t address,
-                                              const uint8_t *data,
-                                              uint32_t length) {
+                                         const uint8_t *data,
+                                         uint32_t length) {
     uint32_t hartinfo;
     uint32_t data0_address;
     uint32_t abstractcs;
@@ -189,11 +189,11 @@ static bool rvswd_memory_write_streaming(uint32_t address,
                 ((uint32_t)data[2u] << 16u) |
                 ((uint32_t)data[3u] << 24u)) ||
         !rvswd_dmi_write(RVSWD_DMI_COMMAND,
-                               RVSWD_ABSTRACT_COMMAND_EXECUTE) ||
+                         RVSWD_ABSTRACT_COMMAND_EXECUTE) ||
         !rvswd_debug_wait_abstract_idle(&abstractcs) ||
         ((abstractcs >> 8u) & 0x07u) != 0u ||
         !rvswd_dmi_write(RVSWD_DMI_ABSTRACTAUTO,
-                               RVSWD_ABSTRACTAUTO_DATA0)) {
+                         RVSWD_ABSTRACTAUTO_DATA0)) {
         return false;
     }
 
@@ -225,7 +225,7 @@ static bool rvswd_memory_write_streaming(uint32_t address,
 }
 
 static bool rvswd_memory_write_slow(uint32_t address, const uint8_t *data,
-                                         uint32_t length) {
+                                    uint32_t length) {
     uint32_t abstractcs;
 
     // 先配置一次程序缓冲区，后续每个字只更新地址和数据寄存器

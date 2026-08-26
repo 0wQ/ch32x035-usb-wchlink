@@ -4,7 +4,7 @@
 #include "rvswd_debug.h"
 #include "rvswd_dmi.h"
 
-#define RVSWD_DMI_CONTROL 0x10u
+#define RVSWD_DMI_CONTROL         0x10u
 #define RVSWD_RESUME_MIN_DELAY_US 1000u
 
 bool rvswd_reset_and_halt(void) {

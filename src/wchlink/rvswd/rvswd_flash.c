@@ -12,24 +12,24 @@
 
 #include <ch32x035.h>
 
-#define RVSWD_DMI_CONTROL 0x10u
-#define RVSWD_DMI_CONFIG  0x7du
-#define RVSWD_DMI_SHADOW  0x7eu
-#define RVSWD_DMI_CHIP_ID 0x7fu
-#define RVSWD_DMI_HARTINFO 0x12u
-#define RVSWD_DMI_DATA0   0x04u
-#define RVSWD_DMI_DATA1   0x05u
-#define RVSWD_DMI_ABSTRACTCS 0x16u
-#define RVSWD_DMI_COMMAND 0x17u
+#define RVSWD_DMI_CONTROL      0x10u
+#define RVSWD_DMI_CONFIG       0x7du
+#define RVSWD_DMI_SHADOW       0x7eu
+#define RVSWD_DMI_CHIP_ID      0x7fu
+#define RVSWD_DMI_HARTINFO     0x12u
+#define RVSWD_DMI_DATA0        0x04u
+#define RVSWD_DMI_DATA1        0x05u
+#define RVSWD_DMI_ABSTRACTCS   0x16u
+#define RVSWD_DMI_COMMAND      0x17u
 #define RVSWD_DMI_ABSTRACTAUTO 0x18u
-#define RVSWD_DMI_PROGBUF0 0x20u
-#define RVSWD_DMI_PROGBUF1 0x21u
-#define RVSWD_DMI_PROGBUF2 0x22u
+#define RVSWD_DMI_PROGBUF0     0x20u
+#define RVSWD_DMI_PROGBUF1     0x21u
+#define RVSWD_DMI_PROGBUF2     0x22u
 
-#define RVSWD_STATUS_OK   1u
-#define RVSWD_STATUS_BUSY 3u
-#define RVSWD_LONG_STATUS_OK 0u
-#define RVSWD_LONG_STATUS_BUSY 3u
+#define RVSWD_STATUS_OK           1u
+#define RVSWD_STATUS_BUSY         3u
+#define RVSWD_LONG_STATUS_OK      0u
+#define RVSWD_LONG_STATUS_BUSY    3u
 #define RVSWD_INTERFRAME_GUARD_US 0u
 
 #define RVSWD_DMI_WRITE_RETRY_COUNT     16u
@@ -56,35 +56,35 @@
 #define RVSWD_CH5XX_FLASH_WORD_DATA_ADDRESS 0x40001800u
 #define RVSWD_CH5XX_FLASH_BYTE_DATA_ADDRESS 0x40001804u
 #define RVSWD_CH5XX_FLASH_CONTROL_ADDRESS   0x40001806u
-#define RVSWD_CH5XX_DEBUG_DATA_ADDRESS     0xe0000380u
-#define RVSWD_CH5XX_FLASH_END             0x00078000u
+#define RVSWD_CH5XX_DEBUG_DATA_ADDRESS      0xe0000380u
+#define RVSWD_CH5XX_FLASH_END               0x00078000u
 #define RVSWD_CH5XX_FLASH_PAGE_SIZE         0x00000100u
-#define RVSWD_CH5XX_FLASH_BLOCK_4K         0x00001000u
-#define RVSWD_CH5XX_FLASH_STATUS_RETRIES   102u
+#define RVSWD_CH5XX_FLASH_BLOCK_4K          0x00001000u
+#define RVSWD_CH5XX_FLASH_STATUS_RETRIES    102u
 #define RVSWD_CH5XX_PAGE_PROGRAM_TIMEOUT_US 100000u
-#define RVSWD_CH5XX_ERASE_STUB_ADDRESS     0x20004000u
-#define RVSWD_CH5XX_ERASE_STUB_STACK_TOP   0x20007000u
-#define RVSWD_CH5XX_ERASE_STUB_MAX_SIZE    512u
+#define RVSWD_CH5XX_ERASE_STUB_ADDRESS      0x20004000u
+#define RVSWD_CH5XX_ERASE_STUB_STACK_TOP    0x20007000u
+#define RVSWD_CH5XX_ERASE_STUB_MAX_SIZE     512u
 
-#define RVSWD_FLASH_ERROR_CH5XX_COMMAND_BEGIN       0xc2u
-#define RVSWD_FLASH_ERROR_CH5XX_COMMAND_ADDRESS     0xc3u
-#define RVSWD_FLASH_ERROR_CH5XX_COMMAND_FINISH      0xc4u
-#define RVSWD_FLASH_ERROR_CH5XX_STATUS_BEGIN        0xc5u
-#define RVSWD_FLASH_ERROR_CH5XX_STATUS_READ_FIRST   0xc6u
-#define RVSWD_FLASH_ERROR_CH5XX_STATUS_READ_SECOND  0xc7u
-#define RVSWD_FLASH_ERROR_CH5XX_STATUS_FINISH       0xc8u
-#define RVSWD_FLASH_ERROR_CH5XX_STATUS_TIMEOUT      0xc9u
-#define RVSWD_FLASH_ERROR_CH5XX_PAGE_UNALIGNED      0xcau
+#define RVSWD_FLASH_ERROR_CH5XX_COMMAND_BEGIN          0xc2u
+#define RVSWD_FLASH_ERROR_CH5XX_COMMAND_ADDRESS        0xc3u
+#define RVSWD_FLASH_ERROR_CH5XX_COMMAND_FINISH         0xc4u
+#define RVSWD_FLASH_ERROR_CH5XX_STATUS_BEGIN           0xc5u
+#define RVSWD_FLASH_ERROR_CH5XX_STATUS_READ_FIRST      0xc6u
+#define RVSWD_FLASH_ERROR_CH5XX_STATUS_READ_SECOND     0xc7u
+#define RVSWD_FLASH_ERROR_CH5XX_STATUS_FINISH          0xc8u
+#define RVSWD_FLASH_ERROR_CH5XX_STATUS_TIMEOUT         0xc9u
+#define RVSWD_FLASH_ERROR_CH5XX_PAGE_UNALIGNED         0xcau
 #define RVSWD_FLASH_ERROR_CH5XX_PAGE_ERASE_CODE_MODE   0xcbu
 #define RVSWD_FLASH_ERROR_CH5XX_PAGE_ERASE_OPEN        0xccu
 #define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_CODE_MODE 0xcdu
 #define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_OPEN      0xceu
 #define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_BEGIN     0xd0u
-#define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_SETUP    0xd1u
-#define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_DATA     0xd2u
-#define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_EXECUTE  0xd3u
-#define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_WAIT     0xd4u
-#define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_STATUS   0xd5u
+#define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_SETUP     0xd1u
+#define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_DATA      0xd2u
+#define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_EXECUTE   0xd3u
+#define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_WAIT      0xd4u
+#define RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_STATUS    0xd5u
 
 #define RVSWD_FLASH_KEYR_ADDRESS     0x40022004u
 #define RVSWD_FLASH_OBKEYR_ADDRESS   0x40022008u
@@ -168,7 +168,7 @@ static bool rvswd_flash_ch5xx_prepare_byte_access(
 }
 
 static bool rvswd_flash_ch5xx_erase_write8(struct rvswd_ch5xx_byte_access *access,
-                                          uint32_t address, uint8_t value) {
+                                           uint32_t address, uint8_t value) {
     uint32_t abstractcs;
 
     if (!rvswd_flash_ch5xx_prepare_byte_access(access, RVSWD_CH5XX_BYTE_ACCESS_WRITE) ||
@@ -183,7 +183,7 @@ static bool rvswd_flash_ch5xx_erase_write8(struct rvswd_ch5xx_byte_access *acces
 }
 
 static bool rvswd_flash_ch5xx_erase_read8(struct rvswd_ch5xx_byte_access *access,
-                                         uint32_t address, uint8_t *value) {
+                                          uint32_t address, uint8_t *value) {
     uint32_t abstractcs;
     uint32_t data;
 
@@ -202,7 +202,7 @@ static bool rvswd_flash_ch5xx_erase_read8(struct rvswd_ch5xx_byte_access *access
 }
 
 static bool rvswd_memory_write16(uint32_t address, uint16_t value,
-                                      uint32_t timeout_us) {
+                                 uint32_t timeout_us) {
     uint32_t abstractcs;
 
     // 使用 x8 保存数据，x9 保存目标地址，Program Buffer 执行 sh
@@ -271,7 +271,7 @@ static bool rvswd_gpio_flash_unlock_main_and_fast(uint32_t control) {
 }
 
 static bool rvswd_flash_ch5xx_flash_issue(struct rvswd_ch5xx_byte_access *access,
-                                         uint8_t command) {
+                                          uint8_t command) {
     return rvswd_flash_ch5xx_erase_write8(access, RVSWD_CH5XX_FLASH_CONTROL_ADDRESS, 0u) &&
            rvswd_flash_ch5xx_erase_write8(access, RVSWD_CH5XX_FLASH_CONTROL_ADDRESS, 5u) &&
            rvswd_flash_ch5xx_erase_write8(access, RVSWD_CH5XX_FLASH_BYTE_DATA_ADDRESS,
@@ -300,21 +300,21 @@ static bool rvswd_flash_ch5xx_flash_end(struct rvswd_ch5xx_byte_access *access) 
 }
 
 static bool rvswd_flash_ch5xx_flash_out(struct rvswd_ch5xx_byte_access *access,
-                                       uint8_t value) {
+                                        uint8_t value) {
     return rvswd_flash_ch5xx_flash_wait_control_ready(access) &&
            rvswd_flash_ch5xx_erase_write8(access, RVSWD_CH5XX_FLASH_BYTE_DATA_ADDRESS,
                                           value);
 }
 
 static bool rvswd_flash_ch5xx_flash_in(struct rvswd_ch5xx_byte_access *access,
-                                      uint8_t *value) {
+                                       uint8_t *value) {
     return rvswd_flash_ch5xx_flash_wait_control_ready(access) &&
            rvswd_flash_ch5xx_erase_read8(access, RVSWD_CH5XX_FLASH_BYTE_DATA_ADDRESS,
                                          value);
 }
 
 static bool rvswd_flash_ch5xx_flash_begin(struct rvswd_ch5xx_byte_access *access,
-                                         uint8_t command) {
+                                          uint8_t command) {
     // CH5xx 每次切换命令前先完成命令 6，命令口状态不能跨命令复用
     return rvswd_flash_ch5xx_flash_issue(access, 6u) &&
            rvswd_flash_ch5xx_flash_end(access) &&
@@ -353,7 +353,7 @@ static bool rvswd_flash_ch5xx_flash_enable_code_mode(void) {
 }
 
 static bool rvswd_flash_ch5xx_flash_write_address(struct rvswd_ch5xx_byte_access *access,
-                                                 uint32_t address) {
+                                                  uint32_t address) {
     return rvswd_flash_ch5xx_flash_out(access, (uint8_t)(address >> 16u)) &&
            rvswd_flash_ch5xx_flash_out(access, (uint8_t)(address >> 8u)) &&
            rvswd_flash_ch5xx_flash_out(access, (uint8_t)address);
@@ -521,8 +521,8 @@ static bool rvswd_flash_ch5xx_flash_erase_all(void) {
         return false;
     }
     if (!rvswd_memory_write(RVSWD_CH5XX_ERASE_STUB_ADDRESS,
-                                 ch5xx_flash_erase_stub_start,
-                                 (uint32_t)stub_length)) {
+                            ch5xx_flash_erase_stub_start,
+                            (uint32_t)stub_length)) {
         rvswd_flash_last_error = 0xc2u;
         return false;
     }
@@ -531,8 +531,8 @@ static bool rvswd_flash_ch5xx_flash_erase_all(void) {
         return false;
     }
     if (!rvswd_debug_execute(RVSWD_CH5XX_ERASE_STUB_ADDRESS,
-                            RVSWD_CH5XX_ERASE_STUB_STACK_TOP, 0u, 0u,
-                            RVSWD_CH5XX_FLASH_END, 0u, &result)) {
+                             RVSWD_CH5XX_ERASE_STUB_STACK_TOP, 0u, 0u,
+                             RVSWD_CH5XX_FLASH_END, 0u, &result)) {
         rvswd_flash_last_error = 0xc4u;
         return false;
     }
@@ -610,7 +610,7 @@ bool rvswd_gpio_flash_erase_all(void) {
         goto cleanup;
     }
     if (!rvswd_memory_write32(RVSWD_FLASH_CTLR_ADDRESS,
-                                   idle_control | RVSWD_FLASH_CTLR_MER)) {
+                              idle_control | RVSWD_FLASH_CTLR_MER)) {
         rvswd_flash_last_error = 0x19u;
         goto cleanup;
     }
@@ -694,23 +694,23 @@ static bool rvswd_gpio_flash_unlock_option_bytes(bool unlock_fast_mode) {
     }
     if (unlock_fast_mode) {
         if (!rvswd_memory_write32(RVSWD_FLASH_MODEKEYR_ADDRESS,
-                                       RVSWD_FLASH_KEY1)) {
+                                  RVSWD_FLASH_KEY1)) {
             rvswd_flash_last_error = 0xa3u;
             return false;
         }
         if (!rvswd_memory_write32(RVSWD_FLASH_MODEKEYR_ADDRESS,
-                                       RVSWD_FLASH_KEY2)) {
+                                  RVSWD_FLASH_KEY2)) {
             rvswd_flash_last_error = 0xa4u;
             return false;
         }
     }
     if (!rvswd_memory_write32(RVSWD_FLASH_OBKEYR_ADDRESS,
-                                   RVSWD_FLASH_KEY1)) {
+                              RVSWD_FLASH_KEY1)) {
         rvswd_flash_last_error = 0xa5u;
         return false;
     }
     if (!rvswd_memory_write32(RVSWD_FLASH_OBKEYR_ADDRESS,
-                                   RVSWD_FLASH_KEY2)) {
+                              RVSWD_FLASH_KEY2)) {
         rvswd_flash_last_error = 0xa6u;
         return false;
     }
@@ -754,7 +754,7 @@ static bool rvswd_gpio_flash_write_option_bytes_fast_buffer(
 
     // Option Bytes 擦除和重写必须保持完整的 16 字节镜像
     if (!rvswd_memory_write32(RVSWD_FLASH_CTLR_ADDRESS,
-                                   idle_control | RVSWD_FLASH_CTLR_OPTER) ||
+                              idle_control | RVSWD_FLASH_CTLR_OPTER) ||
         !rvswd_memory_write32(
             RVSWD_FLASH_CTLR_ADDRESS,
             idle_control | RVSWD_FLASH_CTLR_OPTER | RVSWD_FLASH_CTLR_STRT) ||
@@ -788,7 +788,7 @@ static bool rvswd_gpio_flash_write_option_bytes_fast_buffer(
                                RVSWD_FLASH_CTLR_BUFFER_RESET);
 
     if (!rvswd_memory_write32(RVSWD_FLASH_CTLR_ADDRESS,
-                                   idle_control | RVSWD_FLASH_CTLR_FAST_PROGRAM) ||
+                              idle_control | RVSWD_FLASH_CTLR_FAST_PROGRAM) ||
         !rvswd_memory_write32(
             RVSWD_FLASH_CTLR_ADDRESS,
             idle_control | RVSWD_FLASH_CTLR_FAST_PROGRAM |
@@ -803,9 +803,9 @@ static bool rvswd_gpio_flash_write_option_bytes_fast_buffer(
 
     for (uint32_t index = 0u; index < RVSWD_OPTION_BYTES_WORD_COUNT; ++index) {
         if (!rvswd_memory_write32(RVSWD_FLASH_CTLR_ADDRESS,
-                                       idle_control | RVSWD_FLASH_CTLR_FAST_PROGRAM) ||
+                                  idle_control | RVSWD_FLASH_CTLR_FAST_PROGRAM) ||
             !rvswd_memory_write32(profile->option_base + index * 4u,
-                                       option_words[index]) ||
+                                  option_words[index]) ||
             !rvswd_memory_write32(
                 RVSWD_FLASH_CTLR_ADDRESS,
                 idle_control | RVSWD_FLASH_CTLR_FAST_PROGRAM |
@@ -820,7 +820,7 @@ static bool rvswd_gpio_flash_write_option_bytes_fast_buffer(
     }
 
     if (!rvswd_memory_write32(RVSWD_FLASH_CTLR_ADDRESS,
-                                   idle_control | RVSWD_FLASH_CTLR_FAST_PROGRAM) ||
+                              idle_control | RVSWD_FLASH_CTLR_FAST_PROGRAM) ||
         !rvswd_memory_write32(RVSWD_FLASH_ADDR_ADDRESS, profile->option_base) ||
         !rvswd_memory_write32(
             RVSWD_FLASH_CTLR_ADDRESS,
@@ -882,7 +882,7 @@ static bool rvswd_gpio_flash_write_option_bytes_halfword(
 
     // Option Bytes 擦除和重写必须保持完整的 16 字节镜像
     if (!rvswd_memory_write32(RVSWD_FLASH_CTLR_ADDRESS,
-                                   idle_control | RVSWD_FLASH_CTLR_OPTER) ||
+                              idle_control | RVSWD_FLASH_CTLR_OPTER) ||
         !rvswd_memory_write32(
             RVSWD_FLASH_CTLR_ADDRESS,
             idle_control | RVSWD_FLASH_CTLR_OPTER | RVSWD_FLASH_CTLR_STRT) ||
@@ -921,7 +921,7 @@ static bool rvswd_gpio_flash_write_option_bytes_halfword(
                 RVSWD_FLASH_CTLR_ADDRESS,
                 idle_control | RVSWD_FLASH_CTLR_OPTION_PROGRAM) ||
             !rvswd_memory_write16(profile->option_base + index * 2u, value,
-                                       RVSWD_ABSTRACT_TIMEOUT_US) ||
+                                  RVSWD_ABSTRACT_TIMEOUT_US) ||
             !rvswd_gpio_flash_wait_ready(&status, 0x5cu, 0x5du)) {
             if (rvswd_flash_last_error == 0u) {
                 rvswd_flash_last_error = 0x5eu;
@@ -978,7 +978,7 @@ static bool rvswd_gpio_flash_unprotect_option_bytes(
     idle_control = control & ~(RVSWD_FLASH_CTLR_OPTION_PROGRAM |
                                RVSWD_FLASH_CTLR_OPTER | RVSWD_FLASH_CTLR_STRT);
     if (!rvswd_memory_write32(RVSWD_FLASH_CTLR_ADDRESS,
-                                   idle_control | RVSWD_FLASH_CTLR_OPTER) ||
+                              idle_control | RVSWD_FLASH_CTLR_OPTER) ||
         !rvswd_memory_write32(
             RVSWD_FLASH_CTLR_ADDRESS,
             idle_control | RVSWD_FLASH_CTLR_OPTER | RVSWD_FLASH_CTLR_STRT) ||
@@ -1015,8 +1015,8 @@ static bool rvswd_gpio_flash_unprotect_option_bytes(
         goto cleanup;
     }
     if (!rvswd_memory_write16(profile->option_base,
-                                   RVSWD_OPTION_RDP_UNPROTECTED,
-                                   RVSWD_FLASH_ERASE_TIMEOUT_US)) {
+                              RVSWD_OPTION_RDP_UNPROTECTED,
+                              RVSWD_FLASH_ERASE_TIMEOUT_US)) {
         if (rvswd_flash_last_error == 0u) {
             rvswd_flash_last_error = 0x72u;
         }
@@ -1070,7 +1070,7 @@ bool rvswd_gpio_flash_set_read_protected(bool protected) {
     } else {
         for (uint32_t index = 0u; index < RVSWD_OPTION_BYTES_WORD_COUNT; ++index) {
             if (!rvswd_memory_read32(profile->option_base + index * 4u,
-                                          &option_words[index])) {
+                                     &option_words[index])) {
                 rvswd_flash_last_error = 0x45u;
                 return false;
             }
@@ -1116,4 +1116,3 @@ bool rvswd_gpio_flash_set_read_protected(bool protected) {
 uint32_t rvswd_gpio_flash_last_error(void) {
     return rvswd_flash_last_error;
 }
-

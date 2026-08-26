@@ -5,16 +5,16 @@
 
 #include <ch32x035.h>
 
-#define RVSWD_CLOCK_PIN GPIO_Pin_2
-#define RVSWD_DATA_PIN GPIO_Pin_3
-#define RVSWD_DATA_PULLUP_PIN GPIO_Pin_1
-#define RVSWD_CLOCK_CFG_SHIFT 8u
-#define RVSWD_DATA_CFG_SHIFT 12u
-#define RVSWD_DATA_PULLUP_CFG_SHIFT 4u
+#define RVSWD_CLOCK_PIN               GPIO_Pin_2
+#define RVSWD_DATA_PIN                GPIO_Pin_3
+#define RVSWD_DATA_PULLUP_PIN         GPIO_Pin_1
+#define RVSWD_CLOCK_CFG_SHIFT         8u
+#define RVSWD_DATA_CFG_SHIFT          12u
+#define RVSWD_DATA_PULLUP_CFG_SHIFT   4u
 #define RVSWD_CLOCK_MODE_OUTPUT_50MHZ 0x03u
-#define RVSWD_PINS (RVSWD_DATA_PULLUP_PIN | RVSWD_CLOCK_PIN | RVSWD_DATA_PIN)
-#define RVSWD_WAKEUP_CLOCKS 100u
-#define RVSWD_INTERFRAME_GUARD_US 0u
+#define RVSWD_PINS                    (RVSWD_DATA_PULLUP_PIN | RVSWD_CLOCK_PIN | RVSWD_DATA_PIN)
+#define RVSWD_WAKEUP_CLOCKS           100u
+#define RVSWD_INTERFRAME_GUARD_US     0u
 
 static bool rvswd_phy_fast_timing;
 
@@ -64,7 +64,8 @@ static inline __attribute__((always_inline)) void rvswd_phy_data_high(void) {
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_fast_half_period(void) {
-    __asm volatile("nop\n" "nop\n");
+    __asm volatile("nop\n"
+                   "nop\n");
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_drive_bit_fast(

@@ -1,12 +1,12 @@
 #include "rvswd_gpio.h"
 
 #include "bsp/bsp_delay.h"
-#include "rvswd_frame.h"
-#include "rvswd_dmi.h"
 #include "rvswd_debug.h"
+#include "rvswd_dmi.h"
+#include "rvswd_frame.h"
 #include "rvswd_memory.h"
-#include "rvswd_reset.h"
 #include "rvswd_phy_gpio.h"
+#include "rvswd_reset.h"
 #include "rvswd_target.h"
 #include "rvswd_types.h"
 
@@ -14,11 +14,11 @@
 
 #include <ch32x035.h>
 
-#define RVSWD_DMI_CONTROL 0x10u
-#define RVSWD_DMI_CONFIG  0x7du
-#define RVSWD_DMI_SHADOW  0x7eu
-#define RVSWD_DMI_CHIP_ID 0x7fu
-#define RVSWD_DEBUG_UNLOCK              0x5aa50400u
+#define RVSWD_DMI_CONTROL    0x10u
+#define RVSWD_DMI_CONFIG     0x7du
+#define RVSWD_DMI_SHADOW     0x7eu
+#define RVSWD_DMI_CHIP_ID    0x7fu
+#define RVSWD_DEBUG_UNLOCK   0x5aa50400u
 #define RVSWD_LONG_STATUS_OK 0u
 
 #define RVSWD_CH5XX_CHIP_ID_ADDRESS 0x40001041u
@@ -27,15 +27,14 @@
 #define RVSWD_CH5XX_CHIP_ID_CH582   0x82u
 #define RVSWD_CH5XX_CHIP_ID_CH583   0x83u
 
-#define RVSWD_CH5XX_DEBUG_DATA_ADDRESS     0xe0000380u
-#define RVSWD_FLASH_OBR_ADDRESS      0x4002201cu
-#define RVSWD_FLASH_OBR_READ_PROTECTED  (1u << 1u)
+#define RVSWD_CH5XX_DEBUG_DATA_ADDRESS 0xe0000380u
+#define RVSWD_FLASH_OBR_ADDRESS        0x4002201cu
+#define RVSWD_FLASH_OBR_READ_PROTECTED (1u << 1u)
 
 static uint8_t rvswd_connect_last_error;
 
 extern const uint8_t ch5xx_flash_erase_stub_start[];
 extern const uint8_t ch5xx_flash_erase_stub_end[];
-
 
 void rvswd_gpio_init(void) {
     rvswd_dmi_reset();
@@ -377,8 +376,8 @@ void rvswd_gpio_set_target_wchlink_family_hint(uint8_t family) {
     rvswd_target_set_family_hint(family);
     rvswd_target_set_family_hint_active(false);
     rvswd_dmi_set_packet_mode(family == WCHLINK_TARGET_FAMILY_CH58X
-                                   ? RVSWD_PACKET_LONG
-                                   : RVSWD_PACKET_SHORT);
+                                  ? RVSWD_PACKET_LONG
+                                  : RVSWD_PACKET_SHORT);
 }
 
 uint8_t rvswd_gpio_target_wchlink_family(void) {

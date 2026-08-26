@@ -1,9 +1,9 @@
 #pragma once
 
+#include "wchlink_family.h"
+
 #include <stdbool.h>
 #include <stdint.h>
-
-#include "wchlink_family.h"
 
 enum rvswd_flash_unlock_mode {
     RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,

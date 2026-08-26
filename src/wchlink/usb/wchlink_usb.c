@@ -13,15 +13,14 @@
 #include <usbd_cdc_acm.h>
 #include <usbd_core.h>
 
-#define WCHLINK_MPS                       64u
-#define WCHLINK_SERIAL_LEN                13u
-#define WCHLINK_CONFIG_DESC_SIZE          120u
-#define WCHLINK_VID                       0x1a86u
-#define WCHLINK_PID                       0x8010u
-#define WCHLINK_CONTROL_FAMILY            0x0du
-#define WCHLINK_CONTROL_STOP              0xffu
-#define WCHLINK_STOP_RESPONSE_LIFETIME_US 500000u
-#define WCHLINK_RESPONSE_LIFETIME_US      100000u
+#define WCHLINK_MPS              64u
+#define WCHLINK_SERIAL_LEN       13u
+#define WCHLINK_CONFIG_DESC_SIZE 120u
+#define WCHLINK_VID              0x1a86u
+#define WCHLINK_PID              0x8010u
+
+static const uint32_t wchlink_standard_response_lifetime_us = 100000u;
+static const uint32_t wchlink_session_end_response_lifetime_us = 500000u;
 
 static const uint8_t wchlink_device_descriptor[] = {
     USB_DEVICE_DESCRIPTOR_INIT(USB_1_1, 0xef, 0x02, 0x01,
@@ -164,7 +163,6 @@ static volatile bool wchlink_request_armed;
 static volatile bool wchlink_response_pending;
 static volatile bool wchlink_response_recovery_pending;
 static volatile bool wchlink_response_expiring;
-static volatile bool wchlink_response_is_stop;
 static uint64_t wchlink_response_deadline_us;
 static volatile bool wchlink_data_in_pending;
 static volatile bool wchlink_data_out_active;
@@ -213,7 +211,6 @@ static void wchlink_in_callback(uint8_t busid, uint8_t ep, uint32_t nbytes) {
     wchlink_response_pending = false;
     wchlink_response_recovery_pending = false;
     wchlink_response_expiring = false;
-    wchlink_response_is_stop = false;
     wchlink_arm_request();
 }
 
@@ -265,7 +262,6 @@ static void wchlink_event_handler(uint8_t busid, uint8_t event) {
             wchlink_response_pending = false;
             wchlink_response_recovery_pending = false;
             wchlink_response_expiring = false;
-            wchlink_response_is_stop = false;
             wchlink_data_in_pending = false;
             wchlink_data_out_active = false;
             wchlink_data_out_pending = false;
@@ -281,7 +277,6 @@ static void wchlink_event_handler(uint8_t busid, uint8_t event) {
             wchlink_response_pending = false;
             wchlink_response_recovery_pending = false;
             wchlink_response_expiring = false;
-            wchlink_response_is_stop = false;
             wchlink_data_in_pending = false;
             wchlink_data_out_active = false;
             wchlink_data_out_pending = false;
@@ -462,10 +457,17 @@ static void wchlink_service_response_timeout(void) {
     __disable_irq();
     wchlink_response_pending = false;
     wchlink_response_expiring = false;
-    wchlink_response_is_stop = false;
     __enable_irq();
     (void)ch32x035_usbd_ep_abort_in(0u, 0x81u);
     wchlink_arm_request();
+}
+
+static uint32_t wchlink_response_lifetime_us(
+    enum wchlink_session_response_policy policy) {
+    if (policy == WCHLINK_SESSION_RESPONSE_SESSION_END) {
+        return wchlink_session_end_response_lifetime_us;
+    }
+    return wchlink_standard_response_lifetime_us;
 }
 
 void wchlink_usb_process(void) {
@@ -510,21 +512,14 @@ void wchlink_usb_process(void) {
         memset(wchlink_response, 0, response_length);
     }
     wchlink_response_pending = true;
-    // 所有回复都设置有限生命周期，STOP 使用更短窗口并保留跨会话 toggle 恢复
+    // 所有回复都设置有限生命周期，session-end 回复保持既有 500 ms 窗口
     wchlink_response_expiring = true;
-    wchlink_response_is_stop =
-        request_length >= 4u && request[1] == WCHLINK_CONTROL_FAMILY &&
-        request[3] == WCHLINK_CONTROL_STOP;
     wchlink_response_deadline_us =
         bsp_time_us() +
-        (request_length >= 4u && request[1] == WCHLINK_CONTROL_FAMILY &&
-                 request[3] == WCHLINK_CONTROL_STOP
-             ? WCHLINK_STOP_RESPONSE_LIFETIME_US
-             : WCHLINK_RESPONSE_LIFETIME_US);
+        wchlink_response_lifetime_us(command_result.response_policy);
     if (usbd_ep_start_write(0u, 0x81u, wchlink_response, (uint32_t)response_length) != 0) {
         wchlink_response_pending = false;
         wchlink_response_expiring = false;
-        wchlink_response_is_stop = false;
         wchlink_arm_request();
     }
     wchlink_service_data_in();

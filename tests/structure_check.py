@@ -75,6 +75,9 @@ def find_violations() -> list[str]:
         if relative.as_posix().startswith(("src/wchlink/protocol/", "src/wchlink/usb/")):
             if re.search(r'#include\s+["<](?:rvswd_|target/)', text):
                 violations.append(f"公共层包含 target/transport 私有 header: {relative}")
+        if relative.as_posix().startswith("src/wchlink/usb/"):
+            if re.search(r"\bWCHLINK_(?:FAMILY|CONTROL)_", text):
+                violations.append(f"USB adapter 仍解释 WCH-Link wire command: {relative}")
 
     definitions: dict[str, list[str]] = defaultdict(list)
     define_pattern = re.compile(r"^\s*#define\s+([A-Za-z_][A-Za-z0-9_]*)")

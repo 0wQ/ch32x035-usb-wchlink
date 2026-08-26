@@ -22,10 +22,17 @@ enum wchlink_session_action {
     WCHLINK_SESSION_ACTION_ENTER_ISP,
 };
 
+// Session 返回回复生命周期语义，USB adapter 负责映射为端点超时
+enum wchlink_session_response_policy {
+    WCHLINK_SESSION_RESPONSE_STANDARD,
+    WCHLINK_SESSION_RESPONSE_SESSION_END,
+};
+
 // Command result 按值交给 USB 主循环，session 不保留 response buffer 或一次性 action
 struct wchlink_session_command_result {
     enum wchlink_session_command_status status;
     enum wchlink_session_action action;
+    enum wchlink_session_response_policy response_policy;
     size_t response_length;
 };
 

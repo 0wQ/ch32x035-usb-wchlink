@@ -24,6 +24,7 @@ static struct wchlink_session_command_result wchlink_command_result(
     return (struct wchlink_session_command_result){
         .status = status,
         .action = WCHLINK_SESSION_ACTION_NONE,
+        .response_policy = WCHLINK_SESSION_RESPONSE_STANDARD,
         .response_length = response_length,
     };
 }
@@ -549,17 +550,22 @@ static struct wchlink_session_command_result wchlink_handle_control(
             bool return_ch5xx_info =
                 context->ch5xx_info_query_seen &&
                 wchlink_command_target_uses_ch5xx_loader(context);
+            struct wchlink_session_command_result result;
 
             wchlink_command_reset(context);
             if (return_ch5xx_info) {
                 // MRS 在 CH5xx 设置芯片阶段从 STOP 命令读取 20 字节目标信息
-                return wchlink_handle_chip_info(context, response,
-                                                response_capacity);
+                result = wchlink_handle_chip_info(context, response,
+                                                  response_capacity);
+            } else {
+                result = wchlink_command_result(
+                    WCHLINK_SESSION_COMMAND_COMPLETED,
+                    wchlink_wire_ack(response, response_capacity,
+                                     WCHLINK_FAMILY_CONTROL));
             }
-            return wchlink_command_result(
-                WCHLINK_SESSION_COMMAND_COMPLETED,
-                wchlink_wire_ack(response, response_capacity,
-                                 WCHLINK_FAMILY_CONTROL));
+            // STOP 已结束目标会话，USB 需为这次最终回复保留独立生命周期
+            result.response_policy = WCHLINK_SESSION_RESPONSE_SESSION_END;
+            return result;
         }
         case WCHLINK_CONTROL_SET_CHIP_TYPE:
             // MRS 将设置目标型号命令作为首次目标连接入口

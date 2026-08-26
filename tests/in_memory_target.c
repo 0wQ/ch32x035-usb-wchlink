@@ -160,6 +160,11 @@ bool wchlink_test_target_last_execute(
     return true;
 }
 
+bool wchlink_test_target_has_family_hint(
+    const struct wchlink_target_ports *target, uint8_t family) {
+    return target->family_hint == family;
+}
+
 void wchlink_target_ports_init(struct wchlink_target_ports *target) {
     uint8_t family_hint = target->family_hint;
 

@@ -13,16 +13,20 @@ struct wchlink_test_fixture {
     struct wchlink_command_context command;
 };
 
+static uint32_t wchlink_test_last_delay_ms;
+static bool wchlink_test_dp_pullup_enabled;
+static bool wchlink_test_power_switch_enabled;
+
 void bsp_delay_ms(uint32_t ms) {
-    (void)ms;
+    wchlink_test_last_delay_ms = ms;
 }
 
 void drv_dp_pullup_set_enabled(bool enabled) {
-    (void)enabled;
+    wchlink_test_dp_pullup_enabled = enabled;
 }
 
 void drv_power_switch_set_enabled(bool enabled) {
-    (void)enabled;
+    wchlink_test_power_switch_enabled = enabled;
 }
 
 static struct rvswd_target_info wchlink_test_info(
@@ -46,6 +50,9 @@ static void wchlink_test_fixture_init(
         .target = &fixture->target,
         .transfer = &fixture->transfer,
     };
+    wchlink_test_last_delay_ms = 0u;
+    wchlink_test_dp_pullup_enabled = false;
+    wchlink_test_power_switch_enabled = false;
 }
 
 static void wchlink_test_expect_bytes(const uint8_t *actual,
@@ -235,6 +242,296 @@ static void wchlink_test_command_connect_failure(void) {
                                      sizeof(request), response,
                                      sizeof(response));
     assert(result.status == WCHLINK_SESSION_COMMAND_TARGET_FAILED);
+    wchlink_test_expect_bytes(response, result.response_length, expected,
+                              sizeof(expected));
+}
+
+static void wchlink_test_command_config_and_reset(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    struct wchlink_test_fixture fixture;
+    uint8_t response[8];
+    const uint8_t read_protection[] = {
+        0x81u, WCHLINK_FAMILY_CONFIG, 0x01u,
+        WCHLINK_CONFIG_READ_PROTECTION};
+    const uint8_t enable_protection[] = {
+        0x81u, WCHLINK_FAMILY_CONFIG, 0x01u,
+        WCHLINK_CONFIG_ENABLE_PROTECTION};
+    const uint8_t disable_protection[] = {
+        0x81u, WCHLINK_FAMILY_CONFIG, 0x01u,
+        WCHLINK_CONFIG_DISABLE_PROTECTION};
+    const uint8_t write_protection[] = {
+        0x81u, WCHLINK_FAMILY_CONFIG, 0x01u,
+        WCHLINK_CONFIG_WRITE_PROTECTION};
+    const uint8_t extended_protection[] = {
+        0x81u, WCHLINK_FAMILY_CONFIG, 0x02u,
+        WCHLINK_CONFIG_ENABLE_PROTECTION, 0x00u};
+    const uint8_t soft_reset[] = {
+        0x81u, WCHLINK_FAMILY_RESET, 0x01u, WCHLINK_RESET_SOFT};
+    const uint8_t normal_reset[] = {
+        0x81u, WCHLINK_FAMILY_RESET, 0x01u, WCHLINK_RESET_NORMAL};
+    const uint8_t run_reset[] = {
+        0x81u, WCHLINK_FAMILY_RESET, 0x01u, WCHLINK_RESET_MRS_RUN};
+    const uint8_t config_unprotected_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONFIG, 0x01u,
+        WCHLINK_CONFIG_READ_UNPROTECTED};
+    const uint8_t config_protected_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONFIG, 0x01u,
+        WCHLINK_CONFIG_READ_PROTECTED};
+    const uint8_t config_write_protected_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONFIG, 0x01u,
+        WCHLINK_CONFIG_WRITE_PROTECTED};
+    const uint8_t config_enable_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONFIG, 0x01u,
+        WCHLINK_CONFIG_ENABLE_PROTECTION};
+    const uint8_t config_disable_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONFIG, 0x01u,
+        WCHLINK_CONFIG_DISABLE_PROTECTION};
+    const uint8_t config_unsupported_reply[] = {
+        0x81u, WCHLINK_FAMILY_CONFIG, 0x01u, 0x02u};
+    const uint8_t soft_reset_reply[] = {
+        0x82u, WCHLINK_FAMILY_RESET, 0x01u, WCHLINK_RESET_SOFT};
+    const uint8_t normal_reset_reply[] = {
+        0x82u, WCHLINK_FAMILY_RESET, 0x01u, 0x00u};
+    const uint8_t run_reset_reply[] = {
+        0x82u, WCHLINK_FAMILY_RESET, 0x01u, WCHLINK_RESET_MRS_RUN};
+    const uint8_t reset_error_reply[] = {
+        0x81u, WCHLINK_FAMILY_RESET, 0x01u, 0x02u};
+    struct wchlink_session_command_result result;
+
+    // Protection command 通过 target port 返回状态，扩展帧不能退化为基础命令
+    wchlink_test_fixture_init(&fixture, info, true);
+    result = wchlink_command_process(
+        &fixture.command, read_protection, sizeof(read_protection), response,
+        sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              config_unprotected_reply,
+                              sizeof(config_unprotected_reply));
+
+    result = wchlink_command_process(
+        &fixture.command, enable_protection, sizeof(enable_protection), response,
+        sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              config_enable_reply,
+                              sizeof(config_enable_reply));
+
+    result = wchlink_command_process(
+        &fixture.command, read_protection, sizeof(read_protection), response,
+        sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              config_protected_reply,
+                              sizeof(config_protected_reply));
+
+    result = wchlink_command_process(
+        &fixture.command, write_protection, sizeof(write_protection), response,
+        sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              config_write_protected_reply,
+                              sizeof(config_write_protected_reply));
+
+    result = wchlink_command_process(
+        &fixture.command, disable_protection, sizeof(disable_protection),
+        response, sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              config_disable_reply,
+                              sizeof(config_disable_reply));
+    result = wchlink_command_process(
+        &fixture.command, read_protection, sizeof(read_protection), response,
+        sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              config_unprotected_reply,
+                              sizeof(config_unprotected_reply));
+
+    result = wchlink_command_process(
+        &fixture.command, extended_protection, sizeof(extended_protection),
+        response, sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_MALFORMED);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              config_unsupported_reply,
+                              sizeof(config_unsupported_reply));
+
+    // 三种 reset 子命令保持各自 reply，target 失败统一映射为 unsupported
+    result = wchlink_command_process(&fixture.command, soft_reset,
+                                     sizeof(soft_reset), response,
+                                     sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              soft_reset_reply, sizeof(soft_reset_reply));
+    result = wchlink_command_process(&fixture.command, normal_reset,
+                                     sizeof(normal_reset), response,
+                                     sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              normal_reset_reply, sizeof(normal_reset_reply));
+    result = wchlink_command_process(&fixture.command, run_reset,
+                                     sizeof(run_reset), response,
+                                     sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length, run_reset_reply,
+                              sizeof(run_reset_reply));
+
+    wchlink_test_target_fail_next(
+        &fixture.target, WCHLINK_TEST_TARGET_SOFT_RESET_AND_RUN,
+        rvswd_target_result_failure(RVSWD_TARGET_RESULT_RESET, 0x15u, false));
+    result = wchlink_command_process(&fixture.command, soft_reset,
+                                     sizeof(soft_reset), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_TARGET_FAILED);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              reset_error_reply, sizeof(reset_error_reply));
+}
+
+static void wchlink_test_command_control_and_device_mode(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    struct wchlink_test_fixture fixture;
+    uint8_t response[16];
+    uint8_t programmed[] = {0x00u, 0x11u, 0x22u, 0x33u};
+    uint8_t erased[sizeof(programmed)];
+    const uint8_t speed_request[] = {
+        0x81u, WCHLINK_FAMILY_SPEED, 0x02u, WCHLINK_TARGET_FAMILY_X035, 0x01u};
+    const uint8_t set_chip_type[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_SET_CHIP_TYPE};
+    const uint8_t erase_request[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x02u,
+        WCHLINK_CONTROL_CLEAR_CODE_FLASH, WCHLINK_TARGET_FAMILY_X035};
+    const uint8_t power_3v3_on[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_POWER_3V3_ON};
+    const uint8_t power_3v3_off[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_POWER_3V3_OFF};
+    const uint8_t power_5v_on[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_POWER_5V_ON};
+    const uint8_t power_5v_off[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_POWER_5V_OFF};
+    const uint8_t identify_request[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u, WCHLINK_CONTROL_IDENTIFY};
+    const uint8_t mode_query[] = {
+        0x81u, WCHLINK_FAMILY_DEVICE_MODE, 0x01u,
+        WCHLINK_DEVICE_MODE_QUERY};
+    const uint8_t mode_iap[] = {
+        0x81u, WCHLINK_FAMILY_DEVICE_MODE, 0x01u, WCHLINK_DEVICE_MODE_IAP};
+    const uint8_t speed_reply[] = {
+        0x82u, WCHLINK_FAMILY_SPEED, 0x01u, 0x01u};
+    const uint8_t connect_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x05u, WCHLINK_TARGET_FAMILY_X035,
+        0x03u, 0x51u, 0x06u, 0x11u};
+    const uint8_t erase_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_CLEAR_CODE_FLASH};
+    const uint8_t control_ack[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u, 0x00u};
+    const uint8_t identity_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x04u, 0x03u,
+        0x03u, 0x12u, 0x00u};
+    const uint8_t mode_query_reply[] = {
+        0x82u, WCHLINK_FAMILY_DEVICE_MODE, 0x01u,
+        WCHLINK_DEVICE_MODE_QUERY};
+    struct wchlink_session_command_result result;
+
+    // Disconnected control 路径保留 family hint、20 ms 稳定延时和连接回复
+    wchlink_test_fixture_init(&fixture, info, false);
+    result = wchlink_command_process(&fixture.command, speed_request,
+                                     sizeof(speed_request), response,
+                                     sizeof(response));
+    assert(wchlink_test_target_has_family_hint(
+        &fixture.target, WCHLINK_TARGET_FAMILY_X035));
+    wchlink_test_expect_bytes(response, result.response_length, speed_reply,
+                              sizeof(speed_reply));
+    result = wchlink_command_process(&fixture.command, set_chip_type,
+                                     sizeof(set_chip_type), response,
+                                     sizeof(response));
+    assert(wchlink_test_last_delay_ms == 20u);
+    assert(wchlink_target_ports_info(&fixture.target).connected);
+    wchlink_test_expect_bytes(response, result.response_length, connect_reply,
+                              sizeof(connect_reply));
+
+    assert(wchlink_test_target_store(&fixture.target, 0u, programmed,
+                                     sizeof(programmed)));
+    result = wchlink_command_process(&fixture.command, erase_request,
+                                     sizeof(erase_request), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    wchlink_test_expect_bytes(response, result.response_length, erase_reply,
+                              sizeof(erase_reply));
+    assert(wchlink_test_target_load(&fixture.target, 0u, erased,
+                                    sizeof(erased)));
+    for (size_t i = 0u; i < sizeof(erased); ++i) {
+        assert(erased[i] == 0xffu);
+    }
+
+    // Power command 的驱动调用和 identify 的总线释放均从 command seam 观察
+    result = wchlink_command_process(&fixture.command, power_3v3_on,
+                                     sizeof(power_3v3_on), response,
+                                     sizeof(response));
+    assert(wchlink_test_dp_pullup_enabled);
+    wchlink_test_expect_bytes(response, result.response_length, control_ack,
+                              sizeof(control_ack));
+    wchlink_command_process(&fixture.command, power_3v3_off,
+                            sizeof(power_3v3_off), response, sizeof(response));
+    assert(!wchlink_test_dp_pullup_enabled);
+    wchlink_command_process(&fixture.command, power_5v_on, sizeof(power_5v_on),
+                            response, sizeof(response));
+    assert(wchlink_test_power_switch_enabled);
+    wchlink_command_process(&fixture.command, power_5v_off,
+                            sizeof(power_5v_off), response, sizeof(response));
+    assert(!wchlink_test_power_switch_enabled);
+
+    wchlink_test_fixture_init(&fixture, info, true);
+    result = wchlink_command_process(&fixture.command, identify_request,
+                                     sizeof(identify_request), response,
+                                     sizeof(response));
+    assert(!wchlink_target_ports_info(&fixture.target).connected);
+    wchlink_test_expect_bytes(response, result.response_length, identity_reply,
+                              sizeof(identity_reply));
+
+    result = wchlink_command_process(&fixture.command, mode_query,
+                                     sizeof(mode_query), response,
+                                     sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              mode_query_reply, sizeof(mode_query_reply));
+    result = wchlink_command_process(&fixture.command, mode_iap,
+                                     sizeof(mode_iap), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_NO_RESPONSE);
+    assert(result.action == WCHLINK_SESSION_ACTION_ENTER_ISP);
+    assert(result.response_length == 0u);
+}
+
+static void wchlink_test_command_ch5xx_info_stop(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x82000000u, WCHLINK_TARGET_FAMILY_CH58X,
+        RVSWD_TARGET_LOADER_CH5XX, false);
+    struct wchlink_test_fixture fixture;
+    uint8_t response[20];
+    const uint8_t info_request[] = {0x81u, WCHLINK_FAMILY_INFO};
+    const uint8_t stop_request[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u, WCHLINK_CONTROL_STOP};
+    const uint8_t expected[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u, 0xffu, 0x82u,
+        0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+        0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+        0x00u, 0x00u, 0x00u, 0x00u, 0x00u};
+    struct wchlink_session_command_result result;
+
+    // CH5xx 的 INFO 查询使随后 STOP 返回目标信息，同时结束 response 生命周期
+    wchlink_test_fixture_init(&fixture, info, true);
+    result = wchlink_command_process(&fixture.command, info_request,
+                                     sizeof(info_request), response,
+                                     sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length, expected,
+                              sizeof(expected));
+    result = wchlink_command_process(&fixture.command, stop_request,
+                                     sizeof(stop_request), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    assert(result.response_policy == WCHLINK_SESSION_RESPONSE_SESSION_END);
+    assert(!wchlink_target_ports_info(&fixture.target).connected);
     wchlink_test_expect_bytes(response, result.response_length, expected,
                               sizeof(expected));
 }
@@ -575,6 +872,9 @@ static void wchlink_test_transfer_error_repeat_and_abort(void) {
 int main(void) {
     wchlink_test_command_connect_and_dmi();
     wchlink_test_command_connect_failure();
+    wchlink_test_command_config_and_reset();
+    wchlink_test_command_control_and_device_mode();
+    wchlink_test_command_ch5xx_info_stop();
     wchlink_test_command_repeat_and_abort();
     wchlink_test_transfer_read();
     wchlink_test_transfer_chunk_boundary();

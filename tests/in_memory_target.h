@@ -80,3 +80,5 @@ bool wchlink_test_target_load(const struct wchlink_target_ports *target,
 bool wchlink_test_target_last_execute(
     const struct wchlink_target_ports *target,
     struct wchlink_test_execute *execute);
+bool wchlink_test_target_has_family_hint(
+    const struct wchlink_target_ports *target, uint8_t family);

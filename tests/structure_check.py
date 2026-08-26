@@ -28,6 +28,12 @@ REMOVED_TARGET_SYMBOLS = {
     "rvswd_target_session",
 }
 
+CH5XX_FLASH_BACKEND_HEADER = "wchlink/flash/rvswd_flash_ch5xx.h"
+CH5XX_FLASH_BACKEND_HEADER_CONSUMERS = {
+    "src/wchlink/flash/rvswd_flash_ch5xx.c",
+    "src/wchlink/rvswd/rvswd_flash.c",
+}
+
 
 def source_files() -> list[Path]:
     return sorted(
@@ -78,6 +84,14 @@ def find_violations() -> list[str]:
         if relative.as_posix().startswith("src/wchlink/usb/"):
             if re.search(r"\bWCHLINK_(?:FAMILY|CONTROL)_", text):
                 violations.append(f"USB adapter 仍解释 WCH-Link wire command: {relative}")
+        if (
+            CH5XX_FLASH_BACKEND_HEADER in text
+            and relative.as_posix() not in CH5XX_FLASH_BACKEND_HEADER_CONSUMERS
+        ):
+            violations.append(f"调用者绕过 Flash facade: {relative}")
+        if relative.as_posix().startswith("src/wchlink/flash/"):
+            if re.search(r'#include\s+["<]wchlink/(?:session|protocol|usb)/', text):
+                violations.append(f"Flash backend 反向依赖上层模块: {relative}")
 
     definitions: dict[str, list[str]] = defaultdict(list)
     define_pattern = re.compile(r"^\s*#define\s+([A-Za-z_][A-Za-z0-9_]*)")

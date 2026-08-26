@@ -1,9 +1,10 @@
 #include "wchlink/flash/rvswd_flash_ch5xx.h"
 
+#include "wchlink/flash/rvswd_flash.h"
 #include "wchlink/rvswd/rvswd_debug.h"
-#include "wchlink/rvswd/rvswd_flash.h"
 #include "wchlink/rvswd/rvswd_memory.h"
 #include "wchlink/rvswd/rvswd_operation.h"
+#include "wchlink/rvswd/rvswd_types.h"
 
 #include <stddef.h>
 

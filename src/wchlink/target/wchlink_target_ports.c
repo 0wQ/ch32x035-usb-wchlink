@@ -1,13 +1,13 @@
 #include "wchlink_target_ports.h"
 
 #include "rvswd_debug.h"
-#include "rvswd_flash.h"
 #include "rvswd_memory.h"
 #include "rvswd_operation.h"
 #include "rvswd_reset.h"
 #include "rvswd_target_profile.h"
 #include "rvswd_transport.h"
 #include "rvswd_types.h"
+#include "wchlink/flash/rvswd_flash.h"
 #include "wchlink_family.h"
 
 #include <stddef.h>

@@ -28,10 +28,15 @@ REMOVED_TARGET_SYMBOLS = {
     "rvswd_target_session",
 }
 
-CH5XX_FLASH_BACKEND_HEADER = "wchlink/flash/rvswd_flash_ch5xx.h"
-CH5XX_FLASH_BACKEND_HEADER_CONSUMERS = {
-    "src/wchlink/flash/rvswd_flash_ch5xx.c",
-    "src/wchlink/rvswd/rvswd_flash.c",
+FLASH_BACKEND_HEADER_CONSUMERS = {
+    "wchlink/flash/rvswd_flash_ch32.h": {
+        "src/wchlink/flash/rvswd_flash.c",
+        "src/wchlink/flash/rvswd_flash_ch32.c",
+    },
+    "wchlink/flash/rvswd_flash_ch5xx.h": {
+        "src/wchlink/flash/rvswd_flash.c",
+        "src/wchlink/flash/rvswd_flash_ch5xx.c",
+    },
 }
 
 
@@ -84,11 +89,9 @@ def find_violations() -> list[str]:
         if relative.as_posix().startswith("src/wchlink/usb/"):
             if re.search(r"\bWCHLINK_(?:FAMILY|CONTROL)_", text):
                 violations.append(f"USB adapter 仍解释 WCH-Link wire command: {relative}")
-        if (
-            CH5XX_FLASH_BACKEND_HEADER in text
-            and relative.as_posix() not in CH5XX_FLASH_BACKEND_HEADER_CONSUMERS
-        ):
-            violations.append(f"调用者绕过 Flash facade: {relative}")
+        for header, consumers in FLASH_BACKEND_HEADER_CONSUMERS.items():
+            if header in text and relative.as_posix() not in consumers:
+                violations.append(f"调用者绕过 Flash facade: {relative}")
         if relative.as_posix().startswith("src/wchlink/flash/"):
             if re.search(r'#include\s+["<]wchlink/(?:session|protocol|usb)/', text):
                 violations.append(f"Flash backend 反向依赖上层模块: {relative}")

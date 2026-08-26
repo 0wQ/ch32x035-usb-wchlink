@@ -1,16 +1,18 @@
-#include "rvswd_flash.h"
+#include "wchlink/flash/rvswd_flash_ch32.h"
 
 #include "bsp/bsp_delay.h"
-#include "rvswd_debug.h"
-#include "rvswd_memory.h"
-#include "rvswd_reset.h"
-#include "rvswd_types.h"
-#include "wchlink/flash/rvswd_flash_ch5xx.h"
+#include "wchlink/flash/rvswd_flash.h"
+#include "wchlink/rvswd/rvswd_debug.h"
+#include "wchlink/rvswd/rvswd_memory.h"
+#include "wchlink/rvswd/rvswd_operation.h"
+#include "wchlink/rvswd/rvswd_reset.h"
+#include "wchlink/rvswd/rvswd_types.h"
 
 #include <stddef.h>
 
 #include <ch32x035.h>
 
+// 通用 CH32 controller 独占主存储区擦除、保护状态和 Option Bytes 流程
 #define RVSWD_FLASH_KEYR_ADDRESS     0x40022004u
 #define RVSWD_FLASH_OBKEYR_ADDRESS   0x40022008u
 #define RVSWD_FLASH_STATR_ADDRESS    0x4002200cu
@@ -119,22 +121,14 @@ static bool rvswd_flash_unlock_main_and_fast(struct rvswd_operation *operation,
     return true;
 }
 
-bool rvswd_flash_erase_all(struct rvswd_operation *operation,
-                           const struct rvswd_target_profile *profile) {
+bool rvswd_flash_ch32_erase_all(
+    struct rvswd_operation *operation,
+    const struct rvswd_target_profile *profile) {
     uint32_t control;
     uint32_t idle_control;
     uint32_t status;
     bool unlocked;
     bool success = false;
-
-    operation->flash_code = 0u;
-    if (profile == NULL) {
-        operation->flash_code = 0x0fu;
-        return false;
-    }
-    if (profile->ch5xx_protocol) {
-        return rvswd_flash_ch5xx_erase_all(operation, profile);
-    }
 
     if (!rvswd_flash_wait_ready(operation, profile, &status, 0x11u, 0x12u)) {
         return false;

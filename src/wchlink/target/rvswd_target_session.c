@@ -35,6 +35,22 @@ static struct rvswd_target_result rvswd_target_session_invalid_result(void) {
                                        false);
 }
 
+static struct rvswd_target_result rvswd_target_session_dmi_result(
+    struct rvswd_transport_result transport_result, uint32_t value) {
+    struct rvswd_target_result result;
+
+    if (transport_result.ok) {
+        result = rvswd_target_result_success();
+        result.value = value;
+        return result;
+    }
+    result = rvswd_target_result_failure(RVSWD_TARGET_RESULT_DMI,
+                                         transport_result.status,
+                                         transport_result.retryable);
+    result.dmi_status = transport_result.status;
+    return result;
+}
+
 static struct rvswd_target_result rvswd_target_session_memory_result(
     struct rvswd_target_session *session, uint32_t address, bool success) {
     struct rvswd_target_result result;
@@ -122,34 +138,26 @@ bool rvswd_target_session_supports_memory_streaming(
 struct rvswd_target_result rvswd_target_session_read_dmi(
     struct rvswd_target_session *session, uint8_t address) {
     uint32_t value = 0u;
-    struct rvswd_target_result result;
+    struct rvswd_transport_result transport_result;
 
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (rvswd_transport_read(&session->transport, address, &value)) {
-        result = rvswd_target_result_success();
-        result.value = value;
-        return result;
-    }
-    return rvswd_target_result_failure(
-        RVSWD_TARGET_RESULT_DMI,
-        rvswd_transport_last_status(&session->transport),
-        rvswd_transport_failure_retryable(&session->transport));
+    transport_result = rvswd_transport_read(&session->transport, address);
+    value = transport_result.value;
+    return rvswd_target_session_dmi_result(transport_result, value);
 }
 
 struct rvswd_target_result rvswd_target_session_write_dmi(
     struct rvswd_target_session *session, uint8_t address, uint32_t value) {
+    struct rvswd_transport_result transport_result;
+
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (rvswd_transport_write(&session->transport, address, value)) {
-        return rvswd_target_result_success();
-    }
-    return rvswd_target_result_failure(
-        RVSWD_TARGET_RESULT_DMI,
-        rvswd_transport_last_status(&session->transport),
-        rvswd_transport_failure_retryable(&session->transport));
+    transport_result =
+        rvswd_transport_write(&session->transport, address, value);
+    return rvswd_target_session_dmi_result(transport_result, 0u);
 }
 
 struct rvswd_target_result rvswd_target_session_read_memory32(

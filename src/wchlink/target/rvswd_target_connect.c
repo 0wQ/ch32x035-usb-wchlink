@@ -58,25 +58,32 @@ static bool rvswd_target_connect_restore_debug_module(
 
     // QingKe 调试模块启动和异常恢复时会丢失关键写入，重复配置确保命令生效
     success = rvswd_transport_write(transport, rvswd_dmi_shadow,
-                                    rvswd_debug_unlock) &&
+                                    rvswd_debug_unlock)
+                  .ok &&
               success;
     success = rvswd_transport_write(transport, rvswd_dmi_config,
-                                    rvswd_debug_unlock) &&
+                                    rvswd_debug_unlock)
+                  .ok &&
               success;
     success = rvswd_transport_write(transport, rvswd_dmi_shadow,
-                                    rvswd_debug_unlock) &&
+                                    rvswd_debug_unlock)
+                  .ok &&
               success;
     success = rvswd_transport_write(transport, rvswd_dmi_config,
-                                    rvswd_debug_unlock) &&
+                                    rvswd_debug_unlock)
+                  .ok &&
               success;
     success = rvswd_transport_write(transport, rvswd_dmi_control,
-                                    0x80000001u) &&
+                                    0x80000001u)
+                  .ok &&
               success;
     success = rvswd_transport_write(transport, rvswd_dmi_control,
-                                    0x80000001u) &&
+                                    0x80000001u)
+                  .ok &&
               success;
     success = rvswd_transport_write(transport, rvswd_dmi_control,
-                                    0x80000001u) &&
+                                    0x80000001u)
+                  .ok &&
               success;
     return success;
 }
@@ -85,25 +92,28 @@ static bool rvswd_target_connect_read_memory8_ch5xx(
     struct rvswd_transport *transport, uint32_t address,
     uint8_t *value) {
     uint32_t abstractcs;
-    uint32_t data;
+    struct rvswd_transport_result read_result;
 
     // LinkE 通过 data0 传入地址，Program Buffer 将目标字节写回 data1
     if (value == NULL ||
         !rvswd_debug_write_raw_gpr(transport, 13u,
                                    rvswd_ch5xx_debug_data_address) ||
-        !rvswd_transport_write(transport, 0x16u, 0x00000700u) ||
-        !rvswd_transport_write(transport, 0x20u, 0x00058483u) ||
-        !rvswd_transport_write(transport, 0x21u, 0x00968223u) ||
-        !rvswd_transport_write(transport, 0x22u, 0x00100073u) ||
-        !rvswd_transport_write(transport, 0x04u, address) ||
-        !rvswd_transport_write(transport, 0x17u, 0x0027100bu) ||
+        !rvswd_transport_write(transport, 0x16u, 0x00000700u).ok ||
+        !rvswd_transport_write(transport, 0x20u, 0x00058483u).ok ||
+        !rvswd_transport_write(transport, 0x21u, 0x00968223u).ok ||
+        !rvswd_transport_write(transport, 0x22u, 0x00100073u).ok ||
+        !rvswd_transport_write(transport, 0x04u, address).ok ||
+        !rvswd_transport_write(transport, 0x17u, 0x0027100bu).ok ||
         !rvswd_debug_wait_abstract_idle(transport, &abstractcs) ||
-        ((abstractcs >> 8u) & 0x07u) != 0u ||
-        !rvswd_transport_read(transport, 0x05u, &data)) {
+        ((abstractcs >> 8u) & 0x07u) != 0u) {
+        return false;
+    }
+    read_result = rvswd_transport_read(transport, 0x05u);
+    if (!read_result.ok) {
         return false;
     }
 
-    *value = (uint8_t)data;
+    *value = (uint8_t)read_result.value;
     return true;
 }
 
@@ -117,10 +127,12 @@ static bool rvswd_target_connect_identify(
     uint32_t option_status;
     uint8_t ch5xx_chip_id;
     struct rvswd_transport *transport = &session->transport;
+    struct rvswd_transport_result read_result;
 
     // V30X 的官方 LinkE 直接从 DMI 0x7f 返回 ChipID，避免先执行抽象内存命令
-    if (rvswd_transport_read(transport, rvswd_dmi_chip_id, &direct_chip_id) &&
-        direct_chip_id != 0u) {
+    read_result = rvswd_transport_read(transport, rvswd_dmi_chip_id);
+    direct_chip_id = read_result.value;
+    if (read_result.ok && direct_chip_id != 0u) {
         direct_profile = rvswd_target_profile_from_chip_id(direct_chip_id);
         if (direct_profile != NULL && !direct_profile->ch5xx_protocol) {
             session->info.chip_id = direct_chip_id;
@@ -177,6 +189,7 @@ static bool rvswd_target_connect_known_mode(
         uint32_t config = 0u;
         uint32_t dmstatus = 0u;
         bool config_read;
+        struct rvswd_transport_result read_result;
 
         // 目标上电或复位后需要留出调试模块启动时间
         bsp_delay_ms(16u);
@@ -191,8 +204,9 @@ static bool rvswd_target_connect_known_mode(
             session->connect_error = 0x14u;
             continue;
         }
-        config_read =
-            rvswd_transport_read(transport, rvswd_dmi_config, &config);
+        read_result = rvswd_transport_read(transport, rvswd_dmi_config);
+        config_read = read_result.ok;
+        config = read_result.value;
         if (config_read && (config & 0xffff0000u) == 0x5aa50000u) {
             if (rvswd_target_connect_identify(session)) {
                 return true;
@@ -201,7 +215,9 @@ static bool rvswd_target_connect_known_mode(
         }
 
         // 失败诊断继续读取 DMSTATUS，区分严格签名不匹配和链路不可用
-        if (rvswd_transport_read(transport, 0x11u, &dmstatus)) {
+        read_result = rvswd_transport_read(transport, 0x11u);
+        dmstatus = read_result.value;
+        if (read_result.ok) {
             uint8_t version = (uint8_t)(dmstatus & 0x0fu);
 
             // 当前支持的 QingKe V4 目标仅接受 Debug 0.13.2
@@ -236,42 +252,51 @@ static bool rvswd_target_connect_short_autodetect(
         uint32_t dmstatus;
         uint64_t halt_start;
         bool halted = false;
+        struct rvswd_transport_result read_result;
 
         // 官方 V307 抓包中最后一个 long STOP 到首个 short START 约为 212 us
         bsp_delay_us(200u);
         // 初始化帧的即时状态属于 DMI 管线，继续发送官方序列并以最终 halt 状态验收
         if (!rvswd_transport_write(transport, rvswd_dmi_shadow,
-                                   rvswd_debug_unlock)) {
+                                   rvswd_debug_unlock)
+                 .ok) {
             session->connect_error = 0xa1u;
             continue;
         }
         if (!rvswd_transport_write(transport, rvswd_dmi_config,
-                                   rvswd_debug_unlock)) {
+                                   rvswd_debug_unlock)
+                 .ok) {
             session->connect_error = 0xa2u;
             continue;
         }
-        if (!rvswd_transport_read(transport, 0x11u, &dmstatus)) {
+        read_result = rvswd_transport_read(transport, 0x11u);
+        if (!read_result.ok) {
             session->connect_error = 0xa3u;
             continue;
         }
+        dmstatus = read_result.value;
 
         // 官方 LinkE 连续写入两次 haltreq，随后轮询 allhalted 再访问 ChipID 和目标内存
         if (!rvswd_transport_write(transport, rvswd_dmi_control,
-                                   0x80000001u)) {
+                                   0x80000001u)
+                 .ok) {
             session->connect_error = 0xa4u;
             continue;
         }
         if (!rvswd_transport_write(transport, rvswd_dmi_control,
-                                   0x80000001u)) {
+                                   0x80000001u)
+                 .ok) {
             session->connect_error = 0xa5u;
             continue;
         }
         halt_start = bsp_time_us();
         do {
-            if (!rvswd_transport_read(transport, 0x11u, &dmstatus)) {
+            read_result = rvswd_transport_read(transport, 0x11u);
+            if (!read_result.ok) {
                 session->connect_error = 0xa6u;
                 break;
             }
+            dmstatus = read_result.value;
             if ((dmstatus & (1u << 9u)) != 0u) {
                 halted = true;
                 break;
@@ -298,23 +323,20 @@ static bool rvswd_target_connect_transport(
 
     rvswd_transport_set_fast_timing(transport, false);
     if (rvswd_target_profile_from_family(session->family_hint) == NULL) {
-        uint8_t status;
-        uint8_t target_address;
-        uint32_t target_data;
+        struct rvswd_transport_probe_result probe_result;
         uint16_t long_signature_count = 0u;
 
         // wlink status 使用通用 RISC-V 值 1，未知 family 先按官方 LinkE 序列自动识别
         // 自动识别先发送一个探测帧和 201 个轮询帧，再回到 short frame 连接 CH32
         rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
         // V30X 的长帧把 host parity 设为 operation 的奇偶校验位，CH5xx 长帧则固定为 0
-        (void)rvswd_transport_probe_long(transport, 0u, 0x11u, 0x19u, 0u,
-                                         &target_address, &target_data, &status);
+        (void)rvswd_transport_probe_long(transport, 0u, 0x11u, 0x19u, 0u);
         for (uint16_t probe = 0u; probe < 201u; ++probe) {
-            (void)rvswd_transport_probe_long(transport, 1u, 0x11u, 0u, 1u,
-                                             &target_address, &target_data,
-                                             &status);
-            if (target_address == 0x11u && status == rvswd_long_status_ok &&
-                (target_data & 0x0fu) == 2u) {
+            probe_result =
+                rvswd_transport_probe_long(transport, 1u, 0x11u, 0u, 1u);
+            if (probe_result.address == 0x11u &&
+                probe_result.status == rvswd_long_status_ok &&
+                (probe_result.value & 0x0fu) == 2u) {
                 ++long_signature_count;
             }
         }

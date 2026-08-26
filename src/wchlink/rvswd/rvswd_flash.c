@@ -156,10 +156,10 @@ static bool rvswd_flash_ch5xx_prepare_byte_access(
     // 全擦期间连续访问 Flash 命令口，切换读写方向时才重建 Program Buffer
     if (!rvswd_debug_write_raw_gpr(access->transport, 13u,
                                    RVSWD_CH5XX_DEBUG_DATA_ADDRESS) ||
-        !rvswd_transport_write(access->transport, 0x16u, 0x00000700u) ||
-        !rvswd_transport_write(access->transport, 0x20u, load_instruction) ||
-        !rvswd_transport_write(access->transport, 0x21u, store_instruction) ||
-        !rvswd_transport_write(access->transport, 0x22u, 0x00100073u)) {
+        !rvswd_transport_write(access->transport, 0x16u, 0x00000700u).ok ||
+        !rvswd_transport_write(access->transport, 0x20u, load_instruction).ok ||
+        !rvswd_transport_write(access->transport, 0x21u, store_instruction).ok ||
+        !rvswd_transport_write(access->transport, 0x22u, 0x00100073u).ok) {
         access->mode = RVSWD_CH5XX_BYTE_ACCESS_NONE;
         return false;
     }
@@ -173,9 +173,9 @@ static bool rvswd_flash_ch5xx_erase_write8(struct rvswd_ch5xx_byte_access *acces
     uint32_t abstractcs;
 
     if (!rvswd_flash_ch5xx_prepare_byte_access(access, RVSWD_CH5XX_BYTE_ACCESS_WRITE) ||
-        !rvswd_transport_write(access->transport, 0x05u, value) ||
-        !rvswd_transport_write(access->transport, 0x04u, address) ||
-        !rvswd_transport_write(access->transport, 0x17u, 0x0027100bu) ||
+        !rvswd_transport_write(access->transport, 0x05u, value).ok ||
+        !rvswd_transport_write(access->transport, 0x04u, address).ok ||
+        !rvswd_transport_write(access->transport, 0x17u, 0x0027100bu).ok ||
         !rvswd_debug_wait_abstract_idle(access->transport, &abstractcs)) {
         return false;
     }
@@ -186,19 +186,22 @@ static bool rvswd_flash_ch5xx_erase_write8(struct rvswd_ch5xx_byte_access *acces
 static bool rvswd_flash_ch5xx_erase_read8(struct rvswd_ch5xx_byte_access *access,
                                           uint32_t address, uint8_t *value) {
     uint32_t abstractcs;
-    uint32_t data;
+    struct rvswd_transport_result read_result;
 
     if (value == NULL ||
         !rvswd_flash_ch5xx_prepare_byte_access(access, RVSWD_CH5XX_BYTE_ACCESS_READ) ||
-        !rvswd_transport_write(access->transport, 0x04u, address) ||
-        !rvswd_transport_write(access->transport, 0x17u, 0x0027100bu) ||
+        !rvswd_transport_write(access->transport, 0x04u, address).ok ||
+        !rvswd_transport_write(access->transport, 0x17u, 0x0027100bu).ok ||
         !rvswd_debug_wait_abstract_idle(access->transport, &abstractcs) ||
-        ((abstractcs >> 8u) & 0x07u) != 0u ||
-        !rvswd_transport_read(access->transport, 0x05u, &data)) {
+        ((abstractcs >> 8u) & 0x07u) != 0u) {
+        return false;
+    }
+    read_result = rvswd_transport_read(access->transport, 0x05u);
+    if (!read_result.ok) {
         return false;
     }
 
-    *value = (uint8_t)data;
+    *value = (uint8_t)read_result.value;
     return true;
 }
 
@@ -208,16 +211,16 @@ static bool rvswd_memory_write16(struct rvswd_transport *transport,
     uint32_t abstractcs;
 
     // 使用 x8 保存数据，x9 保存目标地址，Program Buffer 执行 sh
-    if (!rvswd_transport_write(transport, 0x18u, 0u) ||
-        !rvswd_transport_write(transport, 0x16u, 0x00000700u) ||
-        !rvswd_transport_write(transport, 0x20u, 0x00849023u) ||
-        !rvswd_transport_write(transport, 0x21u, 0x00100073u) ||
-        !rvswd_transport_write(transport, 0x04u, address) ||
-        !rvswd_transport_write(transport, 0x17u, 0x00231009u) ||
+    if (!rvswd_transport_write(transport, 0x18u, 0u).ok ||
+        !rvswd_transport_write(transport, 0x16u, 0x00000700u).ok ||
+        !rvswd_transport_write(transport, 0x20u, 0x00849023u).ok ||
+        !rvswd_transport_write(transport, 0x21u, 0x00100073u).ok ||
+        !rvswd_transport_write(transport, 0x04u, address).ok ||
+        !rvswd_transport_write(transport, 0x17u, 0x00231009u).ok ||
         !rvswd_debug_wait_abstract_idle(transport, &abstractcs) ||
         ((abstractcs >> 8u) & 0x07u) != 0u ||
-        !rvswd_transport_write(transport, 0x04u, value) ||
-        !rvswd_transport_write(transport, 0x17u, 0x00271008u) ||
+        !rvswd_transport_write(transport, 0x04u, value).ok ||
+        !rvswd_transport_write(transport, 0x17u, 0x00271008u).ok ||
         !rvswd_debug_wait_abstract_idle_timeout(transport, &abstractcs, timeout_us)) {
         return false;
     }
@@ -344,15 +347,15 @@ static bool rvswd_flash_ch5xx_flash_enable_code_mode(
         !rvswd_debug_write_raw_gpr(transport, 10u, 0x57u) ||
         !rvswd_debug_write_raw_gpr(transport, 11u, 0xa8u) ||
         !rvswd_debug_write_raw_gpr(transport, 12u, 0xe0u) ||
-        !rvswd_transport_write(transport, 0x18u, 0u) ||
-        !rvswd_transport_write(transport, 0x16u, 0x00000700u) ||
-        !rvswd_transport_write(transport, 0x20u, 0x00a68023u) ||
-        !rvswd_transport_write(transport, 0x21u, 0x00b68023u) ||
-        !rvswd_transport_write(transport, 0x22u, 0x00010001u) ||
-        !rvswd_transport_write(transport, 0x23u, 0x00c68223u) ||
-        !rvswd_transport_write(transport, 0x24u, 0x00068023u) ||
-        !rvswd_transport_write(transport, 0x25u, 0x00100073u) ||
-        !rvswd_transport_write(transport, 0x17u, 0x00271000u) ||
+        !rvswd_transport_write(transport, 0x18u, 0u).ok ||
+        !rvswd_transport_write(transport, 0x16u, 0x00000700u).ok ||
+        !rvswd_transport_write(transport, 0x20u, 0x00a68023u).ok ||
+        !rvswd_transport_write(transport, 0x21u, 0x00b68023u).ok ||
+        !rvswd_transport_write(transport, 0x22u, 0x00010001u).ok ||
+        !rvswd_transport_write(transport, 0x23u, 0x00c68223u).ok ||
+        !rvswd_transport_write(transport, 0x24u, 0x00068023u).ok ||
+        !rvswd_transport_write(transport, 0x25u, 0x00100073u).ok ||
+        !rvswd_transport_write(transport, 0x17u, 0x00271000u).ok ||
         !rvswd_debug_wait_abstract_idle(transport, &abstractcs)) {
         return false;
     }
@@ -426,14 +429,14 @@ static bool rvswd_flash_ch5xx_flash_program_page(
     if (!rvswd_debug_write_raw_gpr(access->transport, 13u,
                                    RVSWD_CH5XX_FLASH_WORD_DATA_ADDRESS) ||
         !rvswd_debug_write_raw_gpr(access->transport, 5u, 21u) ||
-        !rvswd_transport_write(access->transport, 0x18u, 0u) ||
-        !rvswd_transport_write(access->transport, 0x16u, 0x00000700u) ||
-        !rvswd_transport_write(access->transport, 0x20u, 0x4791c298u) ||
-        !rvswd_transport_write(access->transport, 0x21u, 0x00668703u) ||
-        !rvswd_transport_write(access->transport, 0x22u, 0xfe074ee3u) ||
-        !rvswd_transport_write(access->transport, 0x23u, 0x00568323u) ||
-        !rvswd_transport_write(access->transport, 0x24u, 0xfbed17fdu) ||
-        !rvswd_transport_write(access->transport, 0x25u, 0x00100073u)) {
+        !rvswd_transport_write(access->transport, 0x18u, 0u).ok ||
+        !rvswd_transport_write(access->transport, 0x16u, 0x00000700u).ok ||
+        !rvswd_transport_write(access->transport, 0x20u, 0x4791c298u).ok ||
+        !rvswd_transport_write(access->transport, 0x21u, 0x00668703u).ok ||
+        !rvswd_transport_write(access->transport, 0x22u, 0xfe074ee3u).ok ||
+        !rvswd_transport_write(access->transport, 0x23u, 0x00568323u).ok ||
+        !rvswd_transport_write(access->transport, 0x24u, 0xfbed17fdu).ok ||
+        !rvswd_transport_write(access->transport, 0x25u, 0x00100073u).ok) {
         rvswd_flash_last_error_value = RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_SETUP;
         return false;
     }
@@ -444,12 +447,12 @@ static bool rvswd_flash_ch5xx_flash_program_page(
                          ((uint32_t)data[offset + 2u] << 16u) |
                          ((uint32_t)data[offset + 3u] << 24u);
 
-        if (!rvswd_transport_write(access->transport, 0x04u, value)) {
+        if (!rvswd_transport_write(access->transport, 0x04u, value).ok) {
             rvswd_flash_last_error_value = RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_DATA;
             return false;
         }
         // 该 Abstract Command 同时把 data0 传入 a4 并执行 Program Buffer
-        if (!rvswd_transport_write(access->transport, 0x17u, 0x0027100eu)) {
+        if (!rvswd_transport_write(access->transport, 0x17u, 0x0027100eu).ok) {
             rvswd_flash_last_error_value = RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_EXECUTE;
             return false;
         }

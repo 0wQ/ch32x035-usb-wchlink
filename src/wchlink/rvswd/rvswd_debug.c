@@ -19,13 +19,16 @@ bool rvswd_debug_wait_abstract_idle_timeout(struct rvswd_transport *transport,
     uint64_t start = bsp_time_us();
 
     do {
-        if (!rvswd_transport_read(transport, RVSWD_DMI_ABSTRACTCS,
-                                  abstractcs)) {
-            if (!rvswd_transport_failure_retryable(transport)) {
+        struct rvswd_transport_result read_result =
+            rvswd_transport_read(transport, RVSWD_DMI_ABSTRACTCS);
+
+        if (!read_result.ok) {
+            if (!read_result.retryable) {
                 return false;
             }
             continue;
         }
+        *abstractcs = read_result.value;
         if ((*abstractcs & (1u << 12u)) == 0u) {
             return true;
         }
@@ -42,64 +45,92 @@ bool rvswd_debug_wait_abstract_idle(struct rvswd_transport *transport,
 
 bool rvswd_debug_write_register(struct rvswd_transport *transport,
                                 uint16_t regno, uint32_t value) {
-    uint32_t abstractcs;
+    struct rvswd_transport_result read_result;
 
-    if (!rvswd_transport_write(transport, RVSWD_DMI_DATA0, value) ||
+    if (!rvswd_transport_write(transport, RVSWD_DMI_DATA0, value).ok ||
         !rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTCS,
-                               0x00000700u) ||
+                               0x00000700u)
+             .ok ||
         !rvswd_transport_write(transport, RVSWD_DMI_COMMAND,
-                               0x00230000u | (uint32_t)regno) ||
-        !rvswd_transport_read(transport, RVSWD_DMI_ABSTRACTCS, &abstractcs)) {
+                               0x00230000u | (uint32_t)regno)
+             .ok) {
         return false;
     }
-    return ((abstractcs >> 8u) & 0x07u) == 0u;
+    read_result = rvswd_transport_read(transport, RVSWD_DMI_ABSTRACTCS);
+    if (!read_result.ok) {
+        return false;
+    }
+    return ((read_result.value >> 8u) & 0x07u) == 0u;
 }
 
 bool rvswd_debug_read_register(struct rvswd_transport *transport,
                                uint16_t regno, uint32_t *value) {
-    uint32_t abstractcs;
+    struct rvswd_transport_result read_result;
 
     if (value == NULL ||
         !rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTCS,
-                               0x00000700u) ||
+                               0x00000700u)
+             .ok ||
         !rvswd_transport_write(transport, RVSWD_DMI_COMMAND,
-                               0x00220000u | (uint32_t)regno) ||
-        !rvswd_transport_read(transport, RVSWD_DMI_ABSTRACTCS, &abstractcs) ||
-        ((abstractcs >> 8u) & 0x07u) != 0u) {
+                               0x00220000u | (uint32_t)regno)
+             .ok) {
         return false;
     }
-    return rvswd_transport_read(transport, RVSWD_DMI_DATA0, value);
+    read_result = rvswd_transport_read(transport, RVSWD_DMI_ABSTRACTCS);
+    if (!read_result.ok || ((read_result.value >> 8u) & 0x07u) != 0u) {
+        return false;
+    }
+    read_result = rvswd_transport_read(transport, RVSWD_DMI_DATA0);
+    if (!read_result.ok) {
+        return false;
+    }
+    *value = read_result.value;
+    return true;
 }
 
 bool rvswd_debug_write_raw_gpr(struct rvswd_transport *transport,
                                uint8_t regno, uint32_t value) {
-    uint32_t abstractcs;
+    struct rvswd_transport_result read_result;
 
-    if (!rvswd_transport_write(transport, RVSWD_DMI_DATA0, value) ||
+    if (!rvswd_transport_write(transport, RVSWD_DMI_DATA0, value).ok ||
         !rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTCS,
-                               0x00000700u) ||
+                               0x00000700u)
+             .ok ||
         !rvswd_transport_write(transport, RVSWD_DMI_COMMAND,
-                               0x00231000u | (uint32_t)regno) ||
-        !rvswd_transport_read(transport, RVSWD_DMI_ABSTRACTCS, &abstractcs)) {
+                               0x00231000u | (uint32_t)regno)
+             .ok) {
         return false;
     }
-    return ((abstractcs >> 8u) & 0x07u) == 0u;
+    read_result = rvswd_transport_read(transport, RVSWD_DMI_ABSTRACTCS);
+    if (!read_result.ok) {
+        return false;
+    }
+    return ((read_result.value >> 8u) & 0x07u) == 0u;
 }
 
 bool rvswd_debug_read_raw_gpr(struct rvswd_transport *transport, uint8_t regno,
                               uint32_t *value) {
-    uint32_t abstractcs;
+    struct rvswd_transport_result read_result;
 
     if (value == NULL ||
         !rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTCS,
-                               0x00000700u) ||
+                               0x00000700u)
+             .ok ||
         !rvswd_transport_write(transport, RVSWD_DMI_COMMAND,
-                               0x00221000u | (uint32_t)regno) ||
-        !rvswd_transport_read(transport, RVSWD_DMI_ABSTRACTCS, &abstractcs) ||
-        ((abstractcs >> 8u) & 0x07u) != 0u) {
+                               0x00221000u | (uint32_t)regno)
+             .ok) {
         return false;
     }
-    return rvswd_transport_read(transport, RVSWD_DMI_DATA0, value);
+    read_result = rvswd_transport_read(transport, RVSWD_DMI_ABSTRACTCS);
+    if (!read_result.ok || ((read_result.value >> 8u) & 0x07u) != 0u) {
+        return false;
+    }
+    read_result = rvswd_transport_read(transport, RVSWD_DMI_DATA0);
+    if (!read_result.ok) {
+        return false;
+    }
+    *value = read_result.value;
+    return true;
 }
 
 bool rvswd_debug_wait_dmstatus(struct rvswd_transport *transport,
@@ -107,12 +138,13 @@ bool rvswd_debug_wait_dmstatus(struct rvswd_transport *transport,
     uint64_t start = bsp_time_us();
 
     do {
-        uint32_t status;
+        struct rvswd_transport_result read_result =
+            rvswd_transport_read(transport, 0x11u);
 
-        if (!rvswd_transport_read(transport, 0x11u, &status)) {
+        if (!read_result.ok) {
             return false;
         }
-        if (((status & mask) != 0u) == set) {
+        if (((read_result.value & mask) != 0u) == set) {
             return true;
         }
         bsp_delay_us(100u);
@@ -122,7 +154,7 @@ bool rvswd_debug_wait_dmstatus(struct rvswd_transport *transport,
 }
 
 bool rvswd_debug_halt(struct rvswd_transport *transport) {
-    return rvswd_transport_write(transport, RVSWD_DMI_CONTROL, 0x80000001u) &&
+    return rvswd_transport_write(transport, RVSWD_DMI_CONTROL, 0x80000001u).ok &&
            rvswd_debug_wait_dmstatus(transport, 1u << 9u, true, 100u);
 }
 
@@ -153,16 +185,16 @@ bool rvswd_debug_execute(struct rvswd_transport *transport, uint32_t entry,
         if (result != NULL) *result = 0xe005u;
         return false;
     }
-    if (!rvswd_transport_write(transport, RVSWD_DMI_CONTROL, 0x80000001u) ||
-        !rvswd_transport_write(transport, RVSWD_DMI_CONTROL, 0x80000001u) ||
-        !rvswd_transport_write(transport, RVSWD_DMI_CONTROL, 0x00000001u) ||
-        !rvswd_transport_write(transport, RVSWD_DMI_CONTROL, 0x40000001u)) {
+    if (!rvswd_transport_write(transport, RVSWD_DMI_CONTROL, 0x80000001u).ok ||
+        !rvswd_transport_write(transport, RVSWD_DMI_CONTROL, 0x80000001u).ok ||
+        !rvswd_transport_write(transport, RVSWD_DMI_CONTROL, 0x00000001u).ok ||
+        !rvswd_transport_write(transport, RVSWD_DMI_CONTROL, 0x40000001u).ok) {
         if (result != NULL) *result = 0xe006u;
         return false;
     }
     // V30X 的 resumeack 会跨会话保持，给 resumereq 留出处理时间后直接等待 ebreak
     bsp_delay_us(RVSWD_RESUME_MIN_DELAY_US);
-    if (!rvswd_transport_write(transport, RVSWD_DMI_CONTROL, 0x00000001u)) {
+    if (!rvswd_transport_write(transport, RVSWD_DMI_CONTROL, 0x00000001u).ok) {
         if (result != NULL) *result = 0xe006u;
         return false;
     }

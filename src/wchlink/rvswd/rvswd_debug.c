@@ -4,9 +4,9 @@
 
 #include <stddef.h>
 
-#define RVSWD_ABSTRACT_TIMEOUT_US 10000u
-#define RVSWD_RESUME_MIN_DELAY_US 1000u
-#define RVSWD_EXECUTE_TIMEOUT_MS  5000u
+static const uint32_t rvswd_debug_abstract_timeout_us = 10000u;
+static const uint32_t rvswd_debug_resume_request_delay_us = 1000u;
+static const uint32_t rvswd_debug_execute_timeout_ms = 5000u;
 
 bool rvswd_debug_wait_abstract_idle_timeout(struct rvswd_operation *operation,
                                             uint32_t *abstractcs,
@@ -36,7 +36,7 @@ bool rvswd_debug_wait_abstract_idle_timeout(struct rvswd_operation *operation,
 bool rvswd_debug_wait_abstract_idle(struct rvswd_operation *operation,
                                     uint32_t *abstractcs) {
     return rvswd_debug_wait_abstract_idle_timeout(operation, abstractcs,
-                                                  RVSWD_ABSTRACT_TIMEOUT_US);
+                                                  rvswd_debug_abstract_timeout_us);
 }
 
 bool rvswd_debug_write_register(struct rvswd_operation *operation,
@@ -199,7 +199,7 @@ bool rvswd_debug_execute(struct rvswd_operation *operation, uint32_t entry,
         return false;
     }
     // V30X 的 resumeack 会跨会话保持，给 resumereq 留出处理时间后直接等待 ebreak
-    bsp_delay_us(RVSWD_RESUME_MIN_DELAY_US);
+    bsp_delay_us(rvswd_debug_resume_request_delay_us);
     if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL,
                                    0x00000001u)
              .ok) {
@@ -207,7 +207,7 @@ bool rvswd_debug_execute(struct rvswd_operation *operation, uint32_t entry,
         return false;
     }
     if (!rvswd_debug_wait_dmstatus(operation, 1u << 9u, true,
-                                   RVSWD_EXECUTE_TIMEOUT_MS)) {
+                                   rvswd_debug_execute_timeout_ms)) {
         (void)rvswd_debug_halt(operation);
         if (result != NULL) *result = 0xe007u;
         return false;

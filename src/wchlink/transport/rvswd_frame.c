@@ -1,6 +1,6 @@
 #include "rvswd_frame.h"
 
-#define RVSWD_STATUS_OK 1u
+static const uint8_t rvswd_frame_status_ok = 1u;
 
 uint8_t rvswd_frame_xor_bits(uint32_t value) {
     value ^= value >> 16u;
@@ -56,7 +56,7 @@ uint8_t rvswd_frame_unpack_handshake(const uint8_t *target) {
 }
 
 bool rvswd_frame_status_is_ok(uint8_t status) {
-    return status == RVSWD_STATUS_OK;
+    return status == rvswd_frame_status_ok;
 }
 
 uint32_t rvswd_frame_unpack_data(const uint8_t *target) {

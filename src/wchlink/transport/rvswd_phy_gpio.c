@@ -1,20 +1,19 @@
 #include "rvswd_phy_gpio.h"
 
-#include "bsp/bsp_delay.h"
 #include "rvswd_frame.h"
 
 #include <ch32x035.h>
 
-#define RVSWD_CLOCK_PIN               GPIO_Pin_2
-#define RVSWD_DATA_PIN                GPIO_Pin_3
-#define RVSWD_DATA_PULLUP_PIN         GPIO_Pin_1
-#define RVSWD_CLOCK_CFG_SHIFT         8u
-#define RVSWD_DATA_CFG_SHIFT          12u
-#define RVSWD_DATA_PULLUP_CFG_SHIFT   4u
-#define RVSWD_CLOCK_MODE_OUTPUT_50MHZ 0x03u
-#define RVSWD_PINS                    (RVSWD_DATA_PULLUP_PIN | RVSWD_CLOCK_PIN | RVSWD_DATA_PIN)
-#define RVSWD_WAKEUP_CLOCKS           100u
-#define RVSWD_INTERFRAME_GUARD_US     0u
+// PA2 驱动 SWCLK，PA3 双向承载 SWDIO，PA1 通过 5.1 kOhm 外部电阻控制上拉
+static const uint32_t rvswd_phy_clock_pin = GPIO_Pin_2;
+static const uint32_t rvswd_phy_data_pin = GPIO_Pin_3;
+static const uint32_t rvswd_phy_data_pullup_pin = GPIO_Pin_1;
+static const uint8_t rvswd_phy_clock_cfg_shift = 8u;
+static const uint8_t rvswd_phy_data_cfg_shift = 12u;
+static const uint8_t rvswd_phy_data_pullup_cfg_shift = 4u;
+static const uint32_t rvswd_phy_clock_mode_output_50mhz = 0x03u;
+static const uint32_t rvswd_phy_pins = GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_3;
+static const uint8_t rvswd_phy_wakeup_clocks = 100u;
 
 static inline __attribute__((always_inline)) void rvswd_phy_half_period(
     bool fast_timing) {
@@ -43,19 +42,19 @@ static inline __attribute__((always_inline)) void rvswd_phy_half_period(
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_clock_low(void) {
-    GPIOA->BSHR = RVSWD_CLOCK_PIN << 16u;
+    GPIOA->BSHR = rvswd_phy_clock_pin << 16u;
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_clock_high(void) {
-    GPIOA->BSHR = RVSWD_CLOCK_PIN;
+    GPIOA->BSHR = rvswd_phy_clock_pin;
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_data_low(void) {
-    GPIOA->BSHR = RVSWD_DATA_PIN << 16u;
+    GPIOA->BSHR = rvswd_phy_data_pin << 16u;
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_data_high(void) {
-    GPIOA->BSHR = RVSWD_DATA_PIN;
+    GPIOA->BSHR = rvswd_phy_data_pin;
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_fast_half_period(void) {
@@ -65,11 +64,11 @@ static inline __attribute__((always_inline)) void rvswd_phy_fast_half_period(voi
 
 static inline __attribute__((always_inline)) void rvswd_phy_drive_bit_fast(
     uint8_t value) {
-    GPIOA->BSHR = (RVSWD_CLOCK_PIN << 16u) |
-                  (value != 0u ? RVSWD_DATA_PIN
-                               : (RVSWD_DATA_PIN << 16u));
+    GPIOA->BSHR = (rvswd_phy_clock_pin << 16u) |
+                  (value != 0u ? rvswd_phy_data_pin
+                               : (rvswd_phy_data_pin << 16u));
     rvswd_phy_fast_half_period();
-    GPIOA->BSHR = RVSWD_CLOCK_PIN;
+    GPIOA->BSHR = rvswd_phy_clock_pin;
     rvswd_phy_fast_half_period();
 }
 
@@ -77,24 +76,24 @@ static inline __attribute__((always_inline)) uint8_t
 rvswd_phy_sample_bit_fast(void) {
     uint8_t value;
 
-    GPIOA->BSHR = RVSWD_CLOCK_PIN << 16u;
+    GPIOA->BSHR = rvswd_phy_clock_pin << 16u;
     rvswd_phy_fast_half_period();
-    GPIOA->BSHR = RVSWD_CLOCK_PIN;
-    value = (GPIOA->INDR & RVSWD_DATA_PIN) != 0u ? 1u : 0u;
+    GPIOA->BSHR = rvswd_phy_clock_pin;
+    value = (GPIOA->INDR & rvswd_phy_data_pin) != 0u ? 1u : 0u;
     rvswd_phy_fast_half_period();
     return value;
 }
 
 void rvswd_phy_gpio_config_data_output(void) {
-    GPIOA->CFGLR = (GPIOA->CFGLR & ~(0xfu << RVSWD_DATA_CFG_SHIFT)) |
-                   (0x01u << RVSWD_DATA_CFG_SHIFT);
+    GPIOA->CFGLR = (GPIOA->CFGLR & ~(0xfu << rvswd_phy_data_cfg_shift)) |
+                   (0x01u << rvswd_phy_data_cfg_shift);
 }
 
 void rvswd_phy_gpio_config_data_input(void) {
     // turnaround 开始前将锁存置高，释放 PA3 SWDIO，PA1 通过外部电阻提供上拉
-    GPIOA->BSHR = RVSWD_DATA_PIN;
-    GPIOA->CFGLR = (GPIOA->CFGLR & ~(0xfu << RVSWD_DATA_CFG_SHIFT)) |
-                   (0x08u << RVSWD_DATA_CFG_SHIFT);
+    GPIOA->BSHR = rvswd_phy_data_pin;
+    GPIOA->CFGLR = (GPIOA->CFGLR & ~(0xfu << rvswd_phy_data_cfg_shift)) |
+                   (0x08u << rvswd_phy_data_cfg_shift);
 }
 
 void rvswd_phy_gpio_start(bool fast_timing) {
@@ -140,7 +139,7 @@ static inline __attribute__((always_inline)) uint8_t rvswd_phy_sample_bit(
     rvswd_phy_half_period(fast_timing);
     rvswd_phy_clock_high();
     // 上升沿后立即读取目标驱动的 SWDIO 电平
-    value = (GPIOA->INDR & RVSWD_DATA_PIN) != 0u ? 1u : 0u;
+    value = (GPIOA->INDR & rvswd_phy_data_pin) != 0u ? 1u : 0u;
     rvswd_phy_half_period(fast_timing);
     return value;
 }
@@ -218,7 +217,7 @@ void rvswd_phy_gpio_wakeup(bool fast_timing, bool stop_condition) {
     rvswd_phy_gpio_config_data_output();
     rvswd_phy_clock_high();
     rvswd_phy_data_high();
-    for (uint8_t clock = 0u; clock < RVSWD_WAKEUP_CLOCKS; ++clock) {
+    for (uint8_t clock = 0u; clock < rvswd_phy_wakeup_clocks; ++clock) {
         rvswd_phy_clock_low();
         rvswd_phy_half_period(fast_timing);
         rvswd_phy_clock_high();
@@ -228,28 +227,27 @@ void rvswd_phy_gpio_wakeup(bool fast_timing, bool stop_condition) {
         rvswd_phy_gpio_stop(fast_timing);
     }
     __enable_irq();
-    bsp_delay_us(RVSWD_INTERFRAME_GUARD_US);
 }
 
 void rvswd_phy_gpio_init(void) {
     RCC->APB2PCENR |= RCC_APB2Periph_GPIOA;
     // PA1 通过 5.1 kOhm 外部电阻给 PA3 SWDIO 提供上拉，首帧前保持高电平
-    GPIOA->BSHR = RVSWD_DATA_PULLUP_PIN | RVSWD_CLOCK_PIN | RVSWD_DATA_PIN;
-    GPIOA->CFGLR = (GPIOA->CFGLR & ~((0xfu << RVSWD_DATA_CFG_SHIFT) |
-                                     (0xfu << RVSWD_CLOCK_CFG_SHIFT) |
-                                     (0xfu << RVSWD_DATA_PULLUP_CFG_SHIFT))) |
-                   (0x08u << RVSWD_DATA_CFG_SHIFT) |
-                   (RVSWD_CLOCK_MODE_OUTPUT_50MHZ << RVSWD_CLOCK_CFG_SHIFT) |
-                   (0x01u << RVSWD_DATA_PULLUP_CFG_SHIFT);
+    GPIOA->BSHR = rvswd_phy_data_pullup_pin | rvswd_phy_clock_pin | rvswd_phy_data_pin;
+    GPIOA->CFGLR = (GPIOA->CFGLR & ~((0xfu << rvswd_phy_data_cfg_shift) |
+                                     (0xfu << rvswd_phy_clock_cfg_shift) |
+                                     (0xfu << rvswd_phy_data_pullup_cfg_shift))) |
+                   (0x08u << rvswd_phy_data_cfg_shift) |
+                   (rvswd_phy_clock_mode_output_50mhz << rvswd_phy_clock_cfg_shift) |
+                   (0x01u << rvswd_phy_data_pullup_cfg_shift);
 }
 
 void rvswd_phy_gpio_disconnect(void) {
-    GPIOA->BSHR = RVSWD_PINS;
+    GPIOA->BSHR = rvswd_phy_pins;
     // 会话结束后释放 PA1 上拉控制和两根调试线，目标断电时禁止经 IO 反向供电
-    GPIOA->CFGLR = (GPIOA->CFGLR & ~((0xfu << RVSWD_DATA_CFG_SHIFT) |
-                                     (0xfu << RVSWD_CLOCK_CFG_SHIFT) |
-                                     (0xfu << RVSWD_DATA_PULLUP_CFG_SHIFT))) |
-                   (0x04u << RVSWD_DATA_CFG_SHIFT) |
-                   (0x04u << RVSWD_CLOCK_CFG_SHIFT) |
-                   (0x04u << RVSWD_DATA_PULLUP_CFG_SHIFT);
+    GPIOA->CFGLR = (GPIOA->CFGLR & ~((0xfu << rvswd_phy_data_cfg_shift) |
+                                     (0xfu << rvswd_phy_clock_cfg_shift) |
+                                     (0xfu << rvswd_phy_data_pullup_cfg_shift))) |
+                   (0x04u << rvswd_phy_data_cfg_shift) |
+                   (0x04u << rvswd_phy_clock_cfg_shift) |
+                   (0x04u << rvswd_phy_data_pullup_cfg_shift);
 }

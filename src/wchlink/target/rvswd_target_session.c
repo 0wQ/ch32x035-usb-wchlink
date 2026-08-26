@@ -3,6 +3,7 @@
 #include "rvswd_debug.h"
 #include "rvswd_flash.h"
 #include "rvswd_memory.h"
+#include "rvswd_operation.h"
 #include "rvswd_reset.h"
 #include "rvswd_target_profile.h"
 #include "rvswd_transport.h"
@@ -51,27 +52,18 @@ static struct rvswd_target_result rvswd_target_session_dmi_result(
     return result;
 }
 
-static struct rvswd_target_result rvswd_target_session_memory_result(
-    struct rvswd_target_session *session, uint32_t address, bool success) {
+static struct rvswd_target_result rvswd_target_session_operation_result(
+    const struct rvswd_operation *operation,
+    enum rvswd_target_result_domain domain, uint32_t code, bool success) {
     struct rvswd_target_result result;
 
     if (success) {
-        result = rvswd_target_result_success();
-    } else {
-        result = rvswd_target_result_failure(
-            RVSWD_TARGET_RESULT_MEMORY,
-            rvswd_memory_last_error(),
-            rvswd_transport_failure_retryable(&session->transport));
-        result.address = rvswd_memory_failure_address();
-        result.dmi_status = rvswd_memory_failure_dmi_status();
-        result.abstractcs = rvswd_memory_failure_abstractcs();
+        return rvswd_target_result_success();
     }
-    if (!success && result.code == 0u) {
-        result.code = 0x15u;
-    }
-    if (!success && result.address == 0u) {
-        result.address = address;
-    }
+    result = rvswd_target_result_failure(domain, code, operation->retryable);
+    result.address = operation->address;
+    result.dmi_status = operation->dmi_status;
+    result.abstractcs = operation->abstractcs;
     return result;
 }
 
@@ -164,15 +156,20 @@ struct rvswd_target_result rvswd_target_session_read_memory32(
     struct rvswd_target_session *session, uint32_t address) {
     uint32_t value = 0u;
     struct rvswd_target_result result;
+    struct rvswd_operation operation;
+    bool success;
 
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    result = rvswd_target_session_memory_result(
-        session, address,
-        rvswd_memory_read32(
-            &session->transport, rvswd_target_session_memory_profile(session),
-            session->info.chip_id != 0u, address, &value));
+    rvswd_operation_init(&operation, &session->transport);
+    operation.address = address;
+    success = rvswd_memory_read32(
+        &operation, rvswd_target_session_memory_profile(session),
+        session->info.chip_id != 0u, address, &value);
+    result = rvswd_target_session_operation_result(
+        &operation, RVSWD_TARGET_RESULT_MEMORY,
+        operation.memory_code == 0u ? 0x15u : operation.memory_code, success);
     if (result.ok) {
         result.value = value;
     }
@@ -181,52 +178,65 @@ struct rvswd_target_result rvswd_target_session_read_memory32(
 
 struct rvswd_target_result rvswd_target_session_write_memory32(
     struct rvswd_target_session *session, uint32_t address, uint32_t value) {
+    struct rvswd_operation operation;
+    bool success;
+
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_target_session_memory_result(
-        session, address,
-        rvswd_memory_write32(&session->transport, address, value));
+    rvswd_operation_init(&operation, &session->transport);
+    operation.address = address;
+    success = rvswd_memory_write32(&operation, address, value);
+    return rvswd_target_session_operation_result(
+        &operation, RVSWD_TARGET_RESULT_MEMORY,
+        operation.memory_code == 0u ? 0x15u : operation.memory_code, success);
 }
 
 struct rvswd_target_result rvswd_target_session_write_memory(
     struct rvswd_target_session *session, uint32_t address,
     const uint8_t *data, uint32_t length) {
+    struct rvswd_operation operation;
+    bool success;
+
     if (session == NULL || data == NULL || length == 0u) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_target_session_memory_result(
-        session, address,
-        rvswd_memory_write(&session->transport,
-                           rvswd_target_session_current_profile(session),
-                           address, data, length));
+    rvswd_operation_init(&operation, &session->transport);
+    success = rvswd_memory_write(
+        &operation, rvswd_target_session_current_profile(session), address, data,
+        length);
+    return rvswd_target_session_operation_result(
+        &operation, RVSWD_TARGET_RESULT_MEMORY,
+        operation.memory_code == 0u ? 0x15u : operation.memory_code, success);
 }
 
 struct rvswd_target_result rvswd_target_session_write_register(
     struct rvswd_target_session *session, uint16_t regno, uint32_t value) {
+    struct rvswd_operation operation;
+    bool success;
+
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_debug_write_register(&session->transport, regno, value)
-               ? rvswd_target_result_success()
-               : rvswd_target_result_failure(RVSWD_TARGET_RESULT_DEBUG,
-                                             rvswd_transport_last_status(&session->transport),
-                                             rvswd_transport_failure_retryable(&session->transport));
+    rvswd_operation_init(&operation, &session->transport);
+    success = rvswd_debug_write_register(&operation, regno, value);
+    return rvswd_target_session_operation_result(
+        &operation, RVSWD_TARGET_RESULT_DEBUG, operation.dmi_status, success);
 }
 
 struct rvswd_target_result rvswd_target_session_read_register(
     struct rvswd_target_session *session, uint16_t regno) {
     uint32_t value = 0u;
     struct rvswd_target_result result;
+    struct rvswd_operation operation;
 
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (!rvswd_debug_read_register(&session->transport, regno, &value)) {
-        return rvswd_target_result_failure(
-            RVSWD_TARGET_RESULT_DEBUG,
-            rvswd_transport_last_status(&session->transport),
-            rvswd_transport_failure_retryable(&session->transport));
+    rvswd_operation_init(&operation, &session->transport);
+    if (!rvswd_debug_read_register(&operation, regno, &value)) {
+        return rvswd_target_session_operation_result(
+            &operation, RVSWD_TARGET_RESULT_DEBUG, operation.dmi_status, false);
     }
     result = rvswd_target_result_success();
     result.value = value;
@@ -235,14 +245,16 @@ struct rvswd_target_result rvswd_target_session_read_register(
 
 struct rvswd_target_result rvswd_target_session_halt(
     struct rvswd_target_session *session) {
+    struct rvswd_operation operation;
+    bool success;
+
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_debug_halt(&session->transport)
-               ? rvswd_target_result_success()
-               : rvswd_target_result_failure(RVSWD_TARGET_RESULT_DEBUG,
-                                             rvswd_transport_last_status(&session->transport),
-                                             rvswd_transport_failure_retryable(&session->transport));
+    rvswd_operation_init(&operation, &session->transport);
+    success = rvswd_debug_halt(&operation);
+    return rvswd_target_session_operation_result(
+        &operation, RVSWD_TARGET_RESULT_DEBUG, operation.dmi_status, success);
 }
 
 struct rvswd_target_result rvswd_target_session_execute(
@@ -250,18 +262,19 @@ struct rvswd_target_result rvswd_target_session_execute(
     uint32_t mode, uint32_t address, uint32_t length, uint32_t data_address) {
     uint32_t value = 0xffffffffu;
     struct rvswd_target_result result;
+    struct rvswd_operation operation;
     bool success;
 
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    success = rvswd_debug_execute(&session->transport, entry, stack_top, mode,
-                                  address, length, data_address, &value);
-    result = success
-                 ? rvswd_target_result_success()
-                 : rvswd_target_result_failure(RVSWD_TARGET_RESULT_DEBUG,
-                                               value == 0xffffffffu ? 0x15u : value,
-                                               rvswd_transport_failure_retryable(&session->transport));
+    rvswd_operation_init(&operation, &session->transport);
+    operation.address = address;
+    success = rvswd_debug_execute(&operation, entry, stack_top, mode, address,
+                                  length, data_address, &value);
+    result = rvswd_target_session_operation_result(
+        &operation, RVSWD_TARGET_RESULT_DEBUG,
+        value == 0xffffffffu ? 0x15u : value, success);
     result.value = value;
     result.address = address;
     return result;
@@ -269,79 +282,90 @@ struct rvswd_target_result rvswd_target_session_execute(
 
 struct rvswd_target_result rvswd_target_session_reset_and_halt(
     struct rvswd_target_session *session) {
+    struct rvswd_operation operation;
+    bool success;
+
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_reset_and_halt(&session->transport)
-               ? rvswd_target_result_success()
-               : rvswd_target_result_failure(RVSWD_TARGET_RESULT_RESET,
-                                             rvswd_transport_last_status(&session->transport),
-                                             rvswd_transport_failure_retryable(&session->transport));
+    rvswd_operation_init(&operation, &session->transport);
+    success = rvswd_reset_and_halt(&operation);
+    return rvswd_target_session_operation_result(
+        &operation, RVSWD_TARGET_RESULT_RESET, operation.dmi_status, success);
 }
 
 struct rvswd_target_result rvswd_target_session_soft_reset_and_run(
     struct rvswd_target_session *session) {
+    struct rvswd_operation operation;
+    bool success;
+
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_soft_reset_and_run(&session->transport)
-               ? rvswd_target_result_success()
-               : rvswd_target_result_failure(RVSWD_TARGET_RESULT_RESET,
-                                             rvswd_transport_last_status(&session->transport),
-                                             rvswd_transport_failure_retryable(&session->transport));
+    rvswd_operation_init(&operation, &session->transport);
+    success = rvswd_soft_reset_and_run(&operation);
+    return rvswd_target_session_operation_result(
+        &operation, RVSWD_TARGET_RESULT_RESET, operation.dmi_status, success);
 }
 
 struct rvswd_target_result rvswd_target_session_reset_and_run(
     struct rvswd_target_session *session) {
+    struct rvswd_operation operation;
+    bool success;
+
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_reset_and_run(&session->transport)
-               ? rvswd_target_result_success()
-               : rvswd_target_result_failure(RVSWD_TARGET_RESULT_RESET,
-                                             rvswd_transport_last_status(&session->transport),
-                                             rvswd_transport_failure_retryable(&session->transport));
+    rvswd_operation_init(&operation, &session->transport);
+    success = rvswd_reset_and_run(&operation);
+    return rvswd_target_session_operation_result(
+        &operation, RVSWD_TARGET_RESULT_RESET, operation.dmi_status, success);
 }
 
 struct rvswd_target_result rvswd_target_session_flash_erase_all(
     struct rvswd_target_session *session) {
+    struct rvswd_operation operation;
+    bool success;
+
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_flash_erase_all(&session->transport, session->info.profile)
-               ? rvswd_target_result_success()
-               : rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
-                                             rvswd_flash_last_error(),
-                                             rvswd_transport_failure_retryable(&session->transport));
+    rvswd_operation_init(&operation, &session->transport);
+    success = rvswd_flash_erase_all(&operation, session->info.profile);
+    return rvswd_target_session_operation_result(
+        &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, success);
 }
 
 struct rvswd_target_result rvswd_target_session_flash_rewrite_page(
     struct rvswd_target_session *session, uint32_t address,
     const uint8_t *data) {
+    struct rvswd_operation operation;
+    bool success;
+
     if (session == NULL || data == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_flash_rewrite_page(&session->transport, session->info.profile,
-                                    address, data)
-               ? rvswd_target_result_success()
-               : rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
-                                             rvswd_flash_last_error(),
-                                             rvswd_transport_failure_retryable(&session->transport));
+    rvswd_operation_init(&operation, &session->transport);
+    operation.address = address;
+    success = rvswd_flash_rewrite_page(&operation, session->info.profile,
+                                       address, data);
+    return rvswd_target_session_operation_result(
+        &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, success);
 }
 
 struct rvswd_target_result rvswd_target_session_flash_read_protected(
     struct rvswd_target_session *session) {
     bool value = false;
     struct rvswd_target_result result;
+    struct rvswd_operation operation;
 
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (!rvswd_flash_read_protected(&session->transport, session->info.profile,
-                                    &value)) {
-        return rvswd_target_result_failure(
-            RVSWD_TARGET_RESULT_FLASH, rvswd_flash_last_error(),
-            rvswd_transport_failure_retryable(&session->transport));
+    rvswd_operation_init(&operation, &session->transport);
+    if (!rvswd_flash_read_protected(&operation, session->info.profile, &value)) {
+        return rvswd_target_session_operation_result(
+            &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, false);
     }
     result = rvswd_target_result_success();
     result.value = value ? 1u : 0u;
@@ -352,15 +376,16 @@ struct rvswd_target_result rvswd_target_session_flash_write_protected(
     struct rvswd_target_session *session) {
     bool value = false;
     struct rvswd_target_result result;
+    struct rvswd_operation operation;
 
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (!rvswd_flash_write_protected(&session->transport,
-                                     session->info.profile, &value)) {
-        return rvswd_target_result_failure(
-            RVSWD_TARGET_RESULT_FLASH, rvswd_flash_last_error(),
-            rvswd_transport_failure_retryable(&session->transport));
+    rvswd_operation_init(&operation, &session->transport);
+    if (!rvswd_flash_write_protected(&operation, session->info.profile,
+                                     &value)) {
+        return rvswd_target_session_operation_result(
+            &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, false);
     }
     result = rvswd_target_result_success();
     result.value = value ? 1u : 0u;
@@ -369,13 +394,15 @@ struct rvswd_target_result rvswd_target_session_flash_write_protected(
 
 struct rvswd_target_result rvswd_target_session_flash_set_read_protected(
     struct rvswd_target_session *session, bool protected) {
+    struct rvswd_operation operation;
+    bool success;
+
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_flash_set_read_protected(&session->transport,
-                                          session->info.profile, protected)
-               ? rvswd_target_result_success()
-               : rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
-                                             rvswd_flash_last_error(),
-                                             rvswd_transport_failure_retryable(&session->transport));
+    rvswd_operation_init(&operation, &session->transport);
+    success = rvswd_flash_set_read_protected(
+        &operation, session->info.profile, protected);
+    return rvswd_target_session_operation_result(
+        &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, success);
 }

@@ -14,6 +14,16 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "src"
 ALLOWLIST = ROOT / "tests" / "macro_allowlist.txt"
 
+IMPLICIT_ERROR_SYMBOLS = {
+    "rvswd_flash_last_error",
+    "rvswd_memory_failure_abstractcs",
+    "rvswd_memory_failure_address",
+    "rvswd_memory_failure_dmi_status",
+    "rvswd_memory_last_error",
+    "rvswd_transport_failure_retryable",
+    "rvswd_transport_last_status",
+}
+
 
 def source_files() -> list[Path]:
     return sorted(
@@ -46,6 +56,9 @@ def find_violations() -> list[str]:
             violations.append(f"WCH-Link 状态仍使用 SIZE_MAX 哨兵: {relative}")
         if "wchlink_session_take_isp_request" in text:
             violations.append(f"session 仍暴露 IAP pending getter: {relative}")
+        for symbol in sorted(IMPLICIT_ERROR_SYMBOLS):
+            if symbol in text:
+                violations.append(f"隐式错误状态符号仍存在 {symbol}: {relative}")
 
         if relative.parts[:3] in {
             ("src", "main.c"),

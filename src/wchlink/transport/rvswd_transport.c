@@ -24,8 +24,6 @@ void rvswd_transport_init(struct rvswd_transport *transport) {
         return;
     }
     transport->packet_mode = RVSWD_PACKET_SHORT;
-    transport->last_status = 0u;
-    transport->failure_retryable = false;
     transport->fast_timing = false;
     rvswd_phy_gpio_init();
 }
@@ -59,16 +57,6 @@ void rvswd_transport_wakeup(struct rvswd_transport *transport,
     if (transport != NULL) {
         rvswd_phy_gpio_wakeup(transport->fast_timing, stop_condition);
     }
-}
-
-uint8_t rvswd_transport_last_status(
-    const struct rvswd_transport *transport) {
-    return transport == NULL ? 0u : transport->last_status;
-}
-
-bool rvswd_transport_failure_retryable(
-    const struct rvswd_transport *transport) {
-    return transport != NULL && transport->failure_retryable;
 }
 
 struct rvswd_transport_probe_result rvswd_transport_probe_long(
@@ -137,13 +125,11 @@ struct rvswd_transport_result rvswd_transport_write(
         return result;
     }
     if (rvswd_transport_packet_mode(transport) == RVSWD_PACKET_LONG) {
-        transport->failure_retryable = false;
         for (uint8_t retry = 0u; retry < RVSWD_DMI_WRITE_RETRY_COUNT; ++retry) {
             struct rvswd_transport_probe_result probe =
                 rvswd_transport_probe_long(transport, 2u, address, value, 0u);
 
             result.status = probe.status;
-            transport->last_status = result.status;
             if (probe.status == RVSWD_LONG_STATUS_OK) {
                 if (address == 0x17u) {
                     bsp_delay_us(RVSWD_ABSTRACT_COMMAND_DELAY_US);
@@ -153,11 +139,9 @@ struct rvswd_transport_result rvswd_transport_write(
             }
             if (probe.status == RVSWD_LONG_STATUS_BUSY) {
                 result.retryable = true;
-                transport->failure_retryable = true;
                 bsp_delay_us(RVSWD_DMI_BUSY_DELAY_US);
             } else {
                 result.retryable = false;
-                transport->failure_retryable = false;
                 bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
             }
         }
@@ -168,13 +152,11 @@ struct rvswd_transport_result rvswd_transport_write(
     uint8_t target[7] = {0};
 
     rvswd_frame_pack_write(frame, address, value);
-    transport->failure_retryable = false;
     for (uint8_t retry = 0u; retry < RVSWD_DMI_WRITE_RETRY_COUNT; ++retry) {
         if (!rvswd_transport_transaction(transport, frame, target, false)) {
             return result;
         }
         result.status = rvswd_frame_unpack_handshake(target);
-        transport->last_status = result.status;
         if (rvswd_frame_status_is_ok(result.status)) {
             if (address == 0x17u) {
                 bsp_delay_us(RVSWD_ABSTRACT_COMMAND_DELAY_US);
@@ -184,11 +166,9 @@ struct rvswd_transport_result rvswd_transport_write(
         }
         if (result.status == RVSWD_STATUS_BUSY) {
             result.retryable = true;
-            transport->failure_retryable = true;
             bsp_delay_us(RVSWD_DMI_BUSY_DELAY_US);
         } else {
             result.retryable = false;
-            transport->failure_retryable = false;
             bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
         }
     }
@@ -203,13 +183,11 @@ struct rvswd_transport_result rvswd_transport_read(
         return result;
     }
     if (rvswd_transport_packet_mode(transport) == RVSWD_PACKET_LONG) {
-        transport->failure_retryable = false;
         for (uint8_t retry = 0u; retry < RVSWD_DMI_READ_RETRY_COUNT; ++retry) {
             struct rvswd_transport_probe_result probe =
                 rvswd_transport_probe_long(transport, 1u, address, 0u, 0u);
 
             result.status = probe.status;
-            transport->last_status = result.status;
             if (probe.status == RVSWD_LONG_STATUS_OK) {
                 result.ok = true;
                 result.value = probe.value;
@@ -217,11 +195,9 @@ struct rvswd_transport_result rvswd_transport_read(
             }
             if (probe.status == RVSWD_LONG_STATUS_BUSY) {
                 result.retryable = true;
-                transport->failure_retryable = true;
                 bsp_delay_us(RVSWD_DMI_BUSY_DELAY_US);
             } else {
                 result.retryable = false;
-                transport->failure_retryable = false;
                 bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
             }
         }
@@ -232,22 +208,18 @@ struct rvswd_transport_result rvswd_transport_read(
     uint8_t target[7] = {0};
 
     rvswd_frame_pack_read(frame, address);
-    transport->failure_retryable = false;
     for (uint8_t retry = 0u; retry < RVSWD_DMI_READ_RETRY_COUNT; ++retry) {
         if (!rvswd_transport_transaction(transport, frame, target, true)) {
             return result;
         }
         result.status = rvswd_frame_unpack_handshake(target);
-        transport->last_status = result.status;
         if (result.status == RVSWD_STATUS_BUSY) {
             result.retryable = true;
-            transport->failure_retryable = true;
             bsp_delay_us(RVSWD_DMI_BUSY_DELAY_US);
             continue;
         }
         if (!rvswd_frame_status_is_ok(result.status)) {
             result.retryable = false;
-            transport->failure_retryable = false;
             bsp_delay_us(RVSWD_DMI_ERROR_DELAY_US);
             continue;
         }

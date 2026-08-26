@@ -8,11 +8,12 @@
 #include "wchlink_transfer.h"
 #include "wchlink_wire.h"
 
+#include <stdbool.h>
+
 struct wchlink_session {
     struct wchlink_target_ports target;
     struct wchlink_transfer transfer;
     bool ch5xx_info_query_seen;
-    bool isp_request_pending;
 };
 
 static struct wchlink_session wchlink_session_state;
@@ -173,15 +174,7 @@ void wchlink_session_reset(void) {
     // 失败连接也会配置调试引脚，所有会话复位都必须释放总线
     wchlink_target_disconnect();
     wchlink_session_state.ch5xx_info_query_seen = false;
-    wchlink_session_state.isp_request_pending = false;
     wchlink_transfer_reset(&wchlink_session_state.transfer);
-}
-
-bool wchlink_session_take_isp_request(void) {
-    bool pending = wchlink_session_state.isp_request_pending;
-
-    wchlink_session_state.isp_request_pending = false;
-    return pending;
 }
 
 enum wchlink_session_data_io wchlink_session_next_data_io(void) {
@@ -215,8 +208,9 @@ size_t wchlink_session_poll_data_in(uint8_t *data, size_t capacity) {
 void wchlink_session_submit_data_out(const uint8_t *data, size_t length) {
     wchlink_transfer_write_data(&wchlink_session_state.transfer, data, length);
 }
-size_t wchlink_session_process(const uint8_t *request, size_t request_length,
-                               uint8_t *response, size_t response_capacity) {
+static size_t wchlink_session_dispatch(
+    const uint8_t *request, size_t request_length, uint8_t *response,
+    size_t response_capacity, enum wchlink_session_action *action) {
     uint8_t family;
     struct rvswd_target_result target_result;
 
@@ -240,8 +234,8 @@ size_t wchlink_session_process(const uint8_t *request, size_t request_length,
         }
         if (request[3] == WCHLINK_DEVICE_MODE_IAP) {
             // 保留官方 SetIAPMode 的无响应语义，由 USB 层切换到本探针的维护 ISP
-            wchlink_session_state.isp_request_pending = true;
-            return SIZE_MAX;
+            *action = WCHLINK_SESSION_ACTION_ENTER_ISP;
+            return 0u;
         }
         return wchlink_wire_unsupported(response, response_capacity,
                                         WCHLINK_FAMILY_DEVICE_MODE);
@@ -523,4 +517,20 @@ size_t wchlink_session_process(const uint8_t *request, size_t request_length,
         default:
             return wchlink_wire_ack(response, response_capacity, family);
     }
+}
+
+struct wchlink_session_command_result wchlink_session_process(
+    const uint8_t *request, size_t request_length, uint8_t *response,
+    size_t response_capacity) {
+    struct wchlink_session_command_result result = {
+        .status = WCHLINK_SESSION_COMMAND_COMPLETED,
+        .action = WCHLINK_SESSION_ACTION_NONE,
+    };
+
+    result.response_length = wchlink_session_dispatch(
+        request, request_length, response, response_capacity, &result.action);
+    if (result.action != WCHLINK_SESSION_ACTION_NONE) {
+        result.status = WCHLINK_SESSION_COMMAND_NO_RESPONSE;
+    }
+    return result;
 }

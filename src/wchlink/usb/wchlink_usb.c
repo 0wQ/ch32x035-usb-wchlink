@@ -471,6 +471,7 @@ static void wchlink_service_response_timeout(void) {
 void wchlink_usb_process(void) {
     uint8_t request[WCHLINK_MPS];
     uint16_t request_length;
+    struct wchlink_session_command_result command_result;
     size_t response_length;
 
     if (!wchlink_configured) {
@@ -494,15 +495,16 @@ void wchlink_usb_process(void) {
     // 协议处理包含 RVSWD 长事务，先重新挂载 OUT 端点避免主机在处理期间超时
     wchlink_arm_request();
 
-    response_length = wchlink_session_process(request, request_length,
-                                              wchlink_response, sizeof(wchlink_response));
-    if (wchlink_session_take_isp_request()) {
+    command_result = wchlink_session_process(
+        request, request_length, wchlink_response, sizeof(wchlink_response));
+    if (command_result.action == WCHLINK_SESSION_ACTION_ENTER_ISP) {
         bsp_system_enter_isp();
     }
-    if (response_length == SIZE_MAX) {
+    if (command_result.status == WCHLINK_SESSION_COMMAND_NO_RESPONSE) {
         wchlink_arm_request();
         return;
     }
+    response_length = command_result.response_length;
     if (response_length == 0u) {
         response_length = 4u;
         memset(wchlink_response, 0, response_length);

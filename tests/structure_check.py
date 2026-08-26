@@ -42,6 +42,10 @@ def find_violations() -> list[str]:
         relative = path.relative_to(ROOT)
         if "rvswd_gpio" in text:
             violations.append(f"旧 facade 符号仍存在: {relative}")
+        if relative.as_posix().startswith("src/wchlink/") and "SIZE_MAX" in text:
+            violations.append(f"WCH-Link 状态仍使用 SIZE_MAX 哨兵: {relative}")
+        if "wchlink_session_take_isp_request" in text:
+            violations.append(f"session 仍暴露 IAP pending getter: {relative}")
 
         if relative.parts[:3] in {
             ("src", "main.c"),

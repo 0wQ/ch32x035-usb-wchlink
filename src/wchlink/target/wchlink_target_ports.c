@@ -2,13 +2,12 @@
 
 #include "wchlink_family.h"
 
-#include <string.h>
+#include <stddef.h>
 
 void wchlink_target_ports_init(struct wchlink_target_ports *ports) {
     if (ports == NULL) {
         return;
     }
-    memset(ports, 0, sizeof(*ports));
     rvswd_target_session_init(&ports->session);
 }
 

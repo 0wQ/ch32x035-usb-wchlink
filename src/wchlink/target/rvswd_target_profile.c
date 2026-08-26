@@ -1,4 +1,4 @@
-#include "rvswd_target.h"
+#include "rvswd_target_profile.h"
 
 #include "wchlink_family.h"
 
@@ -67,10 +67,6 @@ static const struct rvswd_target_profile rvswd_target_profile_ch58x = {
     .option_base = 0u,
 };
 
-static uint32_t rvswd_target_current_chip_id;
-static uint8_t rvswd_target_expected_family;
-static bool rvswd_target_uses_family_hint;
-
 const struct rvswd_target_profile *rvswd_target_profile_from_chip_id(
     uint32_t chip_id) {
     switch (chip_id & RVSWD_CHIP_FAMILY_MASK) {
@@ -109,62 +105,4 @@ const struct rvswd_target_profile *rvswd_target_profile_from_family(
         default:
             return NULL;
     }
-}
-
-const struct rvswd_target_profile *rvswd_target_profile_current(void) {
-    const struct rvswd_target_profile *profile =
-        rvswd_target_profile_from_chip_id(rvswd_target_current_chip_id);
-
-    if (profile != NULL || !rvswd_target_uses_family_hint) {
-        return profile;
-    }
-    return rvswd_target_profile_from_family(rvswd_target_expected_family);
-}
-
-void rvswd_target_reset(void) {
-    rvswd_target_current_chip_id = 0u;
-    rvswd_target_uses_family_hint = false;
-}
-
-void rvswd_target_set_chip_id(uint32_t chip_id) {
-    rvswd_target_current_chip_id = chip_id;
-}
-
-uint32_t rvswd_target_chip_id(void) {
-    return rvswd_target_current_chip_id;
-}
-
-void rvswd_target_set_family_hint(uint8_t family) {
-    rvswd_target_expected_family = family;
-}
-
-uint8_t rvswd_target_family_hint(void) {
-    return rvswd_target_expected_family;
-}
-
-bool rvswd_target_family_hint_active(void) {
-    return rvswd_target_uses_family_hint;
-}
-
-void rvswd_target_set_family_hint_active(bool active) {
-    rvswd_target_uses_family_hint = active;
-}
-
-uint8_t rvswd_target_family(void) {
-    const struct rvswd_target_profile *profile =
-        rvswd_target_profile_current();
-
-    if (profile != NULL) {
-        return profile->wchlink_family;
-    }
-    profile = rvswd_target_profile_from_family(rvswd_target_expected_family);
-    return profile == NULL ? 0u : profile->wchlink_family;
-}
-
-bool rvswd_target_supports_memory_streaming(void) {
-    const struct rvswd_target_profile *profile =
-        rvswd_target_profile_current();
-
-    return profile != NULL &&
-           profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING;
 }

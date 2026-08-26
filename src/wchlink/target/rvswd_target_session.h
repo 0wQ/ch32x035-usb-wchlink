@@ -8,9 +8,12 @@
 
 // 该结构只在 WCH-Link session 内分配，连接状态和目标信息不向 USB 层泄漏
 struct rvswd_target_session {
+    // info 只记录识别后锁定的目标，hint 仅参与下一次连接探测
     struct rvswd_target_info info;
     uint8_t family_hint;
     uint8_t connect_error;
+    // 受保护目标无法读取 ChipID 时，连接流程显式启用 hint profile
+    bool family_hint_active;
 };
 
 void rvswd_target_session_init(struct rvswd_target_session *session);

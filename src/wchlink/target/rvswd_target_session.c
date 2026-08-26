@@ -8,7 +8,7 @@
 #include "rvswd_memory.h"
 #include "rvswd_phy_gpio.h"
 #include "rvswd_reset.h"
-#include "rvswd_target.h"
+#include "rvswd_target_profile.h"
 #include "rvswd_types.h"
 
 #include <stddef.h>
@@ -33,8 +33,6 @@
 #define RVSWD_FLASH_OBR_ADDRESS        0x4002201cu
 #define RVSWD_FLASH_OBR_READ_PROTECTED (1u << 1u)
 
-static uint8_t rvswd_connect_last_error;
-
 extern const uint8_t ch5xx_flash_erase_stub_start[];
 extern const uint8_t ch5xx_flash_erase_stub_end[];
 
@@ -42,6 +40,35 @@ static bool rvswd_target_session_legacy_write_dmi(uint8_t address,
                                                   uint32_t value);
 static bool rvswd_target_session_legacy_read_dmi(uint8_t address,
                                                  uint32_t *value);
+
+static const struct rvswd_target_profile *rvswd_target_session_current_profile(
+    const struct rvswd_target_session *session) {
+    const struct rvswd_target_profile *profile =
+        rvswd_target_profile_from_chip_id(session->info.chip_id);
+
+    if (profile != NULL || !session->family_hint_active) {
+        return profile;
+    }
+    return rvswd_target_profile_from_family(session->family_hint);
+}
+
+static const struct rvswd_target_profile *
+rvswd_target_session_memory_profile(
+    const struct rvswd_target_session *session) {
+    const struct rvswd_target_profile *profile =
+        rvswd_target_session_current_profile(session);
+
+    if (profile != NULL) {
+        return profile;
+    }
+    return rvswd_target_profile_from_family(session->family_hint);
+}
+
+static void rvswd_target_session_reset_identity(
+    struct rvswd_target_session *session) {
+    session->info.chip_id = 0u;
+    session->family_hint_active = false;
+}
 
 static void rvswd_target_session_legacy_init(void) {
     rvswd_dmi_reset();
@@ -71,17 +98,10 @@ static bool rvswd_target_session_legacy_write_dmi(uint8_t address,
     return rvswd_dmi_write(address, value);
 }
 
-static bool rvswd_target_session_legacy_read_memory32(uint32_t address,
-                                                      uint32_t *value) {
-    const struct rvswd_target_profile *profile =
-        rvswd_target_profile_current();
-
-    if (profile == NULL) {
-        profile =
-            rvswd_target_profile_from_family(rvswd_target_family_hint());
-    }
-    return rvswd_memory_read32(profile, rvswd_target_chip_id() != 0u, address,
-                               value);
+static bool rvswd_target_session_legacy_read_memory32(
+    struct rvswd_target_session *session, uint32_t address, uint32_t *value) {
+    return rvswd_memory_read32(rvswd_target_session_memory_profile(session),
+                               session->info.chip_id != 0u, address, value);
 }
 
 static bool rvswd_target_session_legacy_write_memory32(uint32_t address, uint32_t value) {
@@ -89,9 +109,10 @@ static bool rvswd_target_session_legacy_write_memory32(uint32_t address, uint32_
 }
 
 static bool rvswd_target_session_legacy_write_memory(
-    uint32_t address, const uint8_t *data, uint32_t length) {
-    return rvswd_memory_write(rvswd_target_profile_current(), address, data,
-                              length);
+    struct rvswd_target_session *session, uint32_t address,
+    const uint8_t *data, uint32_t length) {
+    return rvswd_memory_write(rvswd_target_session_current_profile(session),
+                              address, data, length);
 }
 
 static bool rvswd_target_session_legacy_reset_and_halt(void) {
@@ -157,9 +178,10 @@ static bool rvswd_target_session_legacy_dmi_failure_retryable(void) {
     return rvswd_dmi_failure_retryable();
 }
 
-static bool rvswd_target_session_legacy_identify_target(void) {
+static bool rvswd_target_session_legacy_identify_target(
+    struct rvswd_target_session *session) {
     const struct rvswd_target_profile *expected_profile =
-        rvswd_target_profile_from_family(rvswd_target_family_hint());
+        rvswd_target_profile_from_family(session->family_hint);
     const struct rvswd_target_profile *direct_profile;
     uint32_t direct_chip_id;
     uint32_t option_status;
@@ -170,7 +192,7 @@ static bool rvswd_target_session_legacy_identify_target(void) {
         direct_chip_id != 0u) {
         direct_profile = rvswd_target_profile_from_chip_id(direct_chip_id);
         if (direct_profile != NULL && !direct_profile->ch5xx_protocol) {
-            rvswd_target_set_chip_id(direct_chip_id);
+            session->info.chip_id = direct_chip_id;
             rvswd_phy_gpio_set_fast_timing(direct_profile->fast_timing);
             return true;
         }
@@ -183,32 +205,34 @@ static bool rvswd_target_session_legacy_identify_target(void) {
          ch5xx_chip_id == RVSWD_CH5XX_CHIP_ID_CH591 ||
          ch5xx_chip_id == RVSWD_CH5XX_CHIP_ID_CH592)) {
         // CH5xx 通过专用 8 位寄存器报告型号，协议层使用 family 高字节形式
-        rvswd_target_set_chip_id((uint32_t)ch5xx_chip_id << 24u);
+        session->info.chip_id = (uint32_t)ch5xx_chip_id << 24u;
         // 连接阶段只确认目标身份，Flash 命令口在实际擦除流程中单独解锁
         return true;
     }
     uint32_t memory_chip_id = 0u;
-    if (rvswd_target_session_legacy_read_memory32(0x1ffff704u, &memory_chip_id) &&
+    if (rvswd_target_session_legacy_read_memory32(
+            session, 0x1ffff704u, &memory_chip_id) &&
         memory_chip_id != 0u) {
-        rvswd_target_set_chip_id(memory_chip_id);
+        session->info.chip_id = memory_chip_id;
         direct_profile = rvswd_target_profile_from_chip_id(memory_chip_id);
         rvswd_phy_gpio_set_fast_timing(direct_profile != NULL &&
                                        direct_profile->fast_timing);
         return true;
     }
     if (expected_profile != NULL &&
-        rvswd_target_session_legacy_read_memory32(RVSWD_FLASH_OBR_ADDRESS, &option_status) &&
+        rvswd_target_session_legacy_read_memory32(
+            session, RVSWD_FLASH_OBR_ADDRESS, &option_status) &&
         (option_status & RVSWD_FLASH_OBR_READ_PROTECTED) != 0u) {
         // ChipID 读取失败时，受限会话使用主机 SetSpeed 提示的 profile
-        rvswd_target_set_family_hint_active(true);
+        session->family_hint_active = true;
         return true;
     }
     return false;
 }
 
-static bool rvswd_try_connect(void) {
-    rvswd_connect_last_error = 0u;
-    rvswd_target_reset();
+static bool rvswd_try_connect(struct rvswd_target_session *session) {
+    session->connect_error = 0u;
+    rvswd_target_session_reset_identity(session);
     if (rvswd_dmi_packet_mode() == RVSWD_PACKET_LONG) {
         // CH58x 的 V4A 调试模块连接前需要先清空两线接口的唤醒状态
         rvswd_phy_gpio_wakeup(true);
@@ -225,20 +249,20 @@ static bool rvswd_try_connect(void) {
         // 通过当前目标族的 DMI 帧解锁调试模块并读回配置签名
         // 初始化阶段按 DTM 管线推进请求，单次 BUSY 不重复占用同一请求
         if (!rvswd_target_session_legacy_restore_debug_module()) {
-            rvswd_connect_last_error = 0x12u;
+            session->connect_error = 0x12u;
             continue;
         }
         // 只有目标核进入 Debug Mode 后，Program Buffer 和 abstract command 才可执行
         if (!rvswd_target_session_legacy_halt()) {
-            rvswd_connect_last_error = 0x14u;
+            session->connect_error = 0x14u;
             continue;
         }
         config_read = rvswd_target_session_legacy_read_dmi(RVSWD_DMI_CONFIG, &config);
         if (config_read && (config & 0xffff0000u) == 0x5aa50000u) {
-            if (rvswd_target_session_legacy_identify_target()) {
+            if (rvswd_target_session_legacy_identify_target(session)) {
                 return true;
             }
-            rvswd_connect_last_error = 0x13u;
+            session->connect_error = 0x13u;
         }
 
         // 失败诊断继续读取 DMSTATUS，区分严格签名不匹配和链路不可用
@@ -247,28 +271,29 @@ static bool rvswd_try_connect(void) {
 
             // 当前支持的 QingKe V4 目标仅接受 Debug 0.13.2
             if (version == 2u) {
-                if (rvswd_target_session_legacy_identify_target()) {
+                if (rvswd_target_session_legacy_identify_target(session)) {
                     return true;
                 }
-                rvswd_connect_last_error = 0x13u;
+                session->connect_error = 0x13u;
                 continue;
             }
-            rvswd_connect_last_error = 0x20u | version;
+            session->connect_error = 0x20u | version;
         } else {
-            rvswd_connect_last_error = config_read ? 0x11u : 0x12u;
+            session->connect_error = config_read ? 0x11u : 0x12u;
         }
     }
     if (rvswd_dmi_packet_mode() == RVSWD_PACKET_SHORT) {
         // OpenOCD 可能未预先提供 CH58x family，补一次 long frame 探测
         rvswd_dmi_set_packet_mode(RVSWD_PACKET_LONG);
-        return rvswd_try_connect();
+        return rvswd_try_connect(session);
     }
     return false;
 }
 
-static bool rvswd_try_connect_short_autodetect(void) {
-    rvswd_connect_last_error = 0u;
-    rvswd_target_reset();
+static bool rvswd_try_connect_short_autodetect(
+    struct rvswd_target_session *session) {
+    session->connect_error = 0u;
+    rvswd_target_session_reset_identity(session);
 
     for (uint8_t attempt = 0u; attempt < 3u; ++attempt) {
         uint32_t dmstatus;
@@ -279,31 +304,31 @@ static bool rvswd_try_connect_short_autodetect(void) {
         bsp_delay_us(200u);
         // 初始化帧的即时状态属于 DMI 管线，继续发送官方序列并以最终 halt 状态验收
         if (!rvswd_target_session_legacy_write_dmi(RVSWD_DMI_SHADOW, RVSWD_DEBUG_UNLOCK)) {
-            rvswd_connect_last_error = 0xa1u;
+            session->connect_error = 0xa1u;
             continue;
         }
         if (!rvswd_target_session_legacy_write_dmi(RVSWD_DMI_CONFIG, RVSWD_DEBUG_UNLOCK)) {
-            rvswd_connect_last_error = 0xa2u;
+            session->connect_error = 0xa2u;
             continue;
         }
         if (!rvswd_target_session_legacy_read_dmi(0x11u, &dmstatus)) {
-            rvswd_connect_last_error = 0xa3u;
+            session->connect_error = 0xa3u;
             continue;
         }
 
         // 官方 LinkE 连续写入两次 haltreq，随后轮询 allhalted 再访问 ChipID 和目标内存
         if (!rvswd_target_session_legacy_write_dmi(RVSWD_DMI_CONTROL, 0x80000001u)) {
-            rvswd_connect_last_error = 0xa4u;
+            session->connect_error = 0xa4u;
             continue;
         }
         if (!rvswd_target_session_legacy_write_dmi(RVSWD_DMI_CONTROL, 0x80000001u)) {
-            rvswd_connect_last_error = 0xa5u;
+            session->connect_error = 0xa5u;
             continue;
         }
         halt_start = bsp_time_us();
         do {
             if (!rvswd_target_session_legacy_read_dmi(0x11u, &dmstatus)) {
-                rvswd_connect_last_error = 0xa6u;
+                session->connect_error = 0xa6u;
                 break;
             }
             if ((dmstatus & (1u << 9u)) != 0u) {
@@ -313,22 +338,23 @@ static bool rvswd_try_connect_short_autodetect(void) {
             bsp_delay_us(100u);
         } while ((bsp_time_us() - halt_start) < 100000u);
         if (!halted) {
-            if (rvswd_connect_last_error != 0xa6u) {
-                rvswd_connect_last_error = 0xa7u;
+            if (session->connect_error != 0xa6u) {
+                session->connect_error = 0xa7u;
             }
             continue;
         }
-        if (rvswd_target_session_legacy_identify_target()) {
+        if (rvswd_target_session_legacy_identify_target(session)) {
             return true;
         }
-        rvswd_connect_last_error = 0x13u;
+        session->connect_error = 0x13u;
     }
     return false;
 }
 
-static bool rvswd_target_session_legacy_connect(void) {
+static bool rvswd_target_session_legacy_connect(
+    struct rvswd_target_session *session) {
     rvswd_phy_gpio_set_fast_timing(false);
-    if (rvswd_target_profile_from_family(rvswd_target_family_hint()) == NULL) {
+    if (rvswd_target_profile_from_family(session->family_hint) == NULL) {
         uint8_t status;
         uint8_t target_address;
         uint32_t target_data;
@@ -351,51 +377,39 @@ static bool rvswd_target_session_legacy_connect(void) {
             }
         }
         rvswd_dmi_set_packet_mode(RVSWD_PACKET_SHORT);
-        if (rvswd_try_connect_short_autodetect()) {
+        if (rvswd_try_connect_short_autodetect(session)) {
             return true;
         }
         if (long_signature_count >= 8u) {
-            uint8_t short_error = rvswd_connect_last_error;
+            uint8_t short_error = session->connect_error;
 
             rvswd_dmi_set_packet_mode(RVSWD_PACKET_LONG);
-            if (rvswd_try_connect()) {
+            if (rvswd_try_connect(session)) {
                 return true;
             }
-            rvswd_connect_last_error = short_error;
+            session->connect_error = short_error;
         }
         return false;
     }
-    return rvswd_try_connect();
+    return rvswd_try_connect(session);
 }
 
-static uint8_t rvswd_target_session_legacy_connect_last_error(void) {
-    return rvswd_connect_last_error;
-}
-
-static uint32_t rvswd_target_session_legacy_target_chip_id(void) {
-    return rvswd_target_chip_id();
-}
-
-static void rvswd_target_session_legacy_set_target_wchlink_family_hint(uint8_t family) {
-    rvswd_target_set_family_hint(family);
-    rvswd_target_set_family_hint_active(false);
-    rvswd_dmi_set_packet_mode(family == WCHLINK_TARGET_FAMILY_CH58X
-                                  ? RVSWD_PACKET_LONG
-                                  : RVSWD_PACKET_SHORT);
-}
-
-static uint8_t rvswd_target_session_legacy_target_wchlink_family(void) {
-    const struct rvswd_target_profile *profile = rvswd_target_profile_current();
+static uint8_t rvswd_target_session_target_wchlink_family(
+    const struct rvswd_target_session *session) {
+    const struct rvswd_target_profile *profile =
+        rvswd_target_session_current_profile(session);
 
     if (profile != NULL) {
         return profile->wchlink_family;
     }
-    profile = rvswd_target_profile_from_family(rvswd_target_family_hint());
+    profile = rvswd_target_profile_from_family(session->family_hint);
     return profile == NULL ? 0u : profile->wchlink_family;
 }
 
-static bool rvswd_target_session_legacy_target_supports_memory_streaming(void) {
-    const struct rvswd_target_profile *profile = rvswd_target_profile_current();
+static bool rvswd_target_session_target_supports_memory_streaming(
+    const struct rvswd_target_session *session) {
+    const struct rvswd_target_profile *profile =
+        rvswd_target_session_current_profile(session);
 
     return profile != NULL &&
            profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING;
@@ -432,10 +446,15 @@ static struct rvswd_target_result rvswd_target_session_memory_result(
 }
 
 void rvswd_target_session_init(struct rvswd_target_session *session) {
+    uint8_t family_hint;
+
     if (session == NULL) {
         return;
     }
+    // MRS 在重建 transport 前发送 family hint，初始化只能清除探测结果
+    family_hint = session->family_hint;
     memset(session, 0, sizeof(*session));
+    session->family_hint = family_hint;
     rvswd_target_session_legacy_init();
 }
 
@@ -454,19 +473,15 @@ struct rvswd_target_result rvswd_target_session_connect(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (rvswd_target_session_legacy_connect()) {
+    if (rvswd_target_session_legacy_connect(session)) {
         session->connect_error = 0u;
-        session->info.chip_id =
-            rvswd_target_session_legacy_target_chip_id();
         session->info.family =
-            rvswd_target_session_legacy_target_wchlink_family();
-        session->info.profile = rvswd_target_profile_current();
+            rvswd_target_session_target_wchlink_family(session);
+        session->info.profile = rvswd_target_session_current_profile(session);
         session->info.connected = session->info.profile != NULL;
         return rvswd_target_result_success();
     }
 
-    session->connect_error =
-        rvswd_target_session_legacy_connect_last_error();
     session->info.connected = false;
     result = rvswd_target_result_failure(RVSWD_TARGET_RESULT_CONNECT,
                                          session->connect_error, true);
@@ -479,9 +494,14 @@ void rvswd_target_session_set_family_hint(
         return;
     }
     session->family_hint = family;
-    rvswd_target_session_legacy_set_target_wchlink_family_hint(family);
-    session->info.family = family;
-    session->info.profile = rvswd_target_profile_from_family(family);
+    session->family_hint_active = false;
+    rvswd_dmi_set_packet_mode(family == WCHLINK_TARGET_FAMILY_CH58X
+                                  ? RVSWD_PACKET_LONG
+                                  : RVSWD_PACKET_SHORT);
+    if (!session->info.connected) {
+        session->info.family = family;
+        session->info.profile = NULL;
+    }
 }
 
 bool rvswd_target_session_is_connected(
@@ -497,7 +517,7 @@ const struct rvswd_target_info *rvswd_target_session_info(
 bool rvswd_target_session_supports_memory_streaming(
     const struct rvswd_target_session *session) {
     return session != NULL &&
-           rvswd_target_session_legacy_target_supports_memory_streaming();
+           rvswd_target_session_target_supports_memory_streaming(session);
 }
 
 struct rvswd_target_result rvswd_target_session_read_dmi(
@@ -541,7 +561,7 @@ struct rvswd_target_result rvswd_target_session_read_memory32(
     }
     result = rvswd_target_session_memory_result(
         session, address,
-        rvswd_target_session_legacy_read_memory32(address, &value));
+        rvswd_target_session_legacy_read_memory32(session, address, &value));
     if (result.ok) {
         result.value = value;
     }
@@ -566,7 +586,8 @@ struct rvswd_target_result rvswd_target_session_write_memory(
     }
     return rvswd_target_session_memory_result(
         session, address,
-        rvswd_target_session_legacy_write_memory(address, data, length));
+        rvswd_target_session_legacy_write_memory(session, address, data,
+                                                 length));
 }
 
 struct rvswd_target_result rvswd_target_session_write_register(
@@ -675,7 +696,7 @@ struct rvswd_target_result rvswd_target_session_flash_erase_all(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_flash_erase_all(rvswd_target_profile_current())
+    return rvswd_flash_erase_all(session->info.profile)
                ? rvswd_target_result_success()
                : rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
                                              rvswd_flash_last_error(),
@@ -688,8 +709,7 @@ struct rvswd_target_result rvswd_target_session_flash_rewrite_page(
     if (session == NULL || data == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_flash_rewrite_page(rvswd_target_profile_current(), address,
-                                    data)
+    return rvswd_flash_rewrite_page(session->info.profile, address, data)
                ? rvswd_target_result_success()
                : rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
                                              rvswd_flash_last_error(),
@@ -704,7 +724,7 @@ struct rvswd_target_result rvswd_target_session_flash_read_protected(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (!rvswd_flash_read_protected(rvswd_target_profile_current(), &value)) {
+    if (!rvswd_flash_read_protected(session->info.profile, &value)) {
         return rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
                                            rvswd_flash_last_error(),
                                            rvswd_dmi_failure_retryable());
@@ -722,7 +742,7 @@ struct rvswd_target_result rvswd_target_session_flash_write_protected(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (!rvswd_flash_write_protected(rvswd_target_profile_current(), &value)) {
+    if (!rvswd_flash_write_protected(session->info.profile, &value)) {
         return rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
                                            rvswd_flash_last_error(),
                                            rvswd_dmi_failure_retryable());
@@ -737,8 +757,7 @@ struct rvswd_target_result rvswd_target_session_flash_set_read_protected(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_flash_set_read_protected(rvswd_target_profile_current(),
-                                          protected)
+    return rvswd_flash_set_read_protected(session->info.profile, protected)
                ? rvswd_target_result_success()
                : rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
                                              rvswd_flash_last_error(),

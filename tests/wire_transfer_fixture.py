@@ -69,8 +69,38 @@ def run_wire_fixture() -> None:
         subprocess.run([str(executable)], check=True)
 
 
+def run_profile_fixture() -> None:
+    project = Path(__file__).resolve().parents[1]
+    compiler = os.environ.get("CC", "cc")
+
+    with tempfile.TemporaryDirectory(prefix="wchlink-profile-") as temp_dir:
+        executable = Path(temp_dir) / "profile_fixture"
+        subprocess.run(
+            [
+                compiler,
+                "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-I",
+                str(project / "src/wchlink/target"),
+                "-I",
+                str(project / "src/wchlink/rvswd"),
+                "-I",
+                str(project / "src/wchlink/protocol"),
+                str(project / "tests/profile_fixture.c"),
+                str(project / "src/wchlink/target/rvswd_target_profile.c"),
+                "-o",
+                str(executable),
+            ],
+            check=True,
+        )
+        subprocess.run([str(executable)], check=True)
+
+
 def run() -> None:
     run_wire_fixture()
+    run_profile_fixture()
     assert ack(0x0D) == bytes.fromhex("82 0d 01 00")
     assert unsupported(0x02) == bytes.fromhex("81 02 01 02")
     assert checksum_add(0, bytes.fromhex("01 00 00 00 ff ff ff ff")) == 0x100000000 & 0xFFFFFFFF
@@ -80,7 +110,7 @@ def run() -> None:
     assert ch5xx_padded_length(FLASH_PACKET_SIZE + 1) == FLASH_PACKET_SIZE * 2
     assert chunk_lengths(FLASH_CHUNK_SIZE * 2 + 17) == [FLASH_CHUNK_SIZE, FLASH_CHUNK_SIZE, 17]
     assert chunk_lengths(0) == []
-    print("wire/transfer fixture: pass")
+    print("wire/transfer/profile fixture: pass")
 
 
 if __name__ == "__main__":

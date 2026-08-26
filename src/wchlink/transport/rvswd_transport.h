@@ -5,7 +5,28 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// 每个 target session 独占一个 transport，packet mode 和 GPIO timing 不跨会话共享
+// Debug Module 寄存器地址由 transport 统一定义，上层流程只引用有语义的名称
+enum rvswd_dmi_address {
+    RVSWD_DMI_DATA0 = 0x04u,
+    RVSWD_DMI_DATA1 = 0x05u,
+    RVSWD_DMI_CONTROL = 0x10u,
+    RVSWD_DMI_STATUS = 0x11u,
+    RVSWD_DMI_HARTINFO = 0x12u,
+    RVSWD_DMI_ABSTRACTCS = 0x16u,
+    RVSWD_DMI_COMMAND = 0x17u,
+    RVSWD_DMI_ABSTRACTAUTO = 0x18u,
+    RVSWD_DMI_PROGBUF0 = 0x20u,
+    RVSWD_DMI_PROGBUF1 = 0x21u,
+    RVSWD_DMI_PROGBUF2 = 0x22u,
+    RVSWD_DMI_PROGBUF3 = 0x23u,
+    RVSWD_DMI_PROGBUF4 = 0x24u,
+    RVSWD_DMI_PROGBUF5 = 0x25u,
+    RVSWD_DMI_WCH_CONFIG = 0x7du,
+    RVSWD_DMI_WCH_SHADOW = 0x7eu,
+    RVSWD_DMI_WCH_CHIP_ID = 0x7fu,
+};
+
+// 每个 target ports 实例独占一个 transport，packet mode 和 GPIO timing 不跨实例共享
 struct rvswd_transport {
     enum rvswd_packet_mode packet_mode;
     bool fast_timing;

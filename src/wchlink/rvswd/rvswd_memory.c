@@ -5,16 +5,6 @@
 
 #include <stddef.h>
 
-#define RVSWD_DMI_DATA0        0x04u
-#define RVSWD_DMI_DATA1        0x05u
-#define RVSWD_DMI_HARTINFO     0x12u
-#define RVSWD_DMI_ABSTRACTCS   0x16u
-#define RVSWD_DMI_COMMAND      0x17u
-#define RVSWD_DMI_ABSTRACTAUTO 0x18u
-#define RVSWD_DMI_PROGBUF0     0x20u
-#define RVSWD_DMI_PROGBUF1     0x21u
-#define RVSWD_DMI_PROGBUF2     0x22u
-
 #define RVSWD_MEMORY_READ_RETRY_COUNT  3u
 #define RVSWD_DEBUG_DATA_ADDRESS_BASE  0xe0000000u
 #define RVSWD_ABSTRACT_COMMAND_EXECUTE 0x00240000u
@@ -27,19 +17,19 @@ static bool rvswd_memory_read32_synchronized(
 
     // 使用 x8 执行 c.lw，避免连续内存访问时的寄存器别名问题
     operation->memory_code = 0u;
-    if (!rvswd_operation_write_dmi(operation, 0x16u, 0x00000700u).ok) {
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u).ok) {
         operation->memory_code = 0x81u;
         return false;
     }
-    if (!rvswd_operation_write_dmi(operation, 0x20u, 0x90024000u).ok) {
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF0, 0x90024000u).ok) {
         operation->memory_code = 0x82u;
         return false;
     }
-    if (!rvswd_operation_write_dmi(operation, 0x04u, address).ok) {
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, address).ok) {
         operation->memory_code = 0x83u;
         return false;
     }
-    if (!rvswd_operation_write_dmi(operation, 0x17u, 0x00271008u).ok) {
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, 0x00271008u).ok) {
         operation->memory_code = 0x84u;
         return false;
     }
@@ -51,7 +41,7 @@ static bool rvswd_memory_read32_synchronized(
         operation->memory_code = 0x90u | (uint8_t)((abstractcs >> 8u) & 0x07u);
         return false;
     }
-    if (!rvswd_operation_write_dmi(operation, 0x17u, 0x00221008u).ok) {
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, 0x00221008u).ok) {
         operation->memory_code = 0x86u;
         return false;
     }
@@ -63,7 +53,7 @@ static bool rvswd_memory_read32_synchronized(
         operation->memory_code = 0xa0u | (uint8_t)((abstractcs >> 8u) & 0x07u);
         return false;
     }
-    read_result = rvswd_operation_read_dmi(operation, 0x04u);
+    read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_DATA0);
     if (!read_result.ok) {
         operation->memory_code = 0x88u;
         return false;
@@ -135,15 +125,15 @@ bool rvswd_memory_write32(struct rvswd_operation *operation, uint32_t address,
     uint32_t abstractcs;
 
     // 使用 x8 保存数据，x9 保存目标地址
-    if (!rvswd_operation_write_dmi(operation, 0x16u, 0x00000700u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x20u, 0x0084a023u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x21u, 0x00100073u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x04u, address).ok ||
-        !rvswd_operation_write_dmi(operation, 0x17u, 0x00231009u).ok ||
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF0, 0x0084a023u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF1, 0x00100073u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, address).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, 0x00231009u).ok ||
         !rvswd_debug_wait_abstract_idle(operation, &abstractcs) ||
         ((abstractcs >> 8u) & 0x07u) != 0u ||
-        !rvswd_operation_write_dmi(operation, 0x04u, value).ok ||
-        !rvswd_operation_write_dmi(operation, 0x17u, 0x00271008u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, value).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, 0x00271008u).ok ||
         !rvswd_debug_wait_abstract_idle(operation, &abstractcs)) {
         return false;
     }
@@ -273,23 +263,23 @@ static bool rvswd_memory_write_slow(struct rvswd_operation *operation,
                          ((uint32_t)data[offset + 3u] << 24u);
 
         operation->address = address + offset;
-        if (!rvswd_operation_write_dmi(operation, 0x16u, 0x00000700u).ok) {
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u).ok) {
             operation->memory_code = 0x10u | (operation->dmi_status & 0x03u);
             return false;
         }
-        if (!rvswd_operation_write_dmi(operation, 0x04u, address + offset).ok) {
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, address + offset).ok) {
             operation->memory_code = 0x20u | (operation->dmi_status & 0x03u);
             return false;
         }
-        if (!rvswd_operation_write_dmi(operation, 0x17u, 0x00231009u).ok) {
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, 0x00231009u).ok) {
             operation->memory_code = 0x30u | (operation->dmi_status & 0x03u);
             return false;
         }
-        if (!rvswd_operation_write_dmi(operation, 0x04u, value).ok) {
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, value).ok) {
             operation->memory_code = 0x40u | (operation->dmi_status & 0x03u);
             return false;
         }
-        if (!rvswd_operation_write_dmi(operation, 0x17u, 0x00271008u).ok) {
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, 0x00271008u).ok) {
             operation->memory_code = 0x50u | (operation->dmi_status & 0x03u);
             return false;
         }
@@ -304,7 +294,7 @@ static bool rvswd_memory_write_slow(struct rvswd_operation *operation,
         }
     }
 
-    read_result = rvswd_operation_read_dmi(operation, 0x16u);
+    read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_ABSTRACTCS);
     if (!read_result.ok) {
         operation->memory_code = 0xe5u;
         return false;
@@ -356,7 +346,7 @@ bool rvswd_memory_write(struct rvswd_operation *operation,
         struct rvswd_transport_result diagnostic;
 
         // 诊断读取不得覆盖导致写入失败的 DMI status 和 retryable
-        diagnostic = rvswd_transport_read(operation->transport, 0x16u);
+        diagnostic = rvswd_transport_read(operation->transport, RVSWD_DMI_ABSTRACTCS);
         if (diagnostic.ok) {
             operation->abstractcs = diagnostic.value;
         }

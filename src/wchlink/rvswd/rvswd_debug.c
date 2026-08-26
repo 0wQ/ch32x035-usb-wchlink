@@ -4,10 +4,6 @@
 
 #include <stddef.h>
 
-#define RVSWD_DMI_CONTROL         0x10u
-#define RVSWD_DMI_ABSTRACTCS      0x16u
-#define RVSWD_DMI_COMMAND         0x17u
-#define RVSWD_DMI_DATA0           0x04u
 #define RVSWD_ABSTRACT_TIMEOUT_US 10000u
 #define RVSWD_RESUME_MIN_DELAY_US 1000u
 #define RVSWD_EXECUTE_TIMEOUT_MS  5000u
@@ -139,7 +135,7 @@ bool rvswd_debug_wait_dmstatus(struct rvswd_operation *operation,
 
     do {
         struct rvswd_transport_result read_result =
-            rvswd_operation_read_dmi(operation, 0x11u);
+            rvswd_operation_read_dmi(operation, RVSWD_DMI_STATUS);
 
         if (!read_result.ok) {
             return false;

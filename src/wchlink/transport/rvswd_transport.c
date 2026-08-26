@@ -131,7 +131,7 @@ struct rvswd_transport_result rvswd_transport_write(
 
             result.status = probe.status;
             if (probe.status == RVSWD_LONG_STATUS_OK) {
-                if (address == 0x17u) {
+                if (address == RVSWD_DMI_COMMAND) {
                     bsp_delay_us(RVSWD_ABSTRACT_COMMAND_DELAY_US);
                 }
                 result.ok = true;
@@ -158,7 +158,7 @@ struct rvswd_transport_result rvswd_transport_write(
         }
         result.status = rvswd_frame_unpack_handshake(target);
         if (rvswd_frame_status_is_ok(result.status)) {
-            if (address == 0x17u) {
+            if (address == RVSWD_DMI_COMMAND) {
                 bsp_delay_us(RVSWD_ABSTRACT_COMMAND_DELAY_US);
             }
             result.ok = true;

@@ -113,10 +113,10 @@ static bool rvswd_flash_ch5xx_prepare_byte_access(
     // 全擦期间连续访问 Flash 命令口，切换读写方向时才重建 Program Buffer
     if (!rvswd_debug_write_raw_gpr(access->operation, 13u,
                                    RVSWD_CH5XX_DEBUG_DATA_ADDRESS) ||
-        !rvswd_operation_write_dmi(access->operation, 0x16u, 0x00000700u).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x20u, load_instruction).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x21u, store_instruction).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x22u, 0x00100073u).ok) {
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_PROGBUF0, load_instruction).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_PROGBUF1, store_instruction).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_PROGBUF2, 0x00100073u).ok) {
         access->mode = RVSWD_CH5XX_BYTE_ACCESS_NONE;
         return false;
     }
@@ -130,9 +130,9 @@ static bool rvswd_flash_ch5xx_erase_write8(struct rvswd_ch5xx_byte_access *acces
     uint32_t abstractcs;
 
     if (!rvswd_flash_ch5xx_prepare_byte_access(access, RVSWD_CH5XX_BYTE_ACCESS_WRITE) ||
-        !rvswd_operation_write_dmi(access->operation, 0x05u, value).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x04u, address).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x17u, 0x0027100bu).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_DATA1, value).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_DATA0, address).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_COMMAND, 0x0027100bu).ok ||
         !rvswd_debug_wait_abstract_idle(access->operation, &abstractcs)) {
         return false;
     }
@@ -147,13 +147,13 @@ static bool rvswd_flash_ch5xx_erase_read8(struct rvswd_ch5xx_byte_access *access
 
     if (value == NULL ||
         !rvswd_flash_ch5xx_prepare_byte_access(access, RVSWD_CH5XX_BYTE_ACCESS_READ) ||
-        !rvswd_operation_write_dmi(access->operation, 0x04u, address).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x17u, 0x0027100bu).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_DATA0, address).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_COMMAND, 0x0027100bu).ok ||
         !rvswd_debug_wait_abstract_idle(access->operation, &abstractcs) ||
         ((abstractcs >> 8u) & 0x07u) != 0u) {
         return false;
     }
-    read_result = rvswd_operation_read_dmi(access->operation, 0x05u);
+    read_result = rvswd_operation_read_dmi(access->operation, RVSWD_DMI_DATA1);
     if (!read_result.ok) {
         return false;
     }
@@ -168,16 +168,16 @@ static bool rvswd_memory_write16(struct rvswd_operation *operation,
     uint32_t abstractcs;
 
     // 使用 x8 保存数据，x9 保存目标地址，Program Buffer 执行 sh
-    if (!rvswd_operation_write_dmi(operation, 0x18u, 0u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x16u, 0x00000700u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x20u, 0x00849023u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x21u, 0x00100073u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x04u, address).ok ||
-        !rvswd_operation_write_dmi(operation, 0x17u, 0x00231009u).ok ||
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTAUTO, 0u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF0, 0x00849023u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF1, 0x00100073u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, address).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, 0x00231009u).ok ||
         !rvswd_debug_wait_abstract_idle(operation, &abstractcs) ||
         ((abstractcs >> 8u) & 0x07u) != 0u ||
-        !rvswd_operation_write_dmi(operation, 0x04u, value).ok ||
-        !rvswd_operation_write_dmi(operation, 0x17u, 0x00271008u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, value).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, 0x00271008u).ok ||
         !rvswd_debug_wait_abstract_idle_timeout(operation, &abstractcs, timeout_us)) {
         return false;
     }
@@ -304,15 +304,15 @@ static bool rvswd_flash_ch5xx_flash_enable_code_mode(
         !rvswd_debug_write_raw_gpr(operation, 10u, 0x57u) ||
         !rvswd_debug_write_raw_gpr(operation, 11u, 0xa8u) ||
         !rvswd_debug_write_raw_gpr(operation, 12u, 0xe0u) ||
-        !rvswd_operation_write_dmi(operation, 0x18u, 0u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x16u, 0x00000700u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x20u, 0x00a68023u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x21u, 0x00b68023u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x22u, 0x00010001u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x23u, 0x00c68223u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x24u, 0x00068023u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x25u, 0x00100073u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x17u, 0x00271000u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTAUTO, 0u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF0, 0x00a68023u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF1, 0x00b68023u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF2, 0x00010001u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF3, 0x00c68223u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF4, 0x00068023u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF5, 0x00100073u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, 0x00271000u).ok ||
         !rvswd_debug_wait_abstract_idle(operation, &abstractcs)) {
         return false;
     }
@@ -388,14 +388,14 @@ static bool rvswd_flash_ch5xx_flash_program_page(
     if (!rvswd_debug_write_raw_gpr(access->operation, 13u,
                                    RVSWD_CH5XX_FLASH_WORD_DATA_ADDRESS) ||
         !rvswd_debug_write_raw_gpr(access->operation, 5u, 21u) ||
-        !rvswd_operation_write_dmi(access->operation, 0x18u, 0u).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x16u, 0x00000700u).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x20u, 0x4791c298u).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x21u, 0x00668703u).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x22u, 0xfe074ee3u).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x23u, 0x00568323u).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x24u, 0xfbed17fdu).ok ||
-        !rvswd_operation_write_dmi(access->operation, 0x25u, 0x00100073u).ok) {
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_ABSTRACTAUTO, 0u).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_PROGBUF0, 0x4791c298u).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_PROGBUF1, 0x00668703u).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_PROGBUF2, 0xfe074ee3u).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_PROGBUF3, 0x00568323u).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_PROGBUF4, 0xfbed17fdu).ok ||
+        !rvswd_operation_write_dmi(access->operation, RVSWD_DMI_PROGBUF5, 0x00100073u).ok) {
         access->operation->flash_code = RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_SETUP;
         return false;
     }
@@ -406,13 +406,13 @@ static bool rvswd_flash_ch5xx_flash_program_page(
                          ((uint32_t)data[offset + 2u] << 16u) |
                          ((uint32_t)data[offset + 3u] << 24u);
 
-        if (!rvswd_operation_write_dmi(access->operation, 0x04u, value).ok) {
+        if (!rvswd_operation_write_dmi(access->operation, RVSWD_DMI_DATA0, value).ok) {
             access->operation->flash_code =
                 RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_DATA;
             return false;
         }
         // 该 Abstract Command 同时把 data0 传入 a4 并执行 Program Buffer
-        if (!rvswd_operation_write_dmi(access->operation, 0x17u, 0x0027100eu).ok) {
+        if (!rvswd_operation_write_dmi(access->operation, RVSWD_DMI_COMMAND, 0x0027100eu).ok) {
             access->operation->flash_code =
                 RVSWD_FLASH_ERROR_CH5XX_PAGE_PROGRAM_EXECUTE;
             return false;

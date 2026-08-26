@@ -3,7 +3,6 @@
 #include "bsp/bsp_delay.h"
 #include "rvswd_debug.h"
 
-#define RVSWD_DMI_CONTROL         0x10u
 #define RVSWD_RESUME_MIN_DELAY_US 1000u
 
 bool rvswd_reset_and_halt(struct rvswd_operation *operation) {

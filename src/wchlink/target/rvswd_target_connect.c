@@ -11,10 +11,6 @@
 
 // 连接实现封装唤醒、Debug Module 解锁、halt 和身份探测
 // 所有 helper 保持文件私有，调用者只观察 target ports 的连接结果
-static const uint8_t rvswd_dmi_control = 0x10u;
-static const uint8_t rvswd_dmi_config = 0x7du;
-static const uint8_t rvswd_dmi_shadow = 0x7eu;
-static const uint8_t rvswd_dmi_chip_id = 0x7fu;
 static const uint32_t rvswd_debug_unlock = 0x5aa50400u;
 static const uint8_t rvswd_long_status_ok = 0u;
 
@@ -59,31 +55,31 @@ static bool rvswd_target_connect_restore_debug_module(
     bool success = true;
 
     // QingKe 调试模块启动和异常恢复时会丢失关键写入，重复配置确保命令生效
-    success = rvswd_operation_write_dmi(operation, rvswd_dmi_shadow,
+    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_SHADOW,
                                         rvswd_debug_unlock)
                   .ok &&
               success;
-    success = rvswd_operation_write_dmi(operation, rvswd_dmi_config,
+    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_CONFIG,
                                         rvswd_debug_unlock)
                   .ok &&
               success;
-    success = rvswd_operation_write_dmi(operation, rvswd_dmi_shadow,
+    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_SHADOW,
                                         rvswd_debug_unlock)
                   .ok &&
               success;
-    success = rvswd_operation_write_dmi(operation, rvswd_dmi_config,
+    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_CONFIG,
                                         rvswd_debug_unlock)
                   .ok &&
               success;
-    success = rvswd_operation_write_dmi(operation, rvswd_dmi_control,
+    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL,
                                         0x80000001u)
                   .ok &&
               success;
-    success = rvswd_operation_write_dmi(operation, rvswd_dmi_control,
+    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL,
                                         0x80000001u)
                   .ok &&
               success;
-    success = rvswd_operation_write_dmi(operation, rvswd_dmi_control,
+    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL,
                                         0x80000001u)
                   .ok &&
               success;
@@ -100,17 +96,17 @@ static bool rvswd_target_connect_read_memory8_ch5xx(
     if (value == NULL ||
         !rvswd_debug_write_raw_gpr(operation, 13u,
                                    rvswd_ch5xx_debug_data_address) ||
-        !rvswd_operation_write_dmi(operation, 0x16u, 0x00000700u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x20u, 0x00058483u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x21u, 0x00968223u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x22u, 0x00100073u).ok ||
-        !rvswd_operation_write_dmi(operation, 0x04u, address).ok ||
-        !rvswd_operation_write_dmi(operation, 0x17u, 0x0027100bu).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF0, 0x00058483u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF1, 0x00968223u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF2, 0x00100073u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, address).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, 0x0027100bu).ok ||
         !rvswd_debug_wait_abstract_idle(operation, &abstractcs) ||
         ((abstractcs >> 8u) & 0x07u) != 0u) {
         return false;
     }
-    read_result = rvswd_operation_read_dmi(operation, 0x05u);
+    read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_DATA1);
     if (!read_result.ok) {
         return false;
     }
@@ -132,7 +128,7 @@ static bool rvswd_target_connect_identify(
     struct rvswd_transport_result read_result;
 
     // V30X 的官方 LinkE 直接从 DMI 0x7f 返回 ChipID，避免先执行抽象内存命令
-    read_result = rvswd_operation_read_dmi(operation, rvswd_dmi_chip_id);
+    read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_WCH_CHIP_ID);
     direct_chip_id = read_result.value;
     if (read_result.ok && direct_chip_id != 0u) {
         direct_profile = rvswd_target_profile_from_chip_id(direct_chip_id);
@@ -206,7 +202,7 @@ static bool rvswd_target_connect_known_mode(
             ports->connect_error = 0x14u;
             continue;
         }
-        read_result = rvswd_operation_read_dmi(operation, rvswd_dmi_config);
+        read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_WCH_CONFIG);
         config_read = read_result.ok;
         config = read_result.value;
         if (config_read && (config & 0xffff0000u) == 0x5aa50000u) {
@@ -217,7 +213,7 @@ static bool rvswd_target_connect_known_mode(
         }
 
         // 失败诊断继续读取 DMSTATUS，区分严格签名不匹配和链路不可用
-        read_result = rvswd_operation_read_dmi(operation, 0x11u);
+        read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_STATUS);
         dmstatus = read_result.value;
         if (read_result.ok) {
             uint8_t version = (uint8_t)(dmstatus & 0x0fu);
@@ -257,19 +253,19 @@ static bool rvswd_target_connect_short_autodetect(
         // 官方 V307 抓包中最后一个 long STOP 到首个 short START 约为 212 us
         bsp_delay_us(200u);
         // 初始化帧的即时状态属于 DMI 管线，继续发送官方序列并以最终 halt 状态验收
-        if (!rvswd_operation_write_dmi(operation, rvswd_dmi_shadow,
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_SHADOW,
                                        rvswd_debug_unlock)
                  .ok) {
             ports->connect_error = 0xa1u;
             continue;
         }
-        if (!rvswd_operation_write_dmi(operation, rvswd_dmi_config,
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_CONFIG,
                                        rvswd_debug_unlock)
                  .ok) {
             ports->connect_error = 0xa2u;
             continue;
         }
-        read_result = rvswd_operation_read_dmi(operation, 0x11u);
+        read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_STATUS);
         if (!read_result.ok) {
             ports->connect_error = 0xa3u;
             continue;
@@ -277,13 +273,13 @@ static bool rvswd_target_connect_short_autodetect(
         dmstatus = read_result.value;
 
         // 官方 LinkE 连续写入两次 haltreq，随后轮询 allhalted 再访问 ChipID 和目标内存
-        if (!rvswd_operation_write_dmi(operation, rvswd_dmi_control,
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL,
                                        0x80000001u)
                  .ok) {
             ports->connect_error = 0xa4u;
             continue;
         }
-        if (!rvswd_operation_write_dmi(operation, rvswd_dmi_control,
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL,
                                        0x80000001u)
                  .ok) {
             ports->connect_error = 0xa5u;
@@ -291,7 +287,7 @@ static bool rvswd_target_connect_short_autodetect(
         }
         halt_start = bsp_time_us();
         do {
-            read_result = rvswd_operation_read_dmi(operation, 0x11u);
+            read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_STATUS);
             if (!read_result.ok) {
                 ports->connect_error = 0xa6u;
                 break;
@@ -330,11 +326,13 @@ static bool rvswd_target_connect_transport(
         // 自动识别先发送一个探测帧和 201 个轮询帧，再回到 short frame 连接 CH32
         rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
         // V30X 的长帧把 host parity 设为 operation 的奇偶校验位，CH5xx 长帧则固定为 0
-        (void)rvswd_transport_probe_long(transport, 0u, 0x11u, 0x19u, 0u);
+        (void)rvswd_transport_probe_long(transport, 0u, RVSWD_DMI_STATUS, 0x19u,
+                                         0u);
         for (uint16_t probe = 0u; probe < 201u; ++probe) {
             probe_result =
-                rvswd_transport_probe_long(transport, 1u, 0x11u, 0u, 1u);
-            if (probe_result.address == 0x11u &&
+                rvswd_transport_probe_long(transport, 1u, RVSWD_DMI_STATUS, 0u,
+                                           1u);
+            if (probe_result.address == RVSWD_DMI_STATUS &&
                 probe_result.status == rvswd_long_status_ok &&
                 (probe_result.value & 0x0fu) == 2u) {
                 ++long_signature_count;

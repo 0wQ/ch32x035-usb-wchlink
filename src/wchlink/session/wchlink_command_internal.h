@@ -27,6 +27,10 @@ struct wchlink_session_command_result wchlink_command_result(
 uint32_t wchlink_command_read_be32(const uint8_t *data);
 void wchlink_command_target_init(struct wchlink_command_context *context);
 
+struct wchlink_session_command_result wchlink_command_handle_target(
+    struct wchlink_command_context *context, const uint8_t *request,
+    size_t request_length, uint8_t *response, size_t response_capacity);
+
 struct wchlink_session_command_result wchlink_command_handle_partial_write(
     struct wchlink_command_context *context, const uint8_t *request,
     uint8_t *response, size_t response_capacity);

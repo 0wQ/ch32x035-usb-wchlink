@@ -56,6 +56,7 @@ def run_command_transfer_fixture() -> None:
                 str(project / "tests/command_transfer_fixture.c"),
                 str(project / "tests/in_memory_target.c"),
                 str(project / "src/wchlink/session/wchlink_command.c"),
+                str(project / "src/wchlink/session/wchlink_command_target.c"),
                 str(project / "src/wchlink/session/wchlink_command_transfer.c"),
                 str(project / "src/wchlink/session/wchlink_transfer.c"),
                 str(project / "src/wchlink/protocol/wchlink_wire.c"),

@@ -106,3 +106,14 @@ const struct rvswd_target_profile *rvswd_target_profile_from_family(
             return NULL;
     }
 }
+
+const struct rvswd_target_profile *rvswd_target_profile_resolve(
+    uint32_t chip_id, uint8_t family_hint, bool family_hint_active) {
+    const struct rvswd_target_profile *profile =
+        rvswd_target_profile_from_chip_id(chip_id);
+
+    if (profile != NULL || !family_hint_active) {
+        return profile;
+    }
+    return rvswd_target_profile_from_family(family_hint);
+}

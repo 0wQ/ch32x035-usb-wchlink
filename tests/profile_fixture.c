@@ -20,6 +20,9 @@ static void assert_profile(uint32_t chip_id, uint8_t family,
 }
 
 int main(void) {
+    const struct rvswd_target_profile *v30x_profile;
+    const struct rvswd_target_profile *ch58x_profile;
+
     assert_profile(0x03510611u, WCHLINK_TARGET_FAMILY_X035, false,
                    RVSWD_MEMORY_WRITE_STREAMING);
     assert_profile(0x10300500u, WCHLINK_TARGET_FAMILY_L103, false,
@@ -42,5 +45,18 @@ int main(void) {
     assert(rvswd_target_profile_from_chip_id(0u) == NULL);
     assert(rvswd_target_profile_from_chip_id(0x12345678u) == NULL);
     assert(rvswd_target_profile_from_family(0u) == NULL);
+
+    v30x_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_V30X);
+    ch58x_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_CH58X);
+    assert(rvswd_target_profile_resolve(0x30700500u,
+                                        WCHLINK_TARGET_FAMILY_CH58X, true) ==
+           v30x_profile);
+    assert(rvswd_target_profile_resolve(0u, WCHLINK_TARGET_FAMILY_CH58X,
+                                        false) == NULL);
+    assert(rvswd_target_profile_resolve(0u, WCHLINK_TARGET_FAMILY_CH58X,
+                                        true) == ch58x_profile);
+    assert(rvswd_target_profile_resolve(0x12345678u,
+                                        WCHLINK_TARGET_FAMILY_CH58X, true) ==
+           ch58x_profile);
     return 0;
 }

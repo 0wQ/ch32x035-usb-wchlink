@@ -2,7 +2,6 @@
 
 #include "rvswd_debug.h"
 #include "rvswd_dmi.h"
-#include "rvswd_target.h"
 #include "rvswd_types.h"
 
 #include <stddef.h>
@@ -108,15 +107,11 @@ static bool rvswd_memory_read32_v30x(uint32_t address, uint32_t *value) {
     return false;
 }
 
-bool rvswd_memory_read32(uint32_t address, uint32_t *value) {
-    const struct rvswd_target_profile *profile = rvswd_target_profile_current();
-
+bool rvswd_memory_read32(const struct rvswd_target_profile *profile,
+                         bool target_identified, uint32_t address,
+                         uint32_t *value) {
     if (value == NULL) {
         return false;
-    }
-    if (profile == NULL) {
-        profile =
-            rvswd_target_profile_from_family(rvswd_target_family_hint());
     }
     if (profile != NULL &&
         (profile->wchlink_family == WCHLINK_TARGET_FAMILY_L103 ||
@@ -127,7 +122,7 @@ bool rvswd_memory_read32(uint32_t address, uint32_t *value) {
     if (rvswd_memory_read32_v30x(address, value)) {
         return true;
     }
-    if (profile != NULL || rvswd_target_chip_id() != 0u) {
+    if (profile != NULL || target_identified) {
         return false;
     }
 
@@ -291,8 +286,9 @@ static bool rvswd_memory_write_slow(uint32_t address, const uint8_t *data,
     return true;
 }
 
-bool rvswd_memory_write(uint32_t address, const uint8_t *data, uint32_t length) {
-    const struct rvswd_target_profile *profile = rvswd_target_profile_current();
+bool rvswd_memory_write(const struct rvswd_target_profile *profile,
+                        uint32_t address, const uint8_t *data,
+                        uint32_t length) {
     bool success;
 
     rvswd_memory_last_error_value = 0u;

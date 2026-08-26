@@ -71,16 +71,27 @@ static bool rvswd_target_session_legacy_write_dmi(uint8_t address,
     return rvswd_dmi_write(address, value);
 }
 
-static bool rvswd_target_session_legacy_read_memory32(uint32_t address, uint32_t *value) {
-    return rvswd_memory_read32(address, value);
+static bool rvswd_target_session_legacy_read_memory32(uint32_t address,
+                                                      uint32_t *value) {
+    const struct rvswd_target_profile *profile =
+        rvswd_target_profile_current();
+
+    if (profile == NULL) {
+        profile =
+            rvswd_target_profile_from_family(rvswd_target_family_hint());
+    }
+    return rvswd_memory_read32(profile, rvswd_target_chip_id() != 0u, address,
+                               value);
 }
 
 static bool rvswd_target_session_legacy_write_memory32(uint32_t address, uint32_t value) {
     return rvswd_memory_write32(address, value);
 }
 
-static bool rvswd_target_session_legacy_write_memory(uint32_t address, const uint8_t *data, uint32_t length) {
-    return rvswd_memory_write(address, data, length);
+static bool rvswd_target_session_legacy_write_memory(
+    uint32_t address, const uint8_t *data, uint32_t length) {
+    return rvswd_memory_write(rvswd_target_profile_current(), address, data,
+                              length);
 }
 
 static bool rvswd_target_session_legacy_reset_and_halt(void) {

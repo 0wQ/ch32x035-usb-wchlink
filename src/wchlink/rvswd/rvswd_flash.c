@@ -223,12 +223,14 @@ static bool rvswd_memory_write16(uint32_t address, uint16_t value,
     return ((abstractcs >> 8u) & 0x07u) == 0u;
 }
 
-static bool rvswd_flash_wait_ready(uint32_t *status, uint8_t read_error,
+static bool rvswd_flash_wait_ready(const struct rvswd_target_profile *profile,
+                                   uint32_t *status, uint8_t read_error,
                                    uint8_t timeout_error) {
     uint64_t start = bsp_time_us();
 
     do {
-        if (!rvswd_memory_read32(RVSWD_FLASH_STATR_ADDRESS, status)) {
+        if (!rvswd_memory_read32(profile, true, RVSWD_FLASH_STATR_ADDRESS,
+                                 status)) {
             rvswd_flash_last_error_value = read_error;
             return false;
         }
@@ -509,7 +511,8 @@ bool rvswd_flash_rewrite_page(uint32_t address, const uint8_t *data) {
     return true;
 }
 
-static bool rvswd_flash_ch5xx_flash_erase_all(void) {
+static bool rvswd_flash_ch5xx_flash_erase_all(
+    const struct rvswd_target_profile *profile) {
     size_t stub_length =
         (size_t)(ch5xx_flash_erase_stub_end - ch5xx_flash_erase_stub_start);
     uint32_t result;
@@ -520,7 +523,7 @@ static bool rvswd_flash_ch5xx_flash_erase_all(void) {
         rvswd_flash_last_error_value = 0xc1u;
         return false;
     }
-    if (!rvswd_memory_write(RVSWD_CH5XX_ERASE_STUB_ADDRESS,
+    if (!rvswd_memory_write(profile, RVSWD_CH5XX_ERASE_STUB_ADDRESS,
                             ch5xx_flash_erase_stub_start,
                             (uint32_t)stub_length)) {
         rvswd_flash_last_error_value = 0xc2u;
@@ -557,14 +560,15 @@ bool rvswd_flash_erase_all(void) {
         return false;
     }
     if (profile->ch5xx_protocol) {
-        return rvswd_flash_ch5xx_flash_erase_all();
+        return rvswd_flash_ch5xx_flash_erase_all(profile);
     }
 
-    if (!rvswd_flash_wait_ready(&status, 0x11u, 0x12u)) {
+    if (!rvswd_flash_wait_ready(profile, &status, 0x11u, 0x12u)) {
         return false;
     }
 
-    if (!rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control)) {
+    if (!rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control)) {
         rvswd_flash_last_error_value = 0x13u;
         return false;
     }
@@ -585,7 +589,8 @@ bool rvswd_flash_erase_all(void) {
         return false;
     }
 
-    if (!rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control)) {
+    if (!rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control)) {
         rvswd_flash_last_error_value = 0x15u;
         return false;
     }
@@ -620,7 +625,7 @@ bool rvswd_flash_erase_all(void) {
         rvswd_flash_last_error_value = 0x1au;
         goto cleanup;
     }
-    if (!rvswd_flash_wait_ready(&status, 0x1bu, 0x1cu)) {
+    if (!rvswd_flash_wait_ready(profile, &status, 0x1bu, 0x1cu)) {
         goto cleanup;
     }
     if ((status & RVSWD_FLASH_STATR_WRPRTERR) != 0u) {
@@ -652,7 +657,8 @@ bool rvswd_flash_read_protected(bool *protected) {
         rvswd_flash_last_error_value = 0x22u;
         return false;
     }
-    if (!rvswd_memory_read32(RVSWD_FLASH_OBR_ADDRESS, &option_status)) {
+    if (!rvswd_memory_read32(profile, true, RVSWD_FLASH_OBR_ADDRESS,
+                             &option_status)) {
         rvswd_flash_last_error_value = 0x23u;
         return false;
     }
@@ -674,7 +680,8 @@ bool rvswd_flash_write_protected(bool *protected) {
         rvswd_flash_last_error_value = 0x25u;
         return false;
     }
-    if (!rvswd_memory_read32(RVSWD_FLASH_WPR_ADDRESS, &write_protection)) {
+    if (!rvswd_memory_read32(profile, true, RVSWD_FLASH_WPR_ADDRESS,
+                             &write_protection)) {
         rvswd_flash_last_error_value = 0x26u;
         return false;
     }
@@ -724,8 +731,9 @@ static bool rvswd_flash_write_option_bytes_fast_buffer(
     uint32_t status;
     bool success = false;
 
-    if (!rvswd_flash_wait_ready(&status, 0x31u, 0x32u) ||
-        !rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control)) {
+    if (!rvswd_flash_wait_ready(profile, &status, 0x31u, 0x32u) ||
+        !rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control)) {
         if (rvswd_flash_last_error_value == 0u) {
             rvswd_flash_last_error_value = 0x33u;
         }
@@ -737,7 +745,8 @@ static bool rvswd_flash_write_option_bytes_fast_buffer(
         }
         return false;
     }
-    if (!rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control)) {
+    if (!rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control)) {
         rvswd_flash_last_error_value = 0x35u;
         return false;
     }
@@ -758,7 +767,7 @@ static bool rvswd_flash_write_option_bytes_fast_buffer(
         !rvswd_memory_write32(
             RVSWD_FLASH_CTLR_ADDRESS,
             idle_control | RVSWD_FLASH_CTLR_OPTER | RVSWD_FLASH_CTLR_STRT) ||
-        !rvswd_flash_wait_ready(&status, 0x36u, 0x37u)) {
+        !rvswd_flash_wait_ready(profile, &status, 0x36u, 0x37u)) {
         if (rvswd_flash_last_error_value == 0u) {
             rvswd_flash_last_error_value = 0x38u;
         }
@@ -770,9 +779,11 @@ static bool rvswd_flash_write_option_bytes_fast_buffer(
     }
 
     // 选项字擦除完成后重新解锁快速编程模式，缓冲写入不保持 OPTWRE
-    if (!rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control) ||
+    if (!rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control) ||
         !rvswd_flash_unlock_main_and_fast(control) ||
-        !rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control)) {
+        !rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control)) {
         rvswd_flash_last_error_value = 0x3au;
         goto cleanup;
     }
@@ -793,7 +804,7 @@ static bool rvswd_flash_write_option_bytes_fast_buffer(
             RVSWD_FLASH_CTLR_ADDRESS,
             idle_control | RVSWD_FLASH_CTLR_FAST_PROGRAM |
                 RVSWD_FLASH_CTLR_BUFFER_RESET) ||
-        !rvswd_flash_wait_ready(&status, 0x3au, 0x3bu) ||
+        !rvswd_flash_wait_ready(profile, &status, 0x3au, 0x3bu) ||
         !rvswd_memory_write32(RVSWD_FLASH_CTLR_ADDRESS, idle_control)) {
         if (rvswd_flash_last_error_value == 0u) {
             rvswd_flash_last_error_value = 0x3cu;
@@ -810,7 +821,7 @@ static bool rvswd_flash_write_option_bytes_fast_buffer(
                 RVSWD_FLASH_CTLR_ADDRESS,
                 idle_control | RVSWD_FLASH_CTLR_FAST_PROGRAM |
                     RVSWD_FLASH_CTLR_BUFFER_LOAD) ||
-            !rvswd_flash_wait_ready(&status, 0x3du, 0x3eu) ||
+            !rvswd_flash_wait_ready(profile, &status, 0x3du, 0x3eu) ||
             !rvswd_memory_write32(RVSWD_FLASH_CTLR_ADDRESS, idle_control)) {
             if (rvswd_flash_last_error_value == 0u) {
                 rvswd_flash_last_error_value = 0x3fu;
@@ -825,7 +836,7 @@ static bool rvswd_flash_write_option_bytes_fast_buffer(
         !rvswd_memory_write32(
             RVSWD_FLASH_CTLR_ADDRESS,
             idle_control | RVSWD_FLASH_CTLR_FAST_PROGRAM | RVSWD_FLASH_CTLR_STRT) ||
-        !rvswd_flash_wait_ready(&status, 0x40u, 0x41u)) {
+        !rvswd_flash_wait_ready(profile, &status, 0x40u, 0x41u)) {
         if (rvswd_flash_last_error_value == 0u) {
             rvswd_flash_last_error_value = 0x42u;
         }
@@ -857,15 +868,17 @@ static bool rvswd_flash_write_option_bytes_halfword(
     uint32_t status;
     bool success = false;
 
-    if (!rvswd_flash_wait_ready(&status, 0x51u, 0x52u) ||
-        !rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control)) {
+    if (!rvswd_flash_wait_ready(profile, &status, 0x51u, 0x52u) ||
+        !rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control)) {
         if (rvswd_flash_last_error_value == 0u) {
             rvswd_flash_last_error_value = 0x53u;
         }
         return false;
     }
     if (!rvswd_flash_unlock_option_bytes(true) ||
-        !rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control)) {
+        !rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control)) {
         if (rvswd_flash_last_error_value == 0u) {
             rvswd_flash_last_error_value = 0x54u;
         }
@@ -886,7 +899,7 @@ static bool rvswd_flash_write_option_bytes_halfword(
         !rvswd_memory_write32(
             RVSWD_FLASH_CTLR_ADDRESS,
             idle_control | RVSWD_FLASH_CTLR_OPTER | RVSWD_FLASH_CTLR_STRT) ||
-        !rvswd_flash_wait_ready(&status, 0x56u, 0x57u)) {
+        !rvswd_flash_wait_ready(profile, &status, 0x56u, 0x57u)) {
         if (rvswd_flash_last_error_value == 0u) {
             rvswd_flash_last_error_value = 0x58u;
         }
@@ -898,9 +911,11 @@ static bool rvswd_flash_write_option_bytes_halfword(
     }
 
     // Option Bytes 擦除后重新解锁主存储区、快速模式和 Option Bytes
-    if (!rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control) ||
+    if (!rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control) ||
         !rvswd_flash_unlock_option_bytes(true) ||
-        !rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control)) {
+        !rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control)) {
         rvswd_flash_last_error_value = 0x5au;
         goto cleanup;
     }
@@ -922,7 +937,7 @@ static bool rvswd_flash_write_option_bytes_halfword(
                 idle_control | RVSWD_FLASH_CTLR_OPTION_PROGRAM) ||
             !rvswd_memory_write16(profile->option_base + index * 2u, value,
                                   RVSWD_ABSTRACT_TIMEOUT_US) ||
-            !rvswd_flash_wait_ready(&status, 0x5cu, 0x5du)) {
+            !rvswd_flash_wait_ready(profile, &status, 0x5cu, 0x5du)) {
             if (rvswd_flash_last_error_value == 0u) {
                 rvswd_flash_last_error_value = 0x5eu;
             }
@@ -955,15 +970,17 @@ static bool rvswd_flash_unprotect_option_bytes(
     uint32_t status;
     bool success = false;
 
-    if (!rvswd_flash_wait_ready(&status, 0x61u, 0x62u) ||
-        !rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control)) {
+    if (!rvswd_flash_wait_ready(profile, &status, 0x61u, 0x62u) ||
+        !rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control)) {
         if (rvswd_flash_last_error_value == 0u) {
             rvswd_flash_last_error_value = 0x63u;
         }
         return false;
     }
     if (!rvswd_flash_unlock_option_bytes(true) ||
-        !rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control)) {
+        !rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control)) {
         if (rvswd_flash_last_error_value == 0u) {
             rvswd_flash_last_error_value = 0x64u;
         }
@@ -982,7 +999,7 @@ static bool rvswd_flash_unprotect_option_bytes(
         !rvswd_memory_write32(
             RVSWD_FLASH_CTLR_ADDRESS,
             idle_control | RVSWD_FLASH_CTLR_OPTER | RVSWD_FLASH_CTLR_STRT) ||
-        !rvswd_flash_wait_ready(&status, 0x66u, 0x67u)) {
+        !rvswd_flash_wait_ready(profile, &status, 0x66u, 0x67u)) {
         if (rvswd_flash_last_error_value == 0u) {
             rvswd_flash_last_error_value = 0x68u;
         }
@@ -994,9 +1011,11 @@ static bool rvswd_flash_unprotect_option_bytes(
     }
 
     // 解除读保护只恢复 RDP，保留 Option Bytes 擦除后的默认状态
-    if (!rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control) ||
+    if (!rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control) ||
         !rvswd_flash_unlock_option_bytes(true) ||
-        !rvswd_memory_read32(RVSWD_FLASH_CTLR_ADDRESS, &control)) {
+        !rvswd_memory_read32(profile, true, RVSWD_FLASH_CTLR_ADDRESS,
+                             &control)) {
         rvswd_flash_last_error_value = 0x6au;
         goto cleanup;
     }
@@ -1022,7 +1041,7 @@ static bool rvswd_flash_unprotect_option_bytes(
         }
         goto cleanup;
     }
-    if (!rvswd_flash_wait_ready(&status, 0x6cu, 0x6du)) {
+    if (!rvswd_flash_wait_ready(profile, &status, 0x6cu, 0x6du)) {
         if (rvswd_flash_last_error_value == 0u) {
             rvswd_flash_last_error_value = 0x73u;
         }
@@ -1069,7 +1088,8 @@ bool rvswd_flash_set_read_protected(bool protected) {
         }
     } else {
         for (uint32_t index = 0u; index < RVSWD_OPTION_BYTES_WORD_COUNT; ++index) {
-            if (!rvswd_memory_read32(profile->option_base + index * 4u,
+            if (!rvswd_memory_read32(profile, true,
+                                     profile->option_base + index * 4u,
                                      &option_words[index])) {
                 rvswd_flash_last_error_value = 0x45u;
                 return false;

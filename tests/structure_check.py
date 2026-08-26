@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""检查 WCH-Link 私有边界，默认只报告，--strict 时阻断。"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE_ROOT = ROOT / "src"
+ALLOWLIST = ROOT / "tests" / "macro_allowlist.txt"
+
+
+def source_files() -> list[Path]:
+    return sorted(
+        path
+        for path in SOURCE_ROOT.rglob("*")
+        if path.suffix in {".c", ".h", ".S"} and path.is_file()
+    )
+
+
+def allowed_macros() -> set[str]:
+    if not ALLOWLIST.exists():
+        return set()
+    return {
+        line.strip()
+        for line in ALLOWLIST.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+
+def find_violations() -> list[str]:
+    violations: list[str] = []
+    files = source_files()
+
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        relative = path.relative_to(ROOT)
+        if "rvswd_gpio" in text:
+            violations.append(f"旧 facade 符号仍存在: {relative}")
+
+        if relative.parts[:3] in {
+            ("src", "main.c"),
+        }:
+            pass
+
+        if relative.as_posix().startswith(("src/wchlink/protocol/", "src/wchlink/usb/")):
+            if re.search(r'#include\s+["<](?:rvswd_|target/)', text):
+                violations.append(f"公共层包含 target/transport 私有 header: {relative}")
+
+    definitions: dict[str, list[str]] = defaultdict(list)
+    define_pattern = re.compile(r"^\s*#define\s+([A-Za-z_][A-Za-z0-9_]*)")
+    for path in files:
+        relative = path.relative_to(ROOT)
+        for line in path.read_text(encoding="utf-8").splitlines():
+            match = define_pattern.match(line)
+            if match:
+                definitions[match.group(1)].append(relative.as_posix())
+
+    allowlist = allowed_macros()
+    for name, locations in sorted(definitions.items()):
+        if len(locations) > 1 and name not in allowlist:
+            violations.append(
+                f"重复工程宏 {name}: {', '.join(locations)}"
+            )
+
+    return violations
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--strict", action="store_true")
+    args = parser.parse_args()
+    violations = find_violations()
+    if violations:
+        for violation in violations:
+            print(f"WARN: {violation}")
+        return 1 if args.strict else 0
+    print("structure check: clean")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

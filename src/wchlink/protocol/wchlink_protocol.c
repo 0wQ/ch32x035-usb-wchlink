@@ -3,7 +3,7 @@
 #include "bsp/bsp_delay.h"
 #include "drv/drv_dp_pullup.h"
 #include "drv/drv_power_switch.h"
-#include "rvswd_gpio.h"
+#include "rvswd_target_session.h"
 #include "wchlink_family.h"
 #include "wchlink_wire.h"
 
@@ -28,6 +28,8 @@ static const struct wchlink_loader_layout wchlink_loader_layout_ch59x = {
 };
 
 static bool wchlink_connected;
+static struct rvswd_target_session wchlink_target_session;
+static struct rvswd_target_result wchlink_target_last_result;
 static bool wchlink_ch5xx_info_query_seen;
 static bool wchlink_isp_request_pending;
 static uint32_t wchlink_read_address;
@@ -63,6 +65,214 @@ static uint32_t wchlink_loader_failure_address;
 static uint32_t wchlink_loader_failure_abstractcs;
 static uint8_t wchlink_flash_padding[WCHLINK_FLASH_PACKET_SIZE];
 
+// 这些适配函数只把 typed target result 转换成当前 transfer 所需的输出参数
+static void wchlink_target_record_result(
+    struct rvswd_target_result result) {
+    wchlink_target_last_result = result;
+}
+
+static void wchlink_target_init(void) {
+    rvswd_target_session_init(&wchlink_target_session);
+    wchlink_target_last_result = rvswd_target_result_success();
+}
+
+static void wchlink_target_disconnect(void) {
+    rvswd_target_session_disconnect(&wchlink_target_session);
+    wchlink_connected = false;
+}
+
+static bool wchlink_target_connect(void) {
+    struct rvswd_target_result result =
+        rvswd_target_session_connect(&wchlink_target_session);
+
+    wchlink_target_record_result(result);
+    wchlink_connected = result.ok;
+    return result.ok;
+}
+
+static uint8_t wchlink_target_connect_last_error(void) {
+    return (uint8_t)wchlink_target_session.connect_error;
+}
+
+static uint32_t wchlink_target_chip_id(void) {
+    const struct rvswd_target_info *info =
+        rvswd_target_session_info(&wchlink_target_session);
+
+    return info == NULL ? 0u : info->chip_id;
+}
+
+static uint8_t wchlink_target_family(void) {
+    const struct rvswd_target_info *info =
+        rvswd_target_session_info(&wchlink_target_session);
+
+    return info == NULL ? 0u : info->family;
+}
+
+static void wchlink_target_set_family_hint(uint8_t family) {
+    rvswd_target_session_set_family_hint(&wchlink_target_session, family);
+}
+
+static bool wchlink_target_read_dmi(uint8_t address, uint32_t *value) {
+    struct rvswd_target_result result =
+        rvswd_target_session_read_dmi(&wchlink_target_session, address);
+
+    wchlink_target_record_result(result);
+    if (result.ok && value != NULL) {
+        *value = result.value;
+    }
+    return result.ok;
+}
+
+static bool wchlink_target_write_dmi(uint8_t address, uint32_t value) {
+    struct rvswd_target_result result =
+        rvswd_target_session_write_dmi(&wchlink_target_session, address, value);
+
+    wchlink_target_record_result(result);
+    return result.ok;
+}
+
+static bool wchlink_target_dmi_failure_retryable(void) {
+    return wchlink_target_last_result.retryable;
+}
+
+static bool wchlink_target_read_memory32(uint32_t address, uint32_t *value) {
+    struct rvswd_target_result result =
+        rvswd_target_session_read_memory32(&wchlink_target_session, address);
+
+    wchlink_target_record_result(result);
+    if (result.ok && value != NULL) {
+        *value = result.value;
+    }
+    return result.ok;
+}
+
+static bool wchlink_target_write_memory32(uint32_t address, uint32_t value) {
+    struct rvswd_target_result result =
+        rvswd_target_session_write_memory32(&wchlink_target_session, address,
+                                            value);
+
+    wchlink_target_record_result(result);
+    return result.ok;
+}
+
+static bool wchlink_target_write_memory(uint32_t address, const uint8_t *data,
+                                        uint32_t length) {
+    struct rvswd_target_result result =
+        rvswd_target_session_write_memory(&wchlink_target_session, address, data,
+                                          length);
+
+    wchlink_target_record_result(result);
+    return result.ok;
+}
+
+static uint8_t wchlink_target_memory_last_error(void) {
+    return (uint8_t)wchlink_target_last_result.code;
+}
+
+static uint8_t wchlink_target_memory_failure_dmi_status(void) {
+    return wchlink_target_last_result.dmi_status;
+}
+
+static uint32_t wchlink_target_memory_failure_address(void) {
+    return wchlink_target_last_result.address;
+}
+
+static uint32_t wchlink_target_memory_failure_abstractcs(void) {
+    return wchlink_target_last_result.abstractcs;
+}
+
+static bool wchlink_target_execute(uint32_t entry, uint32_t stack_top,
+                                   uint32_t mode, uint32_t address,
+                                   uint32_t length, uint32_t data_address,
+                                   uint32_t *value) {
+    struct rvswd_target_result result = rvswd_target_session_execute(
+        &wchlink_target_session, entry, stack_top, mode, address, length,
+        data_address);
+
+    wchlink_target_record_result(result);
+    if (value != NULL) {
+        *value = result.value;
+    }
+    return result.ok;
+}
+
+static bool wchlink_target_reset_and_halt(void) {
+    struct rvswd_target_result result =
+        rvswd_target_session_reset_and_halt(&wchlink_target_session);
+
+    wchlink_target_record_result(result);
+    return result.ok;
+}
+
+static bool wchlink_target_soft_reset_and_run(void) {
+    struct rvswd_target_result result =
+        rvswd_target_session_soft_reset_and_run(&wchlink_target_session);
+
+    wchlink_target_record_result(result);
+    return result.ok;
+}
+
+static bool wchlink_target_reset_and_run(void) {
+    struct rvswd_target_result result =
+        rvswd_target_session_reset_and_run(&wchlink_target_session);
+
+    wchlink_target_record_result(result);
+    return result.ok;
+}
+
+static bool wchlink_target_flash_erase_all(void) {
+    struct rvswd_target_result result =
+        rvswd_target_session_flash_erase_all(&wchlink_target_session);
+
+    wchlink_target_record_result(result);
+    return result.ok;
+}
+
+static bool wchlink_target_flash_rewrite_page(uint32_t address,
+                                              const uint8_t *data) {
+    struct rvswd_target_result result =
+        rvswd_target_session_flash_rewrite_page(&wchlink_target_session, address,
+                                                data);
+
+    wchlink_target_record_result(result);
+    return result.ok;
+}
+
+static bool wchlink_target_flash_read_protected(bool *protected) {
+    struct rvswd_target_result result =
+        rvswd_target_session_flash_read_protected(&wchlink_target_session);
+
+    wchlink_target_record_result(result);
+    if (result.ok && protected != NULL) {
+        *protected = result.value != 0u;
+    }
+    return result.ok;
+}
+
+static bool wchlink_target_flash_write_protected(bool *protected) {
+    struct rvswd_target_result result =
+        rvswd_target_session_flash_write_protected(&wchlink_target_session);
+
+    wchlink_target_record_result(result);
+    if (result.ok && protected != NULL) {
+        *protected = result.value != 0u;
+    }
+    return result.ok;
+}
+
+static bool wchlink_target_flash_set_read_protected(bool protected) {
+    struct rvswd_target_result result =
+        rvswd_target_session_flash_set_read_protected(&wchlink_target_session,
+                                                      protected);
+
+    wchlink_target_record_result(result);
+    return result.ok;
+}
+
+static uint32_t wchlink_target_flash_last_error(void) {
+    return wchlink_target_last_result.code;
+}
+
 static uint32_t wchlink_checksum_add(uint32_t checksum, const uint8_t *data,
                                      size_t length) {
     for (size_t offset = 0u; offset < length; offset += 4u) {
@@ -75,17 +285,18 @@ static uint32_t wchlink_checksum_add(uint32_t checksum, const uint8_t *data,
 }
 
 static bool wchlink_target_uses_ch5xx_loader(void) {
-    uint8_t family = rvswd_gpio_target_wchlink_family();
+    uint8_t family = wchlink_target_family();
     return family == WCHLINK_TARGET_FAMILY_CH58X ||
            family == WCHLINK_TARGET_FAMILY_CH59X;
 }
 
 static bool wchlink_target_uses_l103_loader(void) {
-    return rvswd_gpio_target_wchlink_family() == WCHLINK_TARGET_FAMILY_L103;
+    return wchlink_target_family() == WCHLINK_TARGET_FAMILY_L103;
 }
 
 static bool wchlink_target_supports_memory_streaming(void) {
-    return rvswd_gpio_target_supports_memory_streaming();
+    return rvswd_target_session_supports_memory_streaming(
+        &wchlink_target_session);
 }
 
 static void wchlink_clear_transfer_state(void) {
@@ -144,8 +355,8 @@ static bool wchlink_flash_write_padding(const struct wchlink_loader_layout *layo
             length = sizeof(wchlink_flash_padding);
         }
         memset(wchlink_flash_padding, 0xff, length);
-        if (!rvswd_gpio_write_memory(layout->data + from, wchlink_flash_padding,
-                                     length)) {
+        if (!wchlink_target_write_memory(layout->data + from, wchlink_flash_padding,
+                                         length)) {
             return false;
         }
         wchlink_flash_checksum =
@@ -195,7 +406,7 @@ static bool wchlink_partial_write_flash_page(void) {
              offset += 4u) {
             uint32_t value;
 
-            if (!rvswd_gpio_read_memory32(page_address + offset, &value)) {
+            if (!wchlink_target_read_memory32(page_address + offset, &value)) {
                 return false;
             }
             wchlink_partial_write_page[offset + 0u] = (uint8_t)value;
@@ -208,7 +419,7 @@ static bool wchlink_partial_write_flash_page(void) {
            wchlink_partial_write_data, wchlink_partial_write_length);
 
     // CH5xx 只能把 1 写成 0，软件断点替换指令前必须整页读改写
-    if (!rvswd_gpio_flash_rewrite_page(page_address, wchlink_partial_write_page)) {
+    if (!wchlink_target_flash_rewrite_page(page_address, wchlink_partial_write_page)) {
         return false;
     }
 
@@ -251,7 +462,7 @@ static size_t wchlink_target_error(uint8_t *response, size_t capacity) {
     response[0] = WCHLINK_COMMAND_PREFIX;
     response[1] = 0x55u;
     response[2] = 1u;
-    response[3] = (uint8_t)rvswd_gpio_flash_last_error();
+    response[3] = (uint8_t)wchlink_target_flash_last_error();
     return 4u;
 }
 
@@ -283,8 +494,8 @@ static size_t wchlink_identity(uint8_t *response, size_t capacity) {
 }
 
 static size_t wchlink_connect_reply(uint8_t *response, size_t capacity, bool connected) {
-    uint32_t chip_id = rvswd_gpio_target_chip_id();
-    uint8_t chip_family = rvswd_gpio_target_wchlink_family();
+    uint32_t chip_id = wchlink_target_chip_id();
+    uint8_t chip_family = wchlink_target_family();
     bool unsupported_chip = connected && chip_family == 0u;
 
     if (unsupported_chip) {
@@ -297,7 +508,7 @@ static size_t wchlink_connect_reply(uint8_t *response, size_t capacity, bool con
         response[0] = WCHLINK_COMMAND_PREFIX;
         response[1] = 0x55u;
         response[2] = 1u;
-        response[3] = unsupported_chip ? 0x30u : rvswd_gpio_connect_last_error();
+        response[3] = unsupported_chip ? 0x30u : wchlink_target_connect_last_error();
         return 4u;
     }
     if (capacity < 8u) {
@@ -319,7 +530,7 @@ static size_t wchlink_chip_info(uint8_t *response, size_t capacity) {
     uint32_t uid_low = 0u;
     uint32_t uid_high = 0u;
     uint32_t uid_tail = 0u;
-    uint32_t chip_id = rvswd_gpio_target_chip_id();
+    uint32_t chip_id = wchlink_target_chip_id();
 
     if (capacity < 20u) {
         return 0u;
@@ -336,10 +547,10 @@ static size_t wchlink_chip_info(uint8_t *response, size_t capacity) {
         return 20u;
     }
 
-    if (!rvswd_gpio_read_memory32(0x1ffff7e0u, &flash_size) ||
-        !rvswd_gpio_read_memory32(0x1ffff7e8u, &uid_low) ||
-        !rvswd_gpio_read_memory32(0x1ffff7ecu, &uid_high) ||
-        !rvswd_gpio_read_memory32(0x1ffff7f0u, &uid_tail)) {
+    if (!wchlink_target_read_memory32(0x1ffff7e0u, &flash_size) ||
+        !wchlink_target_read_memory32(0x1ffff7e8u, &uid_low) ||
+        !wchlink_target_read_memory32(0x1ffff7ecu, &uid_high) ||
+        !wchlink_target_read_memory32(0x1ffff7f0u, &uid_tail)) {
         return 0u;
     }
 
@@ -379,9 +590,9 @@ static size_t wchlink_dmi(const uint8_t *request, uint8_t *response, size_t capa
     data = ((uint32_t)request[4] << 24u) | ((uint32_t)request[5] << 16u) |
            ((uint32_t)request[6] << 8u) | request[7];
     if (request[8] == 1u) {
-        success = rvswd_gpio_read_dmi(address, &data);
+        success = wchlink_target_read_dmi(address, &data);
     } else if (request[8] == 2u) {
-        success = rvswd_gpio_write_dmi(address, data);
+        success = wchlink_target_write_dmi(address, data);
     } else {
         success = false;
     }
@@ -394,7 +605,7 @@ static size_t wchlink_dmi(const uint8_t *request, uint8_t *response, size_t capa
     response[5] = (uint8_t)(data >> 16u);
     response[6] = (uint8_t)(data >> 8u);
     response[7] = (uint8_t)data;
-    response[8] = success ? 0u : (rvswd_gpio_dmi_failure_retryable() ? 3u : 2u);
+    response[8] = success ? 0u : (wchlink_target_dmi_failure_retryable() ? 3u : 2u);
     return 9u;
 }
 
@@ -414,7 +625,7 @@ static size_t wchlink_config(const uint8_t *request, size_t request_length,
                 result = WCHLINK_CONFIG_READ_UNPROTECTED;
                 break;
             }
-            if (!rvswd_gpio_flash_read_protected(&protected)) {
+            if (!wchlink_target_flash_read_protected(&protected)) {
                 return wchlink_target_error(response, capacity);
             }
             result = protected ? WCHLINK_CONFIG_READ_PROTECTED
@@ -424,7 +635,7 @@ static size_t wchlink_config(const uint8_t *request, size_t request_length,
         case WCHLINK_CONFIG_ENABLE_PROTECTION:
             // 扩展帧还包含 USER 和 WRP 配置，不能按基础保护命令处理
             if (request_length != 4u ||
-                !rvswd_gpio_flash_set_read_protected(
+                !wchlink_target_flash_set_read_protected(
                     request[3] == WCHLINK_CONFIG_ENABLE_PROTECTION)) {
                 return request_length == 4u
                            ? wchlink_target_error(response, capacity)
@@ -434,7 +645,7 @@ static size_t wchlink_config(const uint8_t *request, size_t request_length,
             result = request[3];
             break;
         case WCHLINK_CONFIG_WRITE_PROTECTION:
-            if (!rvswd_gpio_flash_write_protected(&protected)) {
+            if (!wchlink_target_flash_write_protected(&protected)) {
                 return wchlink_target_error(response, capacity);
             }
             result = protected ? WCHLINK_CONFIG_WRITE_PROTECTED
@@ -453,7 +664,7 @@ static size_t wchlink_config(const uint8_t *request, size_t request_length,
 
 void wchlink_protocol_reset(void) {
     // 失败连接也会配置调试引脚，所有会话复位都必须释放总线
-    rvswd_gpio_disconnect();
+    wchlink_target_disconnect();
     wchlink_connected = false;
     wchlink_ch5xx_info_query_seen = false;
     wchlink_isp_request_pending = false;
@@ -503,16 +714,16 @@ void wchlink_protocol_write_data(const uint8_t *data, size_t length) {
                 wchlink_loader_failure_address =
                     layout->entry + wchlink_loader_received;
                 wchlink_loader_failure_abstractcs = 0xffffffffu;
-            } else if (!rvswd_gpio_write_memory(
+            } else if (!wchlink_target_write_memory(
                            layout->entry + wchlink_loader_received,
                            data, (uint32_t)length)) {
-                wchlink_loader_error = rvswd_gpio_memory_last_error();
+                wchlink_loader_error = wchlink_target_memory_last_error();
                 wchlink_loader_failure_dmi_status =
-                    rvswd_gpio_memory_failure_dmi_status();
+                    wchlink_target_memory_failure_dmi_status();
                 wchlink_loader_failure_address =
-                    rvswd_gpio_memory_failure_address();
+                    wchlink_target_memory_failure_address();
                 wchlink_loader_failure_abstractcs =
-                    rvswd_gpio_memory_failure_abstractcs();
+                    wchlink_target_memory_failure_abstractcs();
                 if (wchlink_loader_error == 0u) {
                     wchlink_loader_error = 0x15u;
                 }
@@ -598,12 +809,12 @@ void wchlink_protocol_write_data(const uint8_t *data, size_t length) {
                     memcpy(&wchlink_flash_chunk_data[wchlink_flash_transfer_received],
                            data, write_length);
                 } else {
-                    if (!rvswd_gpio_write_memory(
+                    if (!wchlink_target_write_memory(
                             layout->data + wchlink_flash_transfer_received,
                             data, (uint32_t)write_length)) {
                         wchlink_write_mode = 0u;
                         wchlink_data_reply_status =
-                            rvswd_gpio_memory_last_error();
+                            wchlink_target_memory_last_error();
                         if (wchlink_data_reply_status == 0u) {
                             wchlink_data_reply_status = 0x15u;
                         }
@@ -627,11 +838,11 @@ void wchlink_protocol_write_data(const uint8_t *data, size_t length) {
 
         if (wchlink_target_supports_memory_streaming() &&
             wchlink_flash_data_received != 0u &&
-            !rvswd_gpio_write_memory(layout->data,
-                                     wchlink_flash_chunk_data,
-                                     wchlink_flash_chunk_length)) {
+            !wchlink_target_write_memory(layout->data,
+                                         wchlink_flash_chunk_data,
+                                         wchlink_flash_chunk_length)) {
             wchlink_write_mode = 0u;
-            wchlink_data_reply_status = rvswd_gpio_memory_last_error();
+            wchlink_data_reply_status = wchlink_target_memory_last_error();
             if (wchlink_data_reply_status == 0u) {
                 wchlink_data_reply_status = 0x15u;
             }
@@ -648,7 +859,7 @@ void wchlink_protocol_write_data(const uint8_t *data, size_t length) {
                                              wchlink_flash_data_received,
                                              padded_length)) {
                 wchlink_write_mode = 0u;
-                wchlink_data_reply_status = rvswd_gpio_memory_last_error();
+                wchlink_data_reply_status = wchlink_target_memory_last_error();
                 if (wchlink_data_reply_status == 0u) {
                     wchlink_data_reply_status = 0x15u;
                 }
@@ -670,19 +881,19 @@ void wchlink_protocol_write_data(const uint8_t *data, size_t length) {
                     checksum_address = WCHLINK_L103_LOADER_CHECKSUM_ADDRESS;
                 }
                 if (checksum_address != 0u &&
-                    !rvswd_gpio_write_memory32(checksum_address,
-                                               wchlink_flash_checksum)) {
+                    !wchlink_target_write_memory32(checksum_address,
+                                                   wchlink_flash_checksum)) {
                     wchlink_write_mode = 0u;
                     wchlink_data_reply_status = 0x15u;
                     wchlink_data_reply_pending = true;
                     return;
                 }
             }
-            success = rvswd_gpio_execute(layout->entry, layout->stack_top,
-                                         wchlink_flash_loader_mode,
-                                         wchlink_write_address,
-                                         wchlink_flash_chunk_length, layout->data,
-                                         &result);
+            success = wchlink_target_execute(layout->entry, layout->stack_top,
+                                             wchlink_flash_loader_mode,
+                                             wchlink_write_address,
+                                             wchlink_flash_chunk_length, layout->data,
+                                             &result);
 
             // LinkE 将 loader 的三个标准返回值转换为数据端点状态
             if (success && result == 0u) {
@@ -737,7 +948,7 @@ size_t wchlink_protocol_read_data(uint8_t *data, size_t capacity) {
     while (produced + 4u <= capacity && wchlink_read_remaining >= 4u) {
         uint32_t value;
 
-        if (!rvswd_gpio_read_memory32(wchlink_read_address, &value)) {
+        if (!wchlink_target_read_memory32(wchlink_read_address, &value)) {
             wchlink_read_active = false;
             wchlink_read_remaining = 0u;
             return 0u;
@@ -841,15 +1052,15 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
                 wchlink_clear_transfer_state();
                 if (!wchlink_connected) {
                     // MRS 版本预检会先发送 STOP，基础全擦必须重新建立目标会话
-                    rvswd_gpio_init();
-                    wchlink_connected = rvswd_gpio_connect();
+                    wchlink_target_init();
+                    wchlink_connected = wchlink_target_connect();
                 }
-                if (!wchlink_connected || !rvswd_gpio_flash_erase_all()) {
+                if (!wchlink_connected || !wchlink_target_flash_erase_all()) {
                     if (response_capacity >= 4u) {
                         response[0] = WCHLINK_COMMAND_PREFIX;
                         response[1] = family;
                         response[2] = 1u;
-                        response[3] = (uint8_t)rvswd_gpio_flash_last_error();
+                        response[3] = (uint8_t)wchlink_target_flash_last_error();
                         return 4u;
                     }
                     return wchlink_unsupported(response, response_capacity, family);
@@ -916,17 +1127,17 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
                     return wchlink_unsupported(response, response_capacity, family);
                 }
                 // LinkE 固件连续两次以 mode 1 初始化 loader
-                success = rvswd_gpio_execute(layout->entry, layout->stack_top, 0x01u,
-                                             0u, 0u, layout->data, &result) &&
+                success = wchlink_target_execute(layout->entry, layout->stack_top, 0x01u,
+                                                 0u, 0u, layout->data, &result) &&
                           result == 0u;
                 if (success) {
-                    success = rvswd_gpio_execute(layout->entry, layout->stack_top,
-                                                 (wchlink_flash_prepare_seen &&
-                                                  !wchlink_target_uses_ch5xx_loader())
-                                                     ? 0x03u
-                                                     : 0x01u,
-                                                 0u, 0u, layout->data,
-                                                 &result) &&
+                    success = wchlink_target_execute(layout->entry, layout->stack_top,
+                                                     (wchlink_flash_prepare_seen &&
+                                                      !wchlink_target_uses_ch5xx_loader())
+                                                         ? 0x03u
+                                                         : 0x01u,
+                                                     0u, 0u, layout->data,
+                                                     &result) &&
                               result == 0u;
                 }
                 if (success &&
@@ -1000,7 +1211,7 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
         if (request_length < 5u) {
             return wchlink_unsupported(response, response_capacity, family);
         }
-        rvswd_gpio_set_target_wchlink_family_hint(request[3]);
+        wchlink_target_set_family_hint(request[3]);
         response_length = wchlink_ack(response, response_capacity, family);
         if (response_length != 0u) {
             response[3] = 1u;
@@ -1010,7 +1221,7 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
     if (family == WCHLINK_FAMILY_RESET) {
         if (request_length >= 4u && request[3] == WCHLINK_RESET_SOFT &&
             wchlink_connected) {
-            if (!rvswd_gpio_soft_reset_and_run()) {
+            if (!wchlink_target_soft_reset_and_run()) {
                 return wchlink_unsupported(response, response_capacity, family);
             }
             return wchlink_command_reply(response, response_capacity, family,
@@ -1018,7 +1229,7 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
         }
         if (request_length >= 4u && request[3] == WCHLINK_RESET_MRS_RUN &&
             wchlink_connected) {
-            if (!rvswd_gpio_reset_and_run()) {
+            if (!wchlink_target_reset_and_run()) {
                 return wchlink_unsupported(response, response_capacity, family);
             }
             return wchlink_command_reply(response, response_capacity, family,
@@ -1026,7 +1237,7 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
         }
         if (request_length >= 4u && request[3] == WCHLINK_RESET_NORMAL &&
             wchlink_connected &&
-            !rvswd_gpio_reset_and_halt()) {
+            !wchlink_target_reset_and_halt()) {
             return wchlink_unsupported(response, response_capacity, family);
         }
         return wchlink_ack(response, response_capacity, family);
@@ -1041,8 +1252,8 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
             return wchlink_identity(response, response_capacity);
         case WCHLINK_CONTROL_CONNECT:
             wchlink_protocol_reset();
-            rvswd_gpio_init();
-            wchlink_connected = rvswd_gpio_connect();
+            wchlink_target_init();
+            wchlink_connected = wchlink_target_connect();
             return wchlink_connect_reply(response, response_capacity, wchlink_connected);
         case WCHLINK_CONTROL_STOP: {
             bool return_ch5xx_info =
@@ -1063,8 +1274,8 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
             }
             // MRS 在设置两线速度后立即发起连接，目标调试模块需要短暂稳定时间
             bsp_delay_ms(20u);
-            rvswd_gpio_init();
-            wchlink_connected = rvswd_gpio_connect();
+            wchlink_target_init();
+            wchlink_connected = wchlink_target_connect();
             return wchlink_connect_reply(response, response_capacity, wchlink_connected);
         case WCHLINK_CONTROL_CLEAR_CODE_FLASH:
         case WCHLINK_CONTROL_CLEAR_CODE_FLASH_B:
@@ -1073,11 +1284,11 @@ size_t wchlink_protocol_process(const uint8_t *request, size_t request_length,
             }
             if (!wchlink_connected) {
                 // MRS 直接通过清擦除命令建立目标会话，末字节携带目标 family
-                rvswd_gpio_set_target_wchlink_family_hint(request[4]);
-                rvswd_gpio_init();
-                wchlink_connected = rvswd_gpio_connect();
+                wchlink_target_set_family_hint(request[4]);
+                wchlink_target_init();
+                wchlink_connected = wchlink_target_connect();
             }
-            if (!wchlink_connected || !rvswd_gpio_flash_erase_all()) {
+            if (!wchlink_connected || !wchlink_target_flash_erase_all()) {
                 return wchlink_target_error(response, response_capacity);
             }
             wchlink_clear_transfer_state();

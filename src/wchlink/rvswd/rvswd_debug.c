@@ -2,7 +2,6 @@
 
 #include "bsp/bsp_delay.h"
 #include "rvswd_dmi.h"
-#include "rvswd_gpio.h"
 
 #include <stddef.h>
 

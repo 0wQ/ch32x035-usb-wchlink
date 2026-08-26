@@ -16,14 +16,9 @@
 #define RVSWD_WAKEUP_CLOCKS           100u
 #define RVSWD_INTERFRAME_GUARD_US     0u
 
-static bool rvswd_phy_fast_timing;
-
-void rvswd_phy_gpio_set_fast_timing(bool enabled) {
-    rvswd_phy_fast_timing = enabled;
-}
-
-static inline __attribute__((always_inline)) void rvswd_phy_half_period(void) {
-    if (rvswd_phy_fast_timing) {
+static inline __attribute__((always_inline)) void rvswd_phy_half_period(
+    bool fast_timing) {
+    if (fast_timing) {
         // 快时序目标由 GPIO 写入间隔形成半周期
         __asm volatile("");
     } else {
@@ -102,29 +97,29 @@ void rvswd_phy_gpio_config_data_input(void) {
                    (0x08u << RVSWD_DATA_CFG_SHIFT);
 }
 
-void rvswd_phy_gpio_start(void) {
+void rvswd_phy_gpio_start(bool fast_timing) {
     rvswd_phy_gpio_config_data_output();
     rvswd_phy_clock_high();
     rvswd_phy_data_high();
-    rvswd_phy_half_period();
+    rvswd_phy_half_period(fast_timing);
     rvswd_phy_data_low();
-    rvswd_phy_half_period();
+    rvswd_phy_half_period(fast_timing);
 }
 
-void rvswd_phy_gpio_stop(void) {
+void rvswd_phy_gpio_stop(bool fast_timing) {
     // 采样结束时 SWCLK 仍为高，先接管数据线，再结束当前位
     rvswd_phy_gpio_config_data_output();
     rvswd_phy_clock_low();
     rvswd_phy_data_low();
-    rvswd_phy_half_period();
+    rvswd_phy_half_period(fast_timing);
     rvswd_phy_clock_high();
-    rvswd_phy_half_period();
+    rvswd_phy_half_period(fast_timing);
     rvswd_phy_data_high();
-    rvswd_phy_half_period();
+    rvswd_phy_half_period(fast_timing);
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_drive_bit(
-    uint8_t value) {
+    bool fast_timing, uint8_t value) {
     // 先拉低时钟，再更新数据，给 V30X 保留完整的数据建立窗口
     rvswd_phy_clock_low();
     if (value != 0u) {
@@ -132,26 +127,27 @@ static inline __attribute__((always_inline)) void rvswd_phy_drive_bit(
     } else {
         rvswd_phy_data_low();
     }
-    rvswd_phy_half_period();
+    rvswd_phy_half_period(fast_timing);
     rvswd_phy_clock_high();
-    rvswd_phy_half_period();
+    rvswd_phy_half_period(fast_timing);
 }
 
-static inline __attribute__((always_inline)) uint8_t rvswd_phy_sample_bit(void) {
+static inline __attribute__((always_inline)) uint8_t rvswd_phy_sample_bit(
+    bool fast_timing) {
     uint8_t value;
 
     rvswd_phy_clock_low();
-    rvswd_phy_half_period();
+    rvswd_phy_half_period(fast_timing);
     rvswd_phy_clock_high();
     // 上升沿后立即读取目标驱动的 SWDIO 电平
     value = (GPIOA->INDR & RVSWD_DATA_PIN) != 0u ? 1u : 0u;
-    rvswd_phy_half_period();
+    rvswd_phy_half_period(fast_timing);
     return value;
 }
 
-void rvswd_phy_gpio_drive_range(const uint8_t *frame, uint8_t first_bit,
-                                uint8_t bit_count) {
-    if (rvswd_phy_fast_timing) {
+void rvswd_phy_gpio_drive_range(bool fast_timing, const uint8_t *frame,
+                                uint8_t first_bit, uint8_t bit_count) {
+    if (fast_timing) {
         const uint8_t *byte = &frame[first_bit >> 3u];
         uint8_t mask = (uint8_t)(0x80u >> (first_bit & 7u));
 
@@ -168,13 +164,14 @@ void rvswd_phy_gpio_drive_range(const uint8_t *frame, uint8_t first_bit,
     }
     for (uint8_t bit = 0u; bit < bit_count; ++bit) {
         rvswd_phy_drive_bit(
+            fast_timing,
             rvswd_frame_get_bit(frame, (uint8_t)(first_bit + bit)));
     }
 }
 
-void rvswd_phy_gpio_sample_range(uint8_t *frame, uint8_t first_bit,
-                                 uint8_t bit_count) {
-    if (rvswd_phy_fast_timing) {
+void rvswd_phy_gpio_sample_range(bool fast_timing, uint8_t *frame,
+                                 uint8_t first_bit, uint8_t bit_count) {
+    if (fast_timing) {
         uint8_t *byte = &frame[first_bit >> 3u];
         uint8_t mask = (uint8_t)(0x80u >> (first_bit & 7u));
 
@@ -195,38 +192,40 @@ void rvswd_phy_gpio_sample_range(uint8_t *frame, uint8_t first_bit,
     }
     for (uint8_t bit = 0u; bit < bit_count; ++bit) {
         rvswd_frame_set_bit(frame, (uint8_t)(first_bit + bit),
-                            rvswd_phy_sample_bit());
+                            rvswd_phy_sample_bit(fast_timing));
     }
 }
 
-void rvswd_phy_gpio_drive_value(uint32_t value, uint8_t bit_count) {
+void rvswd_phy_gpio_drive_value(bool fast_timing, uint32_t value,
+                                uint8_t bit_count) {
     for (uint8_t bit = bit_count; bit > 0u; --bit) {
-        rvswd_phy_drive_bit((uint8_t)((value >> (bit - 1u)) & 1u));
+        rvswd_phy_drive_bit(fast_timing,
+                            (uint8_t)((value >> (bit - 1u)) & 1u));
     }
 }
 
-uint32_t rvswd_phy_gpio_sample_value(uint8_t bit_count) {
+uint32_t rvswd_phy_gpio_sample_value(bool fast_timing, uint8_t bit_count) {
     uint32_t value = 0u;
 
     for (uint8_t bit = 0u; bit < bit_count; ++bit) {
-        value = (value << 1u) | rvswd_phy_sample_bit();
+        value = (value << 1u) | rvswd_phy_sample_bit(fast_timing);
     }
     return value;
 }
 
-void rvswd_phy_gpio_wakeup(bool stop_condition) {
+void rvswd_phy_gpio_wakeup(bool fast_timing, bool stop_condition) {
     __disable_irq();
     rvswd_phy_gpio_config_data_output();
     rvswd_phy_clock_high();
     rvswd_phy_data_high();
     for (uint8_t clock = 0u; clock < RVSWD_WAKEUP_CLOCKS; ++clock) {
         rvswd_phy_clock_low();
-        rvswd_phy_half_period();
+        rvswd_phy_half_period(fast_timing);
         rvswd_phy_clock_high();
-        rvswd_phy_half_period();
+        rvswd_phy_half_period(fast_timing);
     }
     if (stop_condition) {
-        rvswd_phy_gpio_stop();
+        rvswd_phy_gpio_stop(fast_timing);
     }
     __enable_irq();
     bsp_delay_us(RVSWD_INTERFRAME_GUARD_US);

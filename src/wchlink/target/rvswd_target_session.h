@@ -2,12 +2,15 @@
 
 #include "rvswd_target_info.h"
 #include "rvswd_target_result.h"
+#include "rvswd_transport.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
 // 该结构只在 WCH-Link session 内分配，连接状态和目标信息不向 USB 层泄漏
 struct rvswd_target_session {
+    // transport 生命周期与目标会话一致，不再通过文件级 singleton 共享状态
+    struct rvswd_transport transport;
     // info 只记录识别后锁定的目标，hint 仅参与下一次连接探测
     struct rvswd_target_info info;
     uint8_t family_hint;

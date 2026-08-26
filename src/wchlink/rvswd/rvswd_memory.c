@@ -1,7 +1,7 @@
 #include "rvswd_memory.h"
 
 #include "rvswd_debug.h"
-#include "rvswd_dmi.h"
+#include "rvswd_transport.h"
 #include "rvswd_types.h"
 
 #include <stddef.h>
@@ -26,29 +26,30 @@ static uint8_t rvswd_memory_failure_dmi_status_value;
 static uint32_t rvswd_memory_failure_address_value;
 static uint32_t rvswd_memory_failure_abstractcs_value;
 
-static bool rvswd_memory_read32_synchronized(uint32_t address, uint32_t *value) {
+static bool rvswd_memory_read32_synchronized(
+    struct rvswd_transport *transport, uint32_t address, uint32_t *value) {
     uint32_t abstractcs;
     uint32_t data;
 
     // 使用 x8 执行 c.lw，避免连续内存访问时的寄存器别名问题
     rvswd_memory_last_error_value = 0u;
-    if (!rvswd_dmi_write(0x16u, 0x00000700u)) {
+    if (!rvswd_transport_write(transport, 0x16u, 0x00000700u)) {
         rvswd_memory_last_error_value = 0x81u;
         return false;
     }
-    if (!rvswd_dmi_write(0x20u, 0x90024000u)) {
+    if (!rvswd_transport_write(transport, 0x20u, 0x90024000u)) {
         rvswd_memory_last_error_value = 0x82u;
         return false;
     }
-    if (!rvswd_dmi_write(0x04u, address)) {
+    if (!rvswd_transport_write(transport, 0x04u, address)) {
         rvswd_memory_last_error_value = 0x83u;
         return false;
     }
-    if (!rvswd_dmi_write(0x17u, 0x00271008u)) {
+    if (!rvswd_transport_write(transport, 0x17u, 0x00271008u)) {
         rvswd_memory_last_error_value = 0x84u;
         return false;
     }
-    if (!rvswd_debug_wait_abstract_idle(&abstractcs)) {
+    if (!rvswd_debug_wait_abstract_idle(transport, &abstractcs)) {
         rvswd_memory_last_error_value = 0x85u;
         return false;
     }
@@ -56,11 +57,11 @@ static bool rvswd_memory_read32_synchronized(uint32_t address, uint32_t *value) 
         rvswd_memory_last_error_value = 0x90u | (uint8_t)((abstractcs >> 8u) & 0x07u);
         return false;
     }
-    if (!rvswd_dmi_write(0x17u, 0x00221008u)) {
+    if (!rvswd_transport_write(transport, 0x17u, 0x00221008u)) {
         rvswd_memory_last_error_value = 0x86u;
         return false;
     }
-    if (!rvswd_debug_wait_abstract_idle(&abstractcs)) {
+    if (!rvswd_debug_wait_abstract_idle(transport, &abstractcs)) {
         rvswd_memory_last_error_value = 0x87u;
         return false;
     }
@@ -68,7 +69,7 @@ static bool rvswd_memory_read32_synchronized(uint32_t address, uint32_t *value) 
         rvswd_memory_last_error_value = 0xa0u | (uint8_t)((abstractcs >> 8u) & 0x07u);
         return false;
     }
-    if (!rvswd_dmi_read(0x04u, &data)) {
+    if (!rvswd_transport_read(transport, 0x04u, &data)) {
         rvswd_memory_last_error_value = 0x88u;
         return false;
     }
@@ -76,20 +77,21 @@ static bool rvswd_memory_read32_synchronized(uint32_t address, uint32_t *value) 
     *value = data;
     return true;
 }
-static bool rvswd_memory_read32_v30x_once(uint32_t address, uint32_t *value) {
+static bool rvswd_memory_read32_v30x_once(
+    struct rvswd_transport *transport, uint32_t address, uint32_t *value) {
     uint32_t data;
 
     rvswd_memory_last_error_value = 0u;
     // V30X 官方 LinkE 使用 Data1 传地址，Access Memory 命令直接返回 Data0
-    if (!rvswd_dmi_write(RVSWD_DMI_DATA1, address)) {
+    if (!rvswd_transport_write(transport, RVSWD_DMI_DATA1, address)) {
         rvswd_memory_last_error_value = 0xb1u;
         return false;
     }
-    if (!rvswd_dmi_write(RVSWD_DMI_COMMAND, 0x02200000u)) {
+    if (!rvswd_transport_write(transport, RVSWD_DMI_COMMAND, 0x02200000u)) {
         rvswd_memory_last_error_value = 0xb2u;
         return false;
     }
-    if (!rvswd_dmi_read(RVSWD_DMI_DATA0, &data)) {
+    if (!rvswd_transport_read(transport, RVSWD_DMI_DATA0, &data)) {
         rvswd_memory_last_error_value = 0xb3u;
         return false;
     }
@@ -98,16 +100,18 @@ static bool rvswd_memory_read32_v30x_once(uint32_t address, uint32_t *value) {
     return true;
 }
 
-static bool rvswd_memory_read32_v30x(uint32_t address, uint32_t *value) {
+static bool rvswd_memory_read32_v30x(struct rvswd_transport *transport,
+                                     uint32_t address, uint32_t *value) {
     for (uint8_t retry = 0u; retry < RVSWD_MEMORY_READ_RETRY_COUNT; ++retry) {
-        if (rvswd_memory_read32_v30x_once(address, value)) {
+        if (rvswd_memory_read32_v30x_once(transport, address, value)) {
             return true;
         }
     }
     return false;
 }
 
-bool rvswd_memory_read32(const struct rvswd_target_profile *profile,
+bool rvswd_memory_read32(struct rvswd_transport *transport,
+                         const struct rvswd_target_profile *profile,
                          bool target_identified, uint32_t address,
                          uint32_t *value) {
     if (value == NULL) {
@@ -117,9 +121,9 @@ bool rvswd_memory_read32(const struct rvswd_target_profile *profile,
         (profile->wchlink_family == WCHLINK_TARGET_FAMILY_L103 ||
          profile->wchlink_family == WCHLINK_TARGET_FAMILY_CH58X ||
          profile->wchlink_family == WCHLINK_TARGET_FAMILY_CH59X)) {
-        return rvswd_memory_read32_synchronized(address, value);
+        return rvswd_memory_read32_synchronized(transport, address, value);
     }
-    if (rvswd_memory_read32_v30x(address, value)) {
+    if (rvswd_memory_read32_v30x(transport, address, value)) {
         return true;
     }
     if (profile != NULL || target_identified) {
@@ -127,30 +131,32 @@ bool rvswd_memory_read32(const struct rvswd_target_profile *profile,
     }
 
     // 连接阶段尚未取得 ChipID，V30X 失败后兼容 L103 重试
-    return rvswd_memory_read32_synchronized(address, value);
+    return rvswd_memory_read32_synchronized(transport, address, value);
 }
 
-bool rvswd_memory_write32(uint32_t address, uint32_t value) {
+bool rvswd_memory_write32(struct rvswd_transport *transport, uint32_t address,
+                          uint32_t value) {
     uint32_t abstractcs;
 
     // 使用 x8 保存数据，x9 保存目标地址
-    if (!rvswd_dmi_write(0x16u, 0x00000700u) ||
-        !rvswd_dmi_write(0x20u, 0x0084a023u) ||
-        !rvswd_dmi_write(0x21u, 0x00100073u) ||
-        !rvswd_dmi_write(0x04u, address) ||
-        !rvswd_dmi_write(0x17u, 0x00231009u) ||
-        !rvswd_debug_wait_abstract_idle(&abstractcs) ||
+    if (!rvswd_transport_write(transport, 0x16u, 0x00000700u) ||
+        !rvswd_transport_write(transport, 0x20u, 0x0084a023u) ||
+        !rvswd_transport_write(transport, 0x21u, 0x00100073u) ||
+        !rvswd_transport_write(transport, 0x04u, address) ||
+        !rvswd_transport_write(transport, 0x17u, 0x00231009u) ||
+        !rvswd_debug_wait_abstract_idle(transport, &abstractcs) ||
         ((abstractcs >> 8u) & 0x07u) != 0u ||
-        !rvswd_dmi_write(0x04u, value) ||
-        !rvswd_dmi_write(0x17u, 0x00271008u) ||
-        !rvswd_debug_wait_abstract_idle(&abstractcs)) {
+        !rvswd_transport_write(transport, 0x04u, value) ||
+        !rvswd_transport_write(transport, 0x17u, 0x00271008u) ||
+        !rvswd_debug_wait_abstract_idle(transport, &abstractcs)) {
         return false;
     }
 
     return ((abstractcs >> 8u) & 0x07u) == 0u;
 }
 
-static bool rvswd_memory_write_streaming(uint32_t address,
+static bool rvswd_memory_write_streaming(struct rvswd_transport *transport,
+                                         uint32_t address,
                                          const uint8_t *data,
                                          uint32_t length) {
     uint32_t hartinfo;
@@ -158,37 +164,37 @@ static bool rvswd_memory_write_streaming(uint32_t address,
     uint32_t abstractcs;
 
     // 通过 Debug Module 的 DATA0/DATA1 地址建立连续写入上下文
-    if (!rvswd_dmi_write(RVSWD_DMI_ABSTRACTAUTO, 0u) ||
-        !rvswd_dmi_write(RVSWD_DMI_ABSTRACTCS, 0x00000700u) ||
-        !rvswd_dmi_read(RVSWD_DMI_HARTINFO, &hartinfo)) {
+    if (!rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTAUTO, 0u) ||
+        !rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTCS, 0x00000700u) ||
+        !rvswd_transport_read(transport, RVSWD_DMI_HARTINFO, &hartinfo)) {
         return false;
     }
 
     data0_address = RVSWD_DEBUG_DATA_ADDRESS_BASE | (hartinfo & 0x07ffu);
 
     // x10 指向 DATA0，x11 指向 DATA1，Program Buffer 每次从这两个寄存器取数
-    if (!rvswd_dmi_write(RVSWD_DMI_PROGBUF0, 0x41844100u) ||
-        !rvswd_dmi_write(RVSWD_DMI_PROGBUF1, 0x0491c080u) ||
-        !rvswd_dmi_write(RVSWD_DMI_PROGBUF2, 0x9002c184u) ||
-        !rvswd_debug_write_raw_gpr(10u, data0_address) ||
-        !rvswd_debug_write_raw_gpr(11u, data0_address + 4u) ||
-        !rvswd_dmi_write(RVSWD_DMI_DATA1, address)) {
+    if (!rvswd_transport_write(transport, RVSWD_DMI_PROGBUF0, 0x41844100u) ||
+        !rvswd_transport_write(transport, RVSWD_DMI_PROGBUF1, 0x0491c080u) ||
+        !rvswd_transport_write(transport, RVSWD_DMI_PROGBUF2, 0x9002c184u) ||
+        !rvswd_debug_write_raw_gpr(transport, 10u, data0_address) ||
+        !rvswd_debug_write_raw_gpr(transport, 11u, data0_address + 4u) ||
+        !rvswd_transport_write(transport, RVSWD_DMI_DATA1, address)) {
         return false;
     }
 
     // 第一字通过显式 COMMAND 启动，避免 V30X 在 COMMAND 前开启 autoexec
-    if (!rvswd_dmi_write(
-            RVSWD_DMI_DATA0,
-            ((uint32_t)data[0u]) |
-                ((uint32_t)data[1u] << 8u) |
-                ((uint32_t)data[2u] << 16u) |
-                ((uint32_t)data[3u] << 24u)) ||
-        !rvswd_dmi_write(RVSWD_DMI_COMMAND,
-                         RVSWD_ABSTRACT_COMMAND_EXECUTE) ||
-        !rvswd_debug_wait_abstract_idle(&abstractcs) ||
+    if (!rvswd_transport_write(transport,
+                               RVSWD_DMI_DATA0,
+                               ((uint32_t)data[0u]) |
+                                   ((uint32_t)data[1u] << 8u) |
+                                   ((uint32_t)data[2u] << 16u) |
+                                   ((uint32_t)data[3u] << 24u)) ||
+        !rvswd_transport_write(transport, RVSWD_DMI_COMMAND,
+                               RVSWD_ABSTRACT_COMMAND_EXECUTE) ||
+        !rvswd_debug_wait_abstract_idle(transport, &abstractcs) ||
         ((abstractcs >> 8u) & 0x07u) != 0u ||
-        !rvswd_dmi_write(RVSWD_DMI_ABSTRACTAUTO,
-                         RVSWD_ABSTRACTAUTO_DATA0)) {
+        !rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTAUTO,
+                               RVSWD_ABSTRACTAUTO_DATA0)) {
         return false;
     }
 
@@ -200,40 +206,41 @@ static bool rvswd_memory_write_streaming(uint32_t address,
                          ((uint32_t)data[offset + 3u] << 24u);
 
         rvswd_memory_failure_address_value = address + offset;
-        if (!rvswd_dmi_write(RVSWD_DMI_DATA0, value)) {
-            (void)rvswd_dmi_write(RVSWD_DMI_ABSTRACTAUTO, 0u);
-            (void)rvswd_dmi_write(RVSWD_DMI_ABSTRACTCS, 0x00000700u);
+        if (!rvswd_transport_write(transport, RVSWD_DMI_DATA0, value)) {
+            (void)rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTAUTO, 0u);
+            (void)rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTCS, 0x00000700u);
             return false;
         }
     }
 
     // 关闭自动执行后再读取 ABSTRACTCS，确保最后一个字已经完成
-    if (!rvswd_dmi_write(RVSWD_DMI_ABSTRACTAUTO, 0u) ||
-        !rvswd_debug_wait_abstract_idle(&abstractcs) ||
+    if (!rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTAUTO, 0u) ||
+        !rvswd_debug_wait_abstract_idle(transport, &abstractcs) ||
         ((abstractcs >> 8u) & 0x07u) != 0u) {
-        (void)rvswd_dmi_write(RVSWD_DMI_ABSTRACTAUTO, 0u);
-        (void)rvswd_dmi_write(RVSWD_DMI_ABSTRACTCS, 0x00000700u);
+        (void)rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTAUTO, 0u);
+        (void)rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTCS, 0x00000700u);
         return false;
     }
 
     return true;
 }
 
-static bool rvswd_memory_write_slow(uint32_t address, const uint8_t *data,
+static bool rvswd_memory_write_slow(struct rvswd_transport *transport,
+                                    uint32_t address, const uint8_t *data,
                                     uint32_t length) {
     uint32_t abstractcs;
 
     // 先配置一次程序缓冲区，后续每个字只更新地址和数据寄存器
-    if (!rvswd_dmi_write(RVSWD_DMI_ABSTRACTAUTO, 0u) ||
-        !rvswd_dmi_write(RVSWD_DMI_ABSTRACTCS, 0x00000700u)) {
+    if (!rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTAUTO, 0u) ||
+        !rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTCS, 0x00000700u)) {
         rvswd_memory_last_error_value = 0xe1u;
         return false;
     }
-    if (!rvswd_dmi_write(RVSWD_DMI_PROGBUF0, 0x0084a023u)) {
+    if (!rvswd_transport_write(transport, RVSWD_DMI_PROGBUF0, 0x0084a023u)) {
         rvswd_memory_last_error_value = 0xe2u;
         return false;
     }
-    if (!rvswd_dmi_write(RVSWD_DMI_PROGBUF1, 0x00100073u)) {
+    if (!rvswd_transport_write(transport, RVSWD_DMI_PROGBUF1, 0x00100073u)) {
         rvswd_memory_last_error_value = 0xe3u;
         return false;
     }
@@ -245,28 +252,28 @@ static bool rvswd_memory_write_slow(uint32_t address, const uint8_t *data,
                          ((uint32_t)data[offset + 3u] << 24u);
 
         rvswd_memory_failure_address_value = address + offset;
-        if (!rvswd_dmi_write(0x16u, 0x00000700u)) {
-            rvswd_memory_last_error_value = 0x10u | (rvswd_dmi_last_status() & 0x03u);
+        if (!rvswd_transport_write(transport, 0x16u, 0x00000700u)) {
+            rvswd_memory_last_error_value = 0x10u | (rvswd_transport_last_status(transport) & 0x03u);
             return false;
         }
-        if (!rvswd_dmi_write(0x04u, address + offset)) {
-            rvswd_memory_last_error_value = 0x20u | (rvswd_dmi_last_status() & 0x03u);
+        if (!rvswd_transport_write(transport, 0x04u, address + offset)) {
+            rvswd_memory_last_error_value = 0x20u | (rvswd_transport_last_status(transport) & 0x03u);
             return false;
         }
-        if (!rvswd_dmi_write(0x17u, 0x00231009u)) {
-            rvswd_memory_last_error_value = 0x30u | (rvswd_dmi_last_status() & 0x03u);
+        if (!rvswd_transport_write(transport, 0x17u, 0x00231009u)) {
+            rvswd_memory_last_error_value = 0x30u | (rvswd_transport_last_status(transport) & 0x03u);
             return false;
         }
-        if (!rvswd_dmi_write(0x04u, value)) {
-            rvswd_memory_last_error_value = 0x40u | (rvswd_dmi_last_status() & 0x03u);
+        if (!rvswd_transport_write(transport, 0x04u, value)) {
+            rvswd_memory_last_error_value = 0x40u | (rvswd_transport_last_status(transport) & 0x03u);
             return false;
         }
-        if (!rvswd_dmi_write(0x17u, 0x00271008u)) {
-            rvswd_memory_last_error_value = 0x50u | (rvswd_dmi_last_status() & 0x03u);
+        if (!rvswd_transport_write(transport, 0x17u, 0x00271008u)) {
+            rvswd_memory_last_error_value = 0x50u | (rvswd_transport_last_status(transport) & 0x03u);
             return false;
         }
-        if (!rvswd_debug_wait_abstract_idle(&abstractcs)) {
-            rvswd_memory_last_error_value = 0x60u | (rvswd_dmi_last_status() & 0x03u);
+        if (!rvswd_debug_wait_abstract_idle(transport, &abstractcs)) {
+            rvswd_memory_last_error_value = 0x60u | (rvswd_transport_last_status(transport) & 0x03u);
             return false;
         }
         if (((abstractcs >> 8u) & 0x07u) != 0u) {
@@ -275,7 +282,7 @@ static bool rvswd_memory_write_slow(uint32_t address, const uint8_t *data,
         }
     }
 
-    if (!rvswd_dmi_read(0x16u, &abstractcs)) {
+    if (!rvswd_transport_read(transport, 0x16u, &abstractcs)) {
         rvswd_memory_last_error_value = 0xe5u;
         return false;
     }
@@ -286,7 +293,8 @@ static bool rvswd_memory_write_slow(uint32_t address, const uint8_t *data,
     return true;
 }
 
-bool rvswd_memory_write(const struct rvswd_target_profile *profile,
+bool rvswd_memory_write(struct rvswd_transport *transport,
+                        const struct rvswd_target_profile *profile,
                         uint32_t address, const uint8_t *data,
                         uint32_t length) {
     bool success;
@@ -303,19 +311,20 @@ bool rvswd_memory_write(const struct rvswd_target_profile *profile,
     if (profile != NULL &&
         profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING) {
         // 目标 profile 支持 autoexec 数据流，先尝试单字 DMI 写入的快速路径
-        success = rvswd_memory_write_streaming(address, data, length);
+        success =
+            rvswd_memory_write_streaming(transport, address, data, length);
         if (!success) {
             // 快速路径失败后清理 abstract 状态，再完整重写当前数据块
-            (void)rvswd_dmi_write(RVSWD_DMI_ABSTRACTAUTO, 0u);
-            (void)rvswd_dmi_write(RVSWD_DMI_ABSTRACTCS, 0x00000700u);
-            success = rvswd_memory_write_slow(address, data, length);
+            (void)rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTAUTO, 0u);
+            (void)rvswd_transport_write(transport, RVSWD_DMI_ABSTRACTCS, 0x00000700u);
+            success = rvswd_memory_write_slow(transport, address, data, length);
         }
     } else {
-        success = rvswd_memory_write_slow(address, data, length);
+        success = rvswd_memory_write_slow(transport, address, data, length);
     }
     if (!success) {
-        rvswd_memory_failure_dmi_status_value = rvswd_dmi_last_status();
-        (void)rvswd_dmi_read(0x16u, &rvswd_memory_failure_abstractcs_value);
+        rvswd_memory_failure_dmi_status_value = rvswd_transport_last_status(transport);
+        (void)rvswd_transport_read(transport, 0x16u, &rvswd_memory_failure_abstractcs_value);
     }
     return success;
 }

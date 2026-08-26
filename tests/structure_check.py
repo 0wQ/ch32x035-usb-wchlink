@@ -128,14 +128,18 @@ def include_files() -> list[Path]:
     )
 
 
-def allowed_macros() -> set[str]:
+def allowed_wchlink_macros() -> dict[str, str]:
     if not ALLOWLIST.exists():
-        return set()
-    return {
-        line.strip()
-        for line in ALLOWLIST.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    }
+        return {}
+
+    entries: dict[str, str] = {}
+    for raw_line in ALLOWLIST.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(maxsplit=1)
+        entries[parts[0]] = parts[1].strip() if len(parts) == 2 else ""
+    return entries
 
 
 def find_violations() -> list[str]:
@@ -231,12 +235,24 @@ def find_violations() -> list[str]:
             if match:
                 definitions[match.group(1)].append(relative.as_posix())
 
-    allowlist = allowed_macros()
+    allowlist = allowed_wchlink_macros()
+    for name, reason in sorted(allowlist.items()):
+        if not reason:
+            violations.append(f"WCH-Link 宏缺少保留理由: {name}")
+        if name not in definitions:
+            violations.append(f"WCH-Link 宏 allowlist 存在陈旧条目: {name}")
+
     for name, locations in sorted(definitions.items()):
-        if len(locations) > 1 and name not in allowlist:
+        if len(locations) > 1:
             violations.append(
                 f"重复工程宏 {name}: {', '.join(locations)}"
             )
+        if any(location.startswith("src/wchlink/") for location in locations):
+            if name not in allowlist:
+                violations.append(
+                    f"WCH-Link 工程宏未登记保留理由 {name}: "
+                    f"{', '.join(locations)}"
+                )
 
     return violations
 

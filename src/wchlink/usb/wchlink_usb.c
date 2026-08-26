@@ -13,6 +13,7 @@
 #include <usbd_cdc_acm.h>
 #include <usbd_core.h>
 
+// 静态 descriptor 和文件作用域缓冲区要求 integer constant expression
 #define WCHLINK_MPS              64u
 #define WCHLINK_SERIAL_LEN       13u
 #define WCHLINK_CONFIG_DESC_SIZE 120u

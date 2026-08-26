@@ -1,7 +1,10 @@
 #pragma once
 
-#include "wchlink/protocol/wchlink_wire.h"
 #include "wchlink/session/wchlink_transfer.h"
+
+// C 文件作用域数组需要 integer constant expression，宏只描述 transfer 私有存储容量
+#define WCHLINK_TRANSFER_PACKET_CAPACITY 256u
+#define WCHLINK_TRANSFER_CHUNK_CAPACITY  4096u
 
 // data IN 和 data OUT 是独立端点，两个方向允许同时处于活动状态
 enum wchlink_transfer_in_state {
@@ -40,15 +43,15 @@ struct wchlink_transfer {
     bool flash_prepare_seen;
     uint32_t partial_write_address;
     uint8_t partial_write_length;
-    uint8_t partial_write_data[WCHLINK_FLASH_PACKET_SIZE];
-    uint8_t partial_write_page[WCHLINK_FLASH_PACKET_SIZE];
-    uint8_t partial_cache[WCHLINK_FLASH_CHUNK_SIZE];
-    uint8_t flash_chunk_data[WCHLINK_FLASH_CHUNK_SIZE];
+    uint8_t partial_write_data[WCHLINK_TRANSFER_PACKET_CAPACITY];
+    uint8_t partial_write_page[WCHLINK_TRANSFER_PACKET_CAPACITY];
+    uint8_t partial_cache[WCHLINK_TRANSFER_CHUNK_CAPACITY];
+    uint8_t flash_chunk_data[WCHLINK_TRANSFER_CHUNK_CAPACITY];
     bool partial_cache_valid;
     bool data_reply_pending;
     uint8_t data_reply_status;
     uint8_t loader_failure_dmi_status;
     uint32_t loader_failure_address;
     uint32_t loader_failure_abstractcs;
-    uint8_t flash_padding[WCHLINK_FLASH_PACKET_SIZE];
+    uint8_t flash_padding[WCHLINK_TRANSFER_PACKET_CAPACITY];
 };

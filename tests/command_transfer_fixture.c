@@ -654,7 +654,7 @@ static void wchlink_test_transfer_read(void) {
 static struct wchlink_transfer_finish_result
 wchlink_test_finish_default_loader(struct wchlink_test_fixture *fixture,
                                    uint32_t address, uint32_t length) {
-    uint8_t loader[WCHLINK_FLASH_PACKET_SIZE];
+    uint8_t loader[WCHLINK_TRANSFER_PACKET_CAPACITY];
 
     memset(loader, 0x5au, sizeof(loader));
     wchlink_transfer_prepare_write(&fixture->transfer, address, length);
@@ -671,18 +671,18 @@ static void wchlink_test_transfer_chunk_boundary(void) {
     struct wchlink_test_fixture fixture;
     struct wchlink_transfer_finish_result finish;
     struct wchlink_test_execute execute;
-    uint8_t packet[WCHLINK_FLASH_PACKET_SIZE];
+    uint8_t packet[WCHLINK_TRANSFER_PACKET_CAPACITY];
     const uint8_t tail[] = {0x11u, 0x22u, 0x33u, 0x44u};
 
     // 4096 字节完成后继续保留 OUT，尾块完成后只留下最终 IN reply
     wchlink_test_fixture_init(&fixture, info, true);
     finish = wchlink_test_finish_default_loader(
-        &fixture, 0x08000000u, WCHLINK_FLASH_CHUNK_SIZE + sizeof(tail));
+        &fixture, 0x08000000u, WCHLINK_TRANSFER_CHUNK_CAPACITY + sizeof(tail));
     assert(finish.status == WCHLINK_TRANSFER_FINISH_READY);
     assert(wchlink_transfer_start_flash(&fixture.transfer, 0x02u));
 
     memset(packet, 0x3cu, sizeof(packet));
-    for (size_t offset = 0u; offset < WCHLINK_FLASH_CHUNK_SIZE;
+    for (size_t offset = 0u; offset < WCHLINK_TRANSFER_CHUNK_CAPACITY;
          offset += sizeof(packet)) {
         wchlink_transfer_write_data(&fixture.transfer, packet,
                                     sizeof(packet));
@@ -691,7 +691,7 @@ static void wchlink_test_transfer_chunk_boundary(void) {
     assert(wchlink_test_target_last_execute(&fixture.target, &execute));
     assert(execute.mode == 0x08u);
     assert(execute.address == 0x08000000u);
-    assert(execute.length == WCHLINK_FLASH_CHUNK_SIZE);
+    assert(execute.length == WCHLINK_TRANSFER_CHUNK_CAPACITY);
     assert(execute.data_address == 0x20001000u);
     assert(wchlink_transfer_next_io(&fixture.transfer) ==
            WCHLINK_TRANSFER_IO_DATA_OUT);
@@ -713,8 +713,8 @@ static void wchlink_test_transfer_ch5xx_padding(void) {
     struct wchlink_test_fixture fixture;
     struct wchlink_transfer_finish_result finish;
     struct wchlink_test_execute execute;
-    uint8_t packet[WCHLINK_FLASH_PACKET_SIZE];
-    uint8_t target_page[WCHLINK_FLASH_PACKET_SIZE];
+    uint8_t packet[WCHLINK_TRANSFER_PACKET_CAPACITY];
+    uint8_t target_page[WCHLINK_TRANSFER_PACKET_CAPACITY];
     uint8_t checksum[4];
     const uint8_t loader[] = {0x13u, 0x37u, 0x42u, 0x24u};
 
@@ -731,7 +731,7 @@ static void wchlink_test_transfer_ch5xx_padding(void) {
     packet[1] = 0x02u;
     packet[2] = 0x03u;
     packet[3] = 0x04u;
-    for (size_t offset = 0u; offset < WCHLINK_FLASH_CHUNK_SIZE;
+    for (size_t offset = 0u; offset < WCHLINK_TRANSFER_CHUNK_CAPACITY;
          offset += sizeof(packet)) {
         wchlink_transfer_write_data(&fixture.transfer, packet,
                                     sizeof(packet));
@@ -743,9 +743,8 @@ static void wchlink_test_transfer_ch5xx_padding(void) {
     for (size_t offset = 4u; offset < sizeof(target_page); ++offset) {
         assert(target_page[offset] == 0xffu);
     }
-    assert(wchlink_test_target_load(&fixture.target,
-                                    WCHLINK_CH5XX_LOADER_CHECKSUM_ADDRESS,
-                                    checksum, sizeof(checksum)));
+    assert(wchlink_test_target_load(&fixture.target, 0x20006010u, checksum,
+                                    sizeof(checksum)));
     {
         const uint8_t expected_checksum[] = {0xc2u, 0x01u, 0x03u, 0x04u};
 
@@ -785,7 +784,7 @@ static void wchlink_test_transfer_partial_write(void) {
         0x82000000u, WCHLINK_TARGET_FAMILY_CH58X,
         RVSWD_TARGET_LOADER_CH5XX, false);
     struct wchlink_test_fixture fixture;
-    uint8_t page[WCHLINK_FLASH_PACKET_SIZE];
+    uint8_t page[WCHLINK_TRANSFER_PACKET_CAPACITY];
     const uint8_t patch[] = {0x12u, 0x34u};
     const uint8_t short_patch[] = {0x56u};
 
@@ -819,7 +818,7 @@ static void wchlink_test_transfer_bidirectional_activity(void) {
         0x82000000u, WCHLINK_TARGET_FAMILY_CH58X,
         RVSWD_TARGET_LOADER_CH5XX, false);
     struct wchlink_test_fixture fixture;
-    uint8_t page[WCHLINK_FLASH_PACKET_SIZE];
+    uint8_t page[WCHLINK_TRANSFER_PACKET_CAPACITY];
     uint8_t read_data[4];
     const uint8_t patch[] = {0x12u, 0x34u};
 
@@ -855,8 +854,8 @@ static void wchlink_test_transfer_error_repeat_and_abort(void) {
     struct wchlink_transfer_finish_result finish;
     struct rvswd_target_result failure;
     uint8_t first[] = {0x01u, 0x02u, 0x03u, 0x04u};
-    uint8_t loader[WCHLINK_FLASH_PACKET_SIZE];
-    uint8_t oversized_loader[WCHLINK_FLASH_PACKET_SIZE + 1u];
+    uint8_t loader[WCHLINK_TRANSFER_PACKET_CAPACITY];
+    uint8_t oversized_loader[WCHLINK_TRANSFER_PACKET_CAPACITY + 1u];
     uint8_t loaded[4];
 
     // 重复开始丢弃旧接收游标，abort 清空 I/O，target 诊断按值返回

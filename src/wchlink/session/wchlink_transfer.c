@@ -1,3 +1,4 @@
+#include "wchlink/protocol/wchlink_wire.h"
 #include "wchlink/session/wchlink_transfer_internal.h"
 #include "wchlink/target/wchlink_target_control.h"
 #include "wchlink/target/wchlink_target_flash.h"
@@ -60,11 +61,11 @@ static void wchlink_transfer_cache_range(struct wchlink_transfer *transfer,
     uint32_t start = address;
     uint32_t end = address + length;
 
-    if (start >= WCHLINK_FLASH_CHUNK_SIZE || end <= start) {
+    if (start >= WCHLINK_TRANSFER_CHUNK_CAPACITY || end <= start) {
         return;
     }
-    if (end > WCHLINK_FLASH_CHUNK_SIZE) {
-        end = WCHLINK_FLASH_CHUNK_SIZE;
+    if (end > WCHLINK_TRANSFER_CHUNK_CAPACITY) {
+        end = WCHLINK_TRANSFER_CHUNK_CAPACITY;
     }
     memcpy(&transfer->partial_cache[start], data, end - start);
 }
@@ -72,16 +73,16 @@ static void wchlink_transfer_cache_range(struct wchlink_transfer *transfer,
 static bool wchlink_transfer_rewrite_partial_page(
     struct wchlink_transfer *transfer) {
     uint32_t page_address = transfer->partial_write_address &
-                            ~(WCHLINK_FLASH_PACKET_SIZE - 1u);
+                            ~(WCHLINK_TRANSFER_PACKET_CAPACITY - 1u);
     uint32_t sector_address = transfer->partial_write_address &
-                              ~(WCHLINK_FLASH_CHUNK_SIZE - 1u);
+                              ~(WCHLINK_TRANSFER_CHUNK_CAPACITY - 1u);
     uint32_t page_offset = transfer->partial_write_address &
-                           (WCHLINK_FLASH_PACKET_SIZE - 1u);
+                           (WCHLINK_TRANSFER_PACKET_CAPACITY - 1u);
 
     if (wchlink_target_ports_info(transfer->target).loader !=
             RVSWD_TARGET_LOADER_CH5XX ||
         page_offset + transfer->partial_write_length >
-            WCHLINK_FLASH_PACKET_SIZE) {
+            WCHLINK_TRANSFER_PACKET_CAPACITY) {
         return false;
     }
 
@@ -90,10 +91,10 @@ static bool wchlink_transfer_rewrite_partial_page(
 
         memcpy(transfer->partial_write_page,
                &transfer->partial_cache[cache_offset],
-               WCHLINK_FLASH_PACKET_SIZE);
+               WCHLINK_TRANSFER_PACKET_CAPACITY);
     } else {
         // 没有下载缓存时只回读目标页，不扩展为整个 4 KiB 扇区
-        for (uint32_t offset = 0u; offset < WCHLINK_FLASH_PACKET_SIZE;
+        for (uint32_t offset = 0u; offset < WCHLINK_TRANSFER_PACKET_CAPACITY;
              offset += 4u) {
             struct rvswd_target_result result =
                 wchlink_target_ports_read_memory32(
@@ -126,7 +127,7 @@ static bool wchlink_transfer_rewrite_partial_page(
         uint32_t cache_offset = page_address - sector_address;
 
         memcpy(&transfer->partial_cache[cache_offset],
-               transfer->partial_write_page, WCHLINK_FLASH_PACKET_SIZE);
+               transfer->partial_write_page, WCHLINK_TRANSFER_PACKET_CAPACITY);
     }
     return true;
 }
@@ -223,7 +224,7 @@ void wchlink_transfer_prepare_write(struct wchlink_transfer *transfer,
     transfer->write_address = address;
     transfer->write_remaining = length;
     transfer->flash_chunk_length =
-        length > WCHLINK_FLASH_CHUNK_SIZE ? WCHLINK_FLASH_CHUNK_SIZE : length;
+        length > WCHLINK_TRANSFER_CHUNK_CAPACITY ? WCHLINK_TRANSFER_CHUNK_CAPACITY : length;
 }
 
 void wchlink_transfer_prepare_read(struct wchlink_transfer *transfer,
@@ -473,7 +474,7 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
     }
 
     if (transfer->out_state == WCHLINK_TRANSFER_OUT_FLASH &&
-        length <= WCHLINK_FLASH_PACKET_SIZE && (length & 3u) == 0u &&
+        length <= WCHLINK_TRANSFER_PACKET_CAPACITY && (length & 3u) == 0u &&
         transfer->write_remaining != 0u) {
         uint32_t transfer_length;
         uint32_t transfer_remaining;
@@ -485,7 +486,7 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
                 transfer->flash_transfer_length =
                     (transfer->flash_chunk_length & 0xffu) == 0u
                         ? transfer->flash_chunk_length
-                        : WCHLINK_FLASH_CHUNK_SIZE;
+                        : WCHLINK_TRANSFER_CHUNK_CAPACITY;
             } else {
                 // MRS 和 wlink 以首个数据包长度对齐尾包
                 transfer->flash_transfer_length =
@@ -615,8 +616,8 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
                 transfer->flash_transfer_length = 0u;
                 transfer->flash_checksum = 0u;
                 transfer->flash_chunk_length =
-                    transfer->write_remaining > WCHLINK_FLASH_CHUNK_SIZE
-                        ? WCHLINK_FLASH_CHUNK_SIZE
+                    transfer->write_remaining > WCHLINK_TRANSFER_CHUNK_CAPACITY
+                        ? WCHLINK_TRANSFER_CHUNK_CAPACITY
                         : transfer->write_remaining;
             } else {
                 transfer->write_address = 0u;

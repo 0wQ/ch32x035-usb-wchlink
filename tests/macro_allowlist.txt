@@ -1,1 +1,8 @@
-# 每行一个暂时允许重复的工程宏，平台和第三方宏不在此目录审计
+# 每行格式为宏名和保留理由，未登记宏和陈旧条目由 strict checker 阻断
+WCHLINK_TRANSFER_PACKET_CAPACITY C 文件作用域数组长度要求 integer constant expression
+WCHLINK_TRANSFER_CHUNK_CAPACITY C 文件作用域数组长度要求 integer constant expression
+WCHLINK_MPS 静态 USB descriptor 和端点缓冲区要求 integer constant expression
+WCHLINK_SERIAL_LEN 文件作用域序列号缓冲区要求 integer constant expression
+WCHLINK_CONFIG_DESC_SIZE CherryUSB 静态 descriptor 初始化需要编译期长度
+WCHLINK_VID CherryUSB 静态 device descriptor 初始化不能引用 static const
+WCHLINK_PID CherryUSB 静态 device descriptor 初始化不能引用 static const

@@ -66,15 +66,6 @@ enum wchlink_device_mode_command {
     WCHLINK_DEVICE_MODE_QUERY = 0x02u,
 };
 
-// Loader 和 Flash data transfer 的 wire 尺寸
-#define WCHLINK_FLASH_PACKET_SIZE             256u
-#define WCHLINK_FLASH_CHUNK_SIZE              4096u
-#define WCHLINK_LOADER_DEFAULT_SIZE           512u
-#define WCHLINK_CH5XX_LOADER_MAX_SIZE         2048u
-#define WCHLINK_CH5XX_LOADER_PAGE_SIZE        256u
-#define WCHLINK_CH5XX_LOADER_CHECKSUM_ADDRESS 0x20006010u
-#define WCHLINK_L103_LOADER_CHECKSUM_ADDRESS  0x20002010u
-
 struct wchlink_wire_chip_info {
     bool ch5xx;
     uint32_t flash_size;

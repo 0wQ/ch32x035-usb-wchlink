@@ -78,6 +78,7 @@ TARGET_INTERNAL_HEADER_CONSUMERS = {
 TARGET_PORT_HEADER_CONSUMERS = {
     "wchlink/target/wchlink_target_control.h": {
         "src/wchlink/session/wchlink_command.c",
+        "src/wchlink/session/wchlink_command_transfer.c",
         "src/wchlink/session/wchlink_transfer.c",
         "src/wchlink/target/rvswd_target_connect.c",
         "src/wchlink/target/wchlink_target_ports.c",
@@ -88,6 +89,7 @@ TARGET_PORT_HEADER_CONSUMERS = {
     },
     "wchlink/target/wchlink_target_flash.h": {
         "src/wchlink/session/wchlink_command.c",
+        "src/wchlink/session/wchlink_command_transfer.c",
         "src/wchlink/session/wchlink_transfer.c",
         "src/wchlink/target/wchlink_target_ports.c",
     },

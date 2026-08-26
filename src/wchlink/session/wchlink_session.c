@@ -1,7 +1,7 @@
 #include "wchlink/session/wchlink_session.h"
 
 #include "wchlink/protocol/wchlink_wire.h"
-#include "wchlink/session/wchlink_command.h"
+#include "wchlink/session/wchlink_command_internal.h"
 #include "wchlink/session/wchlink_transfer.h"
 #include "wchlink/target/wchlink_target_ports_internal.h"
 

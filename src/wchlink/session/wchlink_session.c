@@ -5,74 +5,14 @@
 #include "drv/drv_power_switch.h"
 #include "wchlink_family.h"
 #include "wchlink_target_ports.h"
+#include "wchlink_transfer.h"
 #include "wchlink_wire.h"
 
 #include <string.h>
 
-struct wchlink_loader_layout {
-    uint32_t entry;
-    uint32_t data;
-    uint32_t stack_top;
-};
-
-static const struct wchlink_loader_layout wchlink_loader_layout_default = {
-    .entry = 0x20000000u,
-    .data = 0x20001000u,
-    .stack_top = 0x20005000u,
-};
-
-static const struct wchlink_loader_layout wchlink_loader_layout_ch59x = {
-    .entry = 0x20004000u,
-    .data = 0x20005000u,
-    .stack_top = 0x20007000u,
-};
-
-enum wchlink_transfer_mode {
-    WCHLINK_TRANSFER_IDLE,
-    WCHLINK_TRANSFER_LOADER,
-    WCHLINK_TRANSFER_FLASH,
-    WCHLINK_TRANSFER_PARTIAL_WRITE,
-};
-
-// transfer 状态只由 session 主循环访问，USB callback 不持有其中任何 buffer
-struct wchlink_transfer_state {
-    uint32_t read_address;
-    uint32_t read_remaining;
-    bool read_active;
-    uint32_t write_address;
-    uint32_t write_remaining;
-    enum wchlink_transfer_mode write_mode;
-    uint32_t loader_received;
-    uint32_t loader_expected;
-    bool loader_variable_length;
-    uint8_t loader_error;
-    uint32_t flash_data_received;
-    uint32_t flash_transfer_received;
-    uint32_t flash_transfer_length;
-    uint32_t flash_chunk_length;
-    uint32_t flash_loader_mode;
-    uint32_t flash_checksum;
-    bool loader_ready;
-    bool flash_openocd_mode;
-    bool flash_prepare_seen;
-    uint32_t partial_write_address;
-    uint8_t partial_write_length;
-    uint8_t partial_write_data[WCHLINK_FLASH_PACKET_SIZE];
-    uint8_t partial_write_page[WCHLINK_FLASH_PACKET_SIZE];
-    uint8_t partial_cache[WCHLINK_FLASH_CHUNK_SIZE];
-    uint8_t flash_chunk_data[WCHLINK_FLASH_CHUNK_SIZE];
-    bool partial_cache_valid;
-    bool data_reply_pending;
-    uint8_t data_reply_status;
-    uint8_t loader_failure_dmi_status;
-    uint32_t loader_failure_address;
-    uint32_t loader_failure_abstractcs;
-    uint8_t flash_padding[WCHLINK_FLASH_PACKET_SIZE];
-};
-
 struct wchlink_session {
     struct wchlink_target_ports target;
-    struct wchlink_transfer_state transfer;
+    struct wchlink_transfer transfer;
     bool ch5xx_info_query_seen;
     bool isp_request_pending;
 };
@@ -81,179 +21,17 @@ static struct wchlink_session wchlink_session_state;
 
 static void wchlink_target_init(void) {
     wchlink_target_ports_init(&wchlink_session_state.target);
+    wchlink_transfer_bind_target(&wchlink_session_state.transfer,
+                                 &wchlink_session_state.target);
 }
 
 static void wchlink_target_disconnect(void) {
     wchlink_target_ports_disconnect(&wchlink_session_state.target);
 }
 
-static uint32_t wchlink_checksum_add(uint32_t checksum, const uint8_t *data,
-                                     size_t length) {
-    for (size_t offset = 0u; offset < length; offset += 4u) {
-        checksum += (uint32_t)data[offset + 0u] |
-                    ((uint32_t)data[offset + 1u] << 8u) |
-                    ((uint32_t)data[offset + 2u] << 16u) |
-                    ((uint32_t)data[offset + 3u] << 24u);
-    }
-    return checksum;
-}
-
 static bool wchlink_target_uses_ch5xx_loader(void) {
     return wchlink_target_ports_uses_ch5xx_loader(
         &wchlink_session_state.target);
-}
-
-static bool wchlink_target_uses_l103_loader(void) {
-    return wchlink_target_ports_uses_l103_loader(
-        &wchlink_session_state.target);
-}
-
-static bool wchlink_target_supports_memory_streaming(void) {
-    return wchlink_target_ports_supports_memory_streaming(
-        &wchlink_session_state.target);
-}
-
-static void wchlink_clear_transfer_state(void) {
-    wchlink_session_state.transfer.read_address = 0u;
-    wchlink_session_state.transfer.read_remaining = 0u;
-    wchlink_session_state.transfer.read_active = false;
-    wchlink_session_state.transfer.write_address = 0u;
-    wchlink_session_state.transfer.write_remaining = 0u;
-    wchlink_session_state.transfer.write_mode = 0u;
-    wchlink_session_state.transfer.loader_received = 0u;
-    wchlink_session_state.transfer.loader_expected = WCHLINK_LOADER_DEFAULT_SIZE;
-    wchlink_session_state.transfer.loader_variable_length = false;
-    wchlink_session_state.transfer.loader_error = 0u;
-    wchlink_session_state.transfer.flash_data_received = 0u;
-    wchlink_session_state.transfer.flash_transfer_received = 0u;
-    wchlink_session_state.transfer.flash_transfer_length = 0u;
-    wchlink_session_state.transfer.flash_chunk_length = 0u;
-    wchlink_session_state.transfer.flash_loader_mode = 0u;
-    wchlink_session_state.transfer.flash_checksum = 0u;
-    wchlink_session_state.transfer.loader_ready = false;
-    wchlink_session_state.transfer.flash_openocd_mode = false;
-    wchlink_session_state.transfer.partial_write_address = 0u;
-    wchlink_session_state.transfer.partial_write_length = 0u;
-    memset(wchlink_session_state.transfer.partial_write_data, 0, sizeof(wchlink_session_state.transfer.partial_write_data));
-    wchlink_session_state.transfer.data_reply_pending = false;
-    wchlink_session_state.transfer.data_reply_status = 0u;
-    wchlink_session_state.transfer.loader_failure_dmi_status = 0u;
-    wchlink_session_state.transfer.loader_failure_address = 0u;
-    wchlink_session_state.transfer.loader_failure_abstractcs = 0u;
-}
-
-static const struct wchlink_loader_layout *wchlink_target_loader_layout(void) {
-    if (wchlink_target_uses_ch5xx_loader()) {
-        return &wchlink_loader_layout_ch59x;
-    }
-    return &wchlink_loader_layout_default;
-}
-
-static uint32_t wchlink_flash_padded_data_length(void) {
-    uint32_t length = wchlink_session_state.transfer.flash_chunk_length;
-
-    // CH5xx loader 以完整 256 字节页参与校验，尾页需要保持擦除态
-    if (wchlink_target_uses_ch5xx_loader()) {
-        length = (length + (WCHLINK_CH5XX_LOADER_PAGE_SIZE - 1u)) &
-                 ~(WCHLINK_CH5XX_LOADER_PAGE_SIZE - 1u);
-    }
-    return length;
-}
-
-static struct rvswd_target_result wchlink_flash_write_padding(
-    const struct wchlink_loader_layout *layout, uint32_t from, uint32_t to) {
-    while (from < to) {
-        uint32_t length = to - from;
-        struct rvswd_target_result result;
-
-        if (length > sizeof(wchlink_session_state.transfer.flash_padding)) {
-            length = sizeof(wchlink_session_state.transfer.flash_padding);
-        }
-        memset(wchlink_session_state.transfer.flash_padding, 0xff, length);
-        result = wchlink_target_ports_write_memory(
-            &wchlink_session_state.target, layout->data + from,
-            wchlink_session_state.transfer.flash_padding, length);
-        if (!result.ok) {
-            return result;
-        }
-        wchlink_session_state.transfer.flash_checksum =
-            wchlink_checksum_add(wchlink_session_state.transfer.flash_checksum, wchlink_session_state.transfer.flash_padding,
-                                 length);
-        from += length;
-    }
-    return rvswd_target_result_success();
-}
-
-static void wchlink_partial_cache_range(uint32_t address, const uint8_t *data,
-                                        uint32_t length) {
-    uint32_t start = address;
-    uint32_t end = address + length;
-
-    if (start >= WCHLINK_FLASH_CHUNK_SIZE || end <= start) {
-        return;
-    }
-    if (end > WCHLINK_FLASH_CHUNK_SIZE) {
-        end = WCHLINK_FLASH_CHUNK_SIZE;
-    }
-    memcpy(&wchlink_session_state.transfer.partial_cache[start], data, end - start);
-}
-
-static bool wchlink_partial_write_flash_page(void) {
-    uint32_t page_address = wchlink_session_state.transfer.partial_write_address &
-                            ~(WCHLINK_FLASH_PACKET_SIZE - 1u);
-    uint32_t sector_address = wchlink_session_state.transfer.partial_write_address &
-                              ~(WCHLINK_FLASH_CHUNK_SIZE - 1u);
-    uint32_t page_offset = wchlink_session_state.transfer.partial_write_address &
-                           (WCHLINK_FLASH_PACKET_SIZE - 1u);
-
-    if (!wchlink_target_uses_ch5xx_loader() ||
-        page_offset + wchlink_session_state.transfer.partial_write_length > WCHLINK_FLASH_PACKET_SIZE) {
-        return false;
-    }
-
-    if (wchlink_session_state.transfer.partial_cache_valid && sector_address == 0u) {
-        uint32_t cache_offset = page_address - sector_address;
-
-        memcpy(wchlink_session_state.transfer.partial_write_page,
-               &wchlink_session_state.transfer.partial_cache[cache_offset],
-               WCHLINK_FLASH_PACKET_SIZE);
-    } else {
-        // 没有下载缓存时只回读目标页，不扩展为整个 4 KiB 扇区
-        for (uint32_t offset = 0u; offset < WCHLINK_FLASH_PACKET_SIZE;
-             offset += 4u) {
-            struct rvswd_target_result result =
-                wchlink_target_ports_read_memory32(
-                    &wchlink_session_state.target, page_address + offset);
-            uint32_t value = result.value;
-
-            if (!result.ok) {
-                return false;
-            }
-            wchlink_session_state.transfer.partial_write_page[offset + 0u] = (uint8_t)value;
-            wchlink_session_state.transfer.partial_write_page[offset + 1u] = (uint8_t)(value >> 8u);
-            wchlink_session_state.transfer.partial_write_page[offset + 2u] = (uint8_t)(value >> 16u);
-            wchlink_session_state.transfer.partial_write_page[offset + 3u] = (uint8_t)(value >> 24u);
-        }
-    }
-    memcpy(&wchlink_session_state.transfer.partial_write_page[page_offset],
-           wchlink_session_state.transfer.partial_write_data, wchlink_session_state.transfer.partial_write_length);
-
-    // CH5xx 只能把 1 写成 0，软件断点替换指令前必须整页读改写
-    if (!wchlink_target_ports_flash_rewrite_page(
-             &wchlink_session_state.target, page_address,
-             wchlink_session_state.transfer.partial_write_page)
-             .ok) {
-        return false;
-    }
-
-    if (wchlink_session_state.transfer.partial_cache_valid && sector_address == 0u) {
-        uint32_t cache_offset = page_address - sector_address;
-
-        memcpy(&wchlink_session_state.transfer.partial_cache[cache_offset],
-               wchlink_session_state.transfer.partial_write_page,
-               WCHLINK_FLASH_PACKET_SIZE);
-    }
-    return true;
 }
 
 static size_t wchlink_ack(uint8_t *response, size_t capacity, uint8_t family) {
@@ -542,8 +320,7 @@ void wchlink_session_reset(void) {
     wchlink_target_disconnect();
     wchlink_session_state.ch5xx_info_query_seen = false;
     wchlink_session_state.isp_request_pending = false;
-    wchlink_session_state.transfer.flash_prepare_seen = false;
-    wchlink_clear_transfer_state();
+    wchlink_transfer_reset(&wchlink_session_state.transfer);
 }
 
 bool wchlink_session_take_isp_request(void) {
@@ -553,329 +330,41 @@ bool wchlink_session_take_isp_request(void) {
     return pending;
 }
 
-bool wchlink_session_is_connected(void) {
-    return wchlink_target_ports_is_connected(&wchlink_session_state.target);
+enum wchlink_session_data_io wchlink_session_next_data_io(void) {
+    enum wchlink_transfer_io_request transfer_io =
+        wchlink_transfer_next_io(&wchlink_session_state.transfer);
+    unsigned int session_io = WCHLINK_SESSION_DATA_IO_NONE;
+
+    if ((transfer_io & WCHLINK_TRANSFER_IO_DATA_IN) != 0u) {
+        session_io |= WCHLINK_SESSION_DATA_IO_IN;
+    }
+    if ((transfer_io & WCHLINK_TRANSFER_IO_DATA_OUT) != 0u) {
+        session_io |= WCHLINK_SESSION_DATA_IO_OUT;
+    }
+    return (enum wchlink_session_data_io)session_io;
 }
 
-void wchlink_session_begin_data_read(void) {
-    if (wchlink_target_ports_is_connected(&wchlink_session_state.target) &&
-        wchlink_session_state.transfer.read_remaining != 0u) {
-        wchlink_session_state.transfer.read_active = true;
+size_t wchlink_session_poll_data_in(uint8_t *data, size_t capacity) {
+    uint8_t status;
+
+    if (data == NULL || capacity < 4u) {
+        return 0u;
     }
-}
-
-bool wchlink_session_data_read_active(void) {
-    return wchlink_session_state.transfer.read_active;
-}
-
-bool wchlink_session_data_write_active(void) {
-    return wchlink_session_state.transfer.write_mode != 0u;
-}
-
-void wchlink_session_write_data(const uint8_t *data, size_t length) {
-    const struct wchlink_loader_layout *layout;
-
-    if (data == NULL || length == 0u || wchlink_session_state.transfer.write_mode == 0u) {
-        return;
-    }
-
-    if (wchlink_session_state.transfer.write_mode == 1u) {
-        struct rvswd_target_result target_result;
-
-        layout = wchlink_target_loader_layout();
-        if (wchlink_session_state.transfer.loader_error == 0u) {
-            if (length > WCHLINK_FLASH_PACKET_SIZE ||
-                length > wchlink_session_state.transfer.loader_expected - wchlink_session_state.transfer.loader_received) {
-                // 长度错误属于 USB 会话状态异常，不读取陈旧的 RVSWD 诊断信息
-                wchlink_session_state.transfer.loader_error = 0xefu;
-                wchlink_session_state.transfer.loader_failure_address =
-                    layout->entry + wchlink_session_state.transfer.loader_received;
-                wchlink_session_state.transfer.loader_failure_abstractcs = 0xffffffffu;
-            } else {
-                target_result = wchlink_target_ports_write_memory(
-                    &wchlink_session_state.target,
-                    layout->entry +
-                        wchlink_session_state.transfer.loader_received,
-                    data, (uint32_t)length);
-                if (!target_result.ok) {
-                    wchlink_session_state.transfer.loader_error =
-                        target_result.code == 0u ? 0x15u
-                                                 : (uint8_t)target_result.code;
-                    wchlink_session_state.transfer.loader_failure_dmi_status =
-                        target_result.dmi_status;
-                    wchlink_session_state.transfer.loader_failure_address =
-                        target_result.address;
-                    wchlink_session_state.transfer.loader_failure_abstractcs =
-                        target_result.abstractcs;
-                }
-            }
-        }
-
-        // CH59x loader 的实际长度随上位机实现变化，结束标志是后续的 0x07 命令
-        if (!wchlink_session_state.transfer.loader_variable_length &&
-            wchlink_session_state.transfer.loader_received + length >= wchlink_session_state.transfer.loader_expected) {
-            wchlink_session_state.transfer.loader_received = wchlink_session_state.transfer.loader_expected;
-            wchlink_session_state.transfer.write_mode = 0u;
-            wchlink_session_state.transfer.loader_ready = wchlink_session_state.transfer.loader_error == 0u;
-        } else {
-            uint32_t remaining = wchlink_session_state.transfer.loader_expected - wchlink_session_state.transfer.loader_received;
-
-            wchlink_session_state.transfer.loader_received +=
-                length > remaining ? remaining : (uint32_t)length;
-        }
-        if (!wchlink_session_state.transfer.loader_variable_length && wchlink_session_state.transfer.loader_error == 0u &&
-            wchlink_session_state.transfer.loader_received >= wchlink_session_state.transfer.loader_expected) {
-            wchlink_session_state.transfer.loader_ready = true;
-        }
-        return;
-    }
-
-    if (wchlink_session_state.transfer.write_mode == 3u) {
-        bool success;
-
-        if (length != wchlink_session_state.transfer.partial_write_length ||
-            length > sizeof(wchlink_session_state.transfer.partial_write_data)) {
-            wchlink_session_state.transfer.write_mode = 0u;
-            wchlink_session_state.transfer.data_reply_status = 0x15u;
-            wchlink_session_state.transfer.data_reply_pending = true;
-            return;
-        }
-        memcpy(wchlink_session_state.transfer.partial_write_data, data, length);
-        success = wchlink_partial_write_flash_page();
-        wchlink_session_state.transfer.write_mode = 0u;
-        wchlink_session_state.transfer.data_reply_status = success ? WCHLINK_PARTIAL_WRITE_REPLY_OK
-                                                                   : WCHLINK_PARTIAL_WRITE_REPLY_FAILED;
-        wchlink_session_state.transfer.data_reply_pending = true;
-        return;
-    }
-
-    if (wchlink_session_state.transfer.write_mode == 2u && length <= WCHLINK_FLASH_PACKET_SIZE &&
-        (length & 3u) == 0u && wchlink_session_state.transfer.write_remaining != 0u) {
-        uint32_t transfer_length;
-        uint32_t transfer_remaining;
-        size_t write_length = 0u;
-
-        layout = wchlink_target_loader_layout();
-        if (wchlink_session_state.transfer.flash_transfer_length == 0u) {
-            if (wchlink_session_state.transfer.flash_openocd_mode) {
-                // MRS 内置 OpenOCD 先把段长对齐到 256 字节，再按该长度发送
-                // 旧版 OpenOCD 仍声明原始段长，此时保留其固定 4096 字节传输
-                wchlink_session_state.transfer.flash_transfer_length =
-                    (wchlink_session_state.transfer.flash_chunk_length & 0xffu) == 0u
-                        ? wchlink_session_state.transfer.flash_chunk_length
-                        : WCHLINK_FLASH_CHUNK_SIZE;
-            } else {
-                // MRS 和 wlink 以数据端点包长对齐尾包，首包长度就是本次包长
-                wchlink_session_state.transfer.flash_transfer_length =
-                    ((wchlink_session_state.transfer.flash_chunk_length + (uint32_t)length - 1u) /
-                     (uint32_t)length) *
-                    (uint32_t)length;
-            }
-        }
-        transfer_length = wchlink_session_state.transfer.flash_transfer_length;
-        transfer_remaining = transfer_length - wchlink_session_state.transfer.flash_transfer_received;
-        if ((uint32_t)length > transfer_remaining) {
-            // 主机包不能跨越本次数据块边界，超长包只消费边界内部分
-            length = (size_t)transfer_remaining;
-        }
-        if (wchlink_session_state.transfer.flash_transfer_received < wchlink_session_state.transfer.flash_chunk_length) {
-            write_length = wchlink_session_state.transfer.flash_chunk_length -
-                           wchlink_session_state.transfer.flash_transfer_received;
-            if (write_length > length) {
-                write_length = length;
-            }
-            if (write_length != 0u) {
-                if (wchlink_target_supports_memory_streaming()) {
-                    // 支持连续写入的目标每个 4 KiB chunk 只建立一次 RVSWD 上下文
-                    memcpy(&wchlink_session_state.transfer.flash_chunk_data[wchlink_session_state.transfer.flash_transfer_received],
-                           data, write_length);
-                } else {
-                    struct rvswd_target_result target_result =
-                        wchlink_target_ports_write_memory(
-                            &wchlink_session_state.target,
-                            layout->data +
-                                wchlink_session_state.transfer
-                                    .flash_transfer_received,
-                            data, (uint32_t)write_length);
-
-                    if (!target_result.ok) {
-                        wchlink_session_state.transfer.write_mode = 0u;
-                        wchlink_session_state.transfer.data_reply_status =
-                            target_result.code == 0u
-                                ? 0x15u
-                                : (uint8_t)target_result.code;
-                        wchlink_session_state.transfer.data_reply_pending = true;
-                        return;
-                    }
-                    wchlink_partial_cache_range(
-                        wchlink_session_state.transfer.write_address + wchlink_session_state.transfer.flash_transfer_received,
-                        data, (uint32_t)write_length);
-                }
-                wchlink_session_state.transfer.flash_checksum =
-                    wchlink_checksum_add(wchlink_session_state.transfer.flash_checksum, data,
-                                         write_length);
-                wchlink_session_state.transfer.flash_data_received += (uint32_t)write_length;
-            }
-        }
-        wchlink_session_state.transfer.flash_transfer_received += (uint32_t)length;
-        if (wchlink_session_state.transfer.flash_transfer_received < transfer_length) {
-            return;
-        }
-
-        if (wchlink_target_supports_memory_streaming() &&
-            wchlink_session_state.transfer.flash_data_received != 0u) {
-            struct rvswd_target_result target_result =
-                wchlink_target_ports_write_memory(
-                    &wchlink_session_state.target, layout->data,
-                    wchlink_session_state.transfer.flash_chunk_data,
-                    wchlink_session_state.transfer.flash_chunk_length);
-
-            if (!target_result.ok) {
-                wchlink_session_state.transfer.write_mode = 0u;
-                wchlink_session_state.transfer.data_reply_status =
-                    target_result.code == 0u ? 0x15u
-                                             : (uint8_t)target_result.code;
-                wchlink_session_state.transfer.data_reply_pending = true;
-                return;
-            }
-        }
-
-        // loader 读取完整页，实际数据不足的尾部必须显式写入擦除态
-        {
-            uint32_t padded_length = wchlink_flash_padded_data_length();
-            struct rvswd_target_result target_result =
-                rvswd_target_result_success();
-
-            if (wchlink_session_state.transfer.flash_data_received <
-                padded_length) {
-                target_result = wchlink_flash_write_padding(
-                    layout,
-                    wchlink_session_state.transfer.flash_data_received,
-                    padded_length);
-            }
-            if (!target_result.ok) {
-                wchlink_session_state.transfer.write_mode = 0u;
-                wchlink_session_state.transfer.data_reply_status =
-                    target_result.code == 0u ? 0x15u
-                                             : (uint8_t)target_result.code;
-                wchlink_session_state.transfer.data_reply_pending = true;
-                return;
-            }
-            wchlink_session_state.transfer.flash_data_received = padded_length;
-        }
-        {
-            uint32_t result = 0xffffffffu;
-            uint32_t checksum_address = 0u;
-            bool success;
-            struct rvswd_target_result target_result;
-
-            if ((wchlink_session_state.transfer.flash_loader_mode & 0x10u) != 0u) {
-                // L103 和 CH5xx loader 从目标 RAM 读取主机计算的校验和
-                if (wchlink_target_uses_ch5xx_loader()) {
-                    checksum_address = WCHLINK_CH5XX_LOADER_CHECKSUM_ADDRESS;
-                } else if (wchlink_target_uses_l103_loader()) {
-                    checksum_address = WCHLINK_L103_LOADER_CHECKSUM_ADDRESS;
-                }
-                if (checksum_address != 0u) {
-                    target_result = wchlink_target_ports_write_memory32(
-                        &wchlink_session_state.target, checksum_address,
-                        wchlink_session_state.transfer.flash_checksum);
-                    if (!target_result.ok) {
-                        wchlink_session_state.transfer.write_mode = 0u;
-                        wchlink_session_state.transfer.data_reply_status = 0x15u;
-                        wchlink_session_state.transfer.data_reply_pending = true;
-                        return;
-                    }
-                }
-            }
-            target_result = wchlink_target_ports_execute(
-                &wchlink_session_state.target, layout->entry, layout->stack_top,
-                wchlink_session_state.transfer.flash_loader_mode,
-                wchlink_session_state.transfer.write_address,
-                wchlink_session_state.transfer.flash_chunk_length,
-                layout->data);
-            success = target_result.ok;
-            result = target_result.value;
-
-            // LinkE 将 loader 的三个标准返回值转换为数据端点状态
-            if (success && result == 0u) {
-                wchlink_session_state.transfer.data_reply_status = 0x04u;
-            } else if (success && result == 8u) {
-                wchlink_session_state.transfer.data_reply_status = 0x03u;
-            } else if (success && result == 16u) {
-                wchlink_session_state.transfer.data_reply_status = 0x05u;
-            } else {
-                wchlink_session_state.transfer.data_reply_status = (uint8_t)result;
-            }
-            wchlink_session_state.transfer.data_reply_pending = true;
-            if (success && wchlink_session_state.transfer.write_remaining > wchlink_session_state.transfer.flash_chunk_length) {
-                wchlink_session_state.transfer.write_address += wchlink_session_state.transfer.flash_chunk_length;
-                wchlink_session_state.transfer.write_remaining -= wchlink_session_state.transfer.flash_chunk_length;
-                wchlink_session_state.transfer.flash_data_received = 0u;
-                wchlink_session_state.transfer.flash_transfer_received = 0u;
-                wchlink_session_state.transfer.flash_transfer_length = 0u;
-                wchlink_session_state.transfer.flash_checksum = 0u;
-                wchlink_session_state.transfer.flash_chunk_length =
-                    wchlink_session_state.transfer.write_remaining > WCHLINK_FLASH_CHUNK_SIZE
-                        ? WCHLINK_FLASH_CHUNK_SIZE
-                        : wchlink_session_state.transfer.write_remaining;
-            } else {
-                wchlink_session_state.transfer.write_address = 0u;
-                wchlink_session_state.transfer.write_remaining = 0u;
-                wchlink_session_state.transfer.write_mode = 0u;
-            }
-        }
-    }
-}
-
-bool wchlink_session_take_data_reply(uint8_t *data, size_t capacity) {
-    if (data == NULL || capacity < 4u || !wchlink_session_state.transfer.data_reply_pending) {
-        return false;
+    if (!wchlink_transfer_take_reply_status(&wchlink_session_state.transfer,
+                                            &status)) {
+        return wchlink_transfer_read_data(&wchlink_session_state.transfer, data,
+                                          capacity);
     }
     data[0] = 0x41u;
     data[1] = 0x01u;
     data[2] = 0x01u;
-    data[3] = wchlink_session_state.transfer.data_reply_status;
-    wchlink_session_state.transfer.data_reply_pending = false;
-    return true;
+    data[3] = status;
+    return 4u;
 }
 
-size_t wchlink_session_read_data(uint8_t *data, size_t capacity) {
-    size_t produced = 0u;
-
-    if (data == NULL || capacity < 4u || !wchlink_session_state.transfer.read_active) {
-        return 0u;
-    }
-
-    while (produced + 4u <= capacity && wchlink_session_state.transfer.read_remaining >= 4u) {
-        struct rvswd_target_result result =
-            wchlink_target_ports_read_memory32(
-                &wchlink_session_state.target,
-                wchlink_session_state.transfer.read_address);
-        uint32_t value = result.value;
-
-        if (!result.ok) {
-            wchlink_session_state.transfer.read_active = false;
-            wchlink_session_state.transfer.read_remaining = 0u;
-            return 0u;
-        }
-
-        // WCH-Link 数据端点按大端字节发送，wlink 主机随后按字反转
-        data[produced + 0u] = (uint8_t)(value >> 24u);
-        data[produced + 1u] = (uint8_t)(value >> 16u);
-        data[produced + 2u] = (uint8_t)(value >> 8u);
-        data[produced + 3u] = (uint8_t)value;
-        produced += 4u;
-        wchlink_session_state.transfer.read_address += 4u;
-        wchlink_session_state.transfer.read_remaining -= 4u;
-    }
-
-    if (wchlink_session_state.transfer.read_remaining == 0u) {
-        wchlink_session_state.transfer.read_active = false;
-    }
-    return produced;
+void wchlink_session_submit_data_out(const uint8_t *data, size_t length) {
+    wchlink_transfer_write_data(&wchlink_session_state.transfer, data, length);
 }
-
 size_t wchlink_session_process(const uint8_t *request, size_t request_length,
                                uint8_t *response, size_t response_capacity) {
     uint8_t family;
@@ -913,15 +402,11 @@ size_t wchlink_session_process(const uint8_t *request, size_t request_length,
                            ((uint32_t)request[4] << 16u) |
                            ((uint32_t)request[5] << 8u) | request[6];
 
-        if (!wchlink_target_ports_is_connected(&wchlink_session_state.target) ||
-            request[7] == 0u ||
-            request[7] > sizeof(wchlink_session_state.transfer.partial_write_data)) {
+        if (!wchlink_transfer_start_partial_write(
+                &wchlink_session_state.transfer, address, request[7])) {
             return wchlink_unsupported(response, response_capacity,
                                        WCHLINK_FAMILY_PARTIAL_WRITE);
         }
-        wchlink_session_state.transfer.partial_write_address = address;
-        wchlink_session_state.transfer.partial_write_length = request[7];
-        wchlink_session_state.transfer.write_mode = 3u;
         return wchlink_command_reply(response, response_capacity,
                                      WCHLINK_FAMILY_PARTIAL_WRITE, request[2]);
     }
@@ -933,31 +418,27 @@ size_t wchlink_session_process(const uint8_t *request, size_t request_length,
                           ((uint32_t)request[8] << 16u) |
                           ((uint32_t)request[9] << 8u) | request[10];
 
-        wchlink_clear_transfer_state();
-        memset(wchlink_session_state.transfer.partial_cache, 0xff, sizeof(wchlink_session_state.transfer.partial_cache));
-        wchlink_session_state.transfer.partial_cache_valid = true;
-        wchlink_session_state.transfer.write_address = first;
-        wchlink_session_state.transfer.write_remaining = second;
-        wchlink_session_state.transfer.flash_chunk_length = wchlink_session_state.transfer.write_remaining > WCHLINK_FLASH_CHUNK_SIZE
-                                                                ? WCHLINK_FLASH_CHUNK_SIZE
-                                                                : wchlink_session_state.transfer.write_remaining;
+        wchlink_transfer_prepare_write(&wchlink_session_state.transfer, first,
+                                       second);
         return wchlink_command_reply(response, response_capacity, family, 0x01u);
     }
     if (family == 0x03u && request_length >= 11u) {
-        wchlink_clear_transfer_state();
-        wchlink_session_state.transfer.read_address = ((uint32_t)request[3] << 24u) |
-                                                      ((uint32_t)request[4] << 16u) |
-                                                      ((uint32_t)request[5] << 8u) | request[6];
-        wchlink_session_state.transfer.read_remaining = ((uint32_t)request[7] << 24u) |
-                                                        ((uint32_t)request[8] << 16u) |
-                                                        ((uint32_t)request[9] << 8u) | request[10];
-        wchlink_session_state.transfer.read_active = false;
+        uint32_t address = ((uint32_t)request[3] << 24u) |
+                           ((uint32_t)request[4] << 16u) |
+                           ((uint32_t)request[5] << 8u) | request[6];
+        uint32_t length = ((uint32_t)request[7] << 24u) |
+                          ((uint32_t)request[8] << 16u) |
+                          ((uint32_t)request[9] << 8u) | request[10];
+
+        wchlink_transfer_prepare_read(&wchlink_session_state.transfer, address,
+                                      length);
         return wchlink_ack(response, response_capacity, family);
     }
     if (family == 0x02u && request_length >= 4u) {
         switch (request[3]) {
             case 0x01u:
-                wchlink_clear_transfer_state();
+                wchlink_transfer_clear_operation(
+                    &wchlink_session_state.transfer);
                 target_result = rvswd_target_result_success();
                 if (!wchlink_target_ports_is_connected(
                         &wchlink_session_state.target)) {
@@ -991,108 +472,56 @@ size_t wchlink_session_process(const uint8_t *request, size_t request_length,
                 }
                 return response_length;
             case 0x05u:
-                if (!wchlink_target_ports_is_connected(
-                        &wchlink_session_state.target) ||
-                    wchlink_session_state.transfer.write_remaining == 0u) {
+                if (!wchlink_transfer_start_loader(
+                        &wchlink_session_state.transfer)) {
                     return wchlink_unsupported(response, response_capacity, family);
                 }
-                wchlink_session_state.transfer.write_mode = 1u;
-                wchlink_session_state.transfer.loader_received = 0u;
-                wchlink_session_state.transfer.loader_error = 0u;
-                wchlink_session_state.transfer.loader_failure_dmi_status = 0u;
-                wchlink_session_state.transfer.loader_failure_address = 0u;
-                wchlink_session_state.transfer.loader_failure_abstractcs = 0u;
-                wchlink_session_state.transfer.loader_ready = false;
-                // CH58x 和 CH59x 的 loader 长度由主机分包决定，LinkE 以 0x07 作为结束命令
-                wchlink_session_state.transfer.loader_variable_length = wchlink_target_uses_ch5xx_loader();
-                wchlink_session_state.transfer.loader_expected = wchlink_session_state.transfer.loader_variable_length
-                                                                     ? WCHLINK_CH5XX_LOADER_MAX_SIZE
-                                                                     : WCHLINK_LOADER_DEFAULT_SIZE;
                 return wchlink_command_reply(response, response_capacity, family,
                                              request[3]);
             case 0x06u:
                 // 官方 OpenOCD 在地址设置前发送 Prepare，状态必须跨过地址帧保留
-                wchlink_session_state.transfer.flash_prepare_seen = true;
+                wchlink_transfer_mark_flash_prepare(
+                    &wchlink_session_state.transfer);
                 return wchlink_command_reply(response, response_capacity, family,
                                              request[3]);
             case 0x07u:
             case 0x0bu: {
-                const struct wchlink_loader_layout *layout =
-                    wchlink_target_loader_layout();
-                uint32_t result = 0xffffffffu;
-                bool success;
+                struct wchlink_transfer_finish_result finish =
+                    wchlink_transfer_finish_loader(
+                        &wchlink_session_state.transfer, request[3]);
 
-                // 0x07 是 loader 数据阶段的结束边界，成功后立即切换到 Flash 数据接收
-                wchlink_session_state.transfer.write_mode = 0u;
-                if (wchlink_session_state.transfer.loader_error != 0u) {
+                if (finish.status == WCHLINK_TRANSFER_FINISH_LOADER_ERROR) {
                     if (response_capacity < 13u) {
                         return 0u;
                     }
                     response[0] = WCHLINK_COMMAND_PREFIX;
                     response[1] = family;
                     response[2] = 10u;
-                    response[3] = wchlink_session_state.transfer.loader_error;
-                    response[4] = wchlink_session_state.transfer.loader_failure_dmi_status;
-                    response[5] = (uint8_t)(wchlink_session_state.transfer.loader_failure_address >> 24u);
-                    response[6] = (uint8_t)(wchlink_session_state.transfer.loader_failure_address >> 16u);
-                    response[7] = (uint8_t)(wchlink_session_state.transfer.loader_failure_address >> 8u);
-                    response[8] = (uint8_t)wchlink_session_state.transfer.loader_failure_address;
-                    response[9] = (uint8_t)(wchlink_session_state.transfer.loader_failure_abstractcs >> 24u);
-                    response[10] = (uint8_t)(wchlink_session_state.transfer.loader_failure_abstractcs >> 16u);
-                    response[11] = (uint8_t)(wchlink_session_state.transfer.loader_failure_abstractcs >> 8u);
-                    response[12] = (uint8_t)wchlink_session_state.transfer.loader_failure_abstractcs;
+                    response[3] = finish.loader_error;
+                    response[4] = finish.dmi_status;
+                    response[5] = (uint8_t)(finish.address >> 24u);
+                    response[6] = (uint8_t)(finish.address >> 16u);
+                    response[7] = (uint8_t)(finish.address >> 8u);
+                    response[8] = (uint8_t)finish.address;
+                    response[9] = (uint8_t)(finish.abstractcs >> 24u);
+                    response[10] = (uint8_t)(finish.abstractcs >> 16u);
+                    response[11] = (uint8_t)(finish.abstractcs >> 8u);
+                    response[12] = (uint8_t)finish.abstractcs;
                     return 13u;
                 }
-                if ((!wchlink_session_state.transfer.loader_variable_length && !wchlink_session_state.transfer.loader_ready) ||
-                    (wchlink_session_state.transfer.loader_variable_length && wchlink_session_state.transfer.loader_received == 0u)) {
-                    return wchlink_unsupported(response, response_capacity, family);
+                if (finish.status == WCHLINK_TRANSFER_FINISH_INCOMPLETE) {
+                    return wchlink_unsupported(response, response_capacity,
+                                               family);
                 }
-                // LinkE 固件连续两次以 mode 1 初始化 loader
-                target_result = wchlink_target_ports_execute(
-                    &wchlink_session_state.target, layout->entry,
-                    layout->stack_top, 0x01u, 0u, 0u, layout->data);
-                result = target_result.value;
-                success = target_result.ok && result == 0u;
-                if (success) {
-                    target_result = wchlink_target_ports_execute(
-                        &wchlink_session_state.target, layout->entry,
-                        layout->stack_top,
-                        (wchlink_session_state.transfer.flash_prepare_seen &&
-                         !wchlink_target_uses_ch5xx_loader())
-                            ? 0x03u
-                            : 0x01u,
-                        0u, 0u, layout->data);
-                    result = target_result.value;
-                    success = target_result.ok && result == 0u;
-                }
-                if (success &&
-                    response_capacity >= 4u) {
-                    wchlink_session_state.transfer.loader_ready = true;
-                    // CH5xx 的 OpenOCD 路径只执行编程，V30x Prepare 路径附带校验
-                    wchlink_session_state.transfer.flash_loader_mode = request[3] == 0x0bu
-                                                                           ? 0x10u
-                                                                       : wchlink_target_uses_ch5xx_loader()
-                                                                           ? 0x08u
-                                                                           : (wchlink_session_state.transfer.flash_prepare_seen
-                                                                                  ? 0x18u
-                                                                                  : 0x08u);
-                    // WCH OpenOCD 在 0x07 回复后直接发送固定 4096 字节数据
-                    wchlink_session_state.transfer.write_mode = 2u;
-                    wchlink_session_state.transfer.flash_openocd_mode = true;
-                    wchlink_session_state.transfer.flash_data_received = 0u;
-                    wchlink_session_state.transfer.flash_transfer_received = 0u;
-                    wchlink_session_state.transfer.flash_transfer_length = 0u;
-                    wchlink_session_state.transfer.flash_checksum = 0u;
-                    wchlink_session_state.transfer.flash_prepare_seen = false;
-                    return wchlink_command_reply(response, response_capacity, family,
-                                                 request[3]);
+                if (finish.status == WCHLINK_TRANSFER_FINISH_READY) {
+                    return wchlink_command_reply(response, response_capacity,
+                                                 family, request[3]);
                 }
                 if (response_capacity >= 4u) {
-                    wchlink_session_state.transfer.loader_ready = false;
                     response[0] = WCHLINK_COMMAND_PREFIX;
                     response[1] = family;
                     response[2] = 1u;
-                    response[3] = (uint8_t)result;
+                    response[3] = (uint8_t)finish.target_value;
                     return 4u;
                 }
                 return 0u;
@@ -1100,26 +529,17 @@ size_t wchlink_session_process(const uint8_t *request, size_t request_length,
             case 0x02u:
             case 0x03u:
             case 0x04u:
-                if (!wchlink_session_state.transfer.loader_ready || wchlink_session_state.transfer.write_remaining == 0u) {
+                if (!wchlink_transfer_start_flash(
+                        &wchlink_session_state.transfer, request[3])) {
                     return wchlink_unsupported(response, response_capacity, family);
                 }
-                wchlink_session_state.transfer.write_mode = 2u;
-                wchlink_session_state.transfer.flash_data_received = 0u;
-                wchlink_session_state.transfer.flash_transfer_received = 0u;
-                wchlink_session_state.transfer.flash_transfer_length = 0u;
-                wchlink_session_state.transfer.flash_checksum = 0u;
-                wchlink_session_state.transfer.flash_openocd_mode = false;
-                // LinkE 用命令位组合选择 loader 的编程、校验和组合模式
-                wchlink_session_state.transfer.flash_loader_mode = request[3] == 0x02u ? 0x08u : request[3] == 0x03u ? 0x10u
-                                                                                                                     : 0x18u;
                 return wchlink_command_reply(response, response_capacity, family,
                                              request[3]);
             case 0x08u:
-                wchlink_session_state.transfer.flash_prepare_seen = false;
-                wchlink_clear_transfer_state();
+                wchlink_transfer_abort(&wchlink_session_state.transfer);
                 return wchlink_ack(response, response_capacity, family);
             case 0x0cu:
-                wchlink_session_begin_data_read();
+                wchlink_transfer_begin_read(&wchlink_session_state.transfer);
                 return wchlink_ack(response, response_capacity, family);
             default:
                 return wchlink_ack(response, response_capacity, family);
@@ -1240,7 +660,7 @@ size_t wchlink_session_process(const uint8_t *request, size_t request_length,
                 return wchlink_target_error(response, response_capacity,
                                             target_result.code);
             }
-            wchlink_clear_transfer_state();
+            wchlink_transfer_clear_operation(&wchlink_session_state.transfer);
             response_length = wchlink_ack(response, response_capacity, family);
             if (response_length != 0u) {
                 // MRS 的全擦命令要求回显原子命令
@@ -1257,7 +677,7 @@ size_t wchlink_session_process(const uint8_t *request, size_t request_length,
             drv_power_switch_set_enabled(true);
             return wchlink_ack(response, response_capacity, family);
         case WCHLINK_CONTROL_POWER_5V_OFF:
-            wchlink_session_state.transfer.partial_cache_valid = false;
+            wchlink_transfer_invalidate_cache(&wchlink_session_state.transfer);
             wchlink_session_reset();
             drv_power_switch_set_enabled(false);
             return wchlink_ack(response, response_capacity, family);

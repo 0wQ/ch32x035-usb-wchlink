@@ -401,16 +401,11 @@ static void wchlink_service_data_in(void) {
         return;
     }
 
-    if (wchlink_session_take_data_reply(wchlink_data_packet,
-                                        sizeof(wchlink_data_packet))) {
-        data_length = 4u;
-    } else {
-        if (!wchlink_session_data_read_active()) {
-            return;
-        }
-        data_length = wchlink_session_read_data(wchlink_data_packet,
-                                                sizeof(wchlink_data_packet));
+    if ((wchlink_session_next_data_io() & WCHLINK_SESSION_DATA_IO_IN) == 0u) {
+        return;
     }
+    data_length = wchlink_session_poll_data_in(wchlink_data_packet,
+                                               sizeof(wchlink_data_packet));
     if (data_length == 0u) {
         return;
     }
@@ -443,10 +438,11 @@ static void wchlink_service_data_out(void) {
         data_length = wchlink_data_out_length;
         wchlink_data_out_pending = false;
         __enable_irq();
-        wchlink_session_write_data(wchlink_data_out_buffer, data_length);
+        wchlink_session_submit_data_out(wchlink_data_out_buffer, data_length);
     }
 
-    if (wchlink_session_data_write_active() && !wchlink_data_out_active &&
+    if ((wchlink_session_next_data_io() & WCHLINK_SESSION_DATA_IO_OUT) != 0u &&
+        !wchlink_data_out_active &&
         !wchlink_data_out_pending) {
         wchlink_data_out_active = true;
         if (usbd_ep_start_read(0u, 0x02u, wchlink_data_out_buffer,

@@ -3,14 +3,14 @@
 #include "rvswd_memory.h"
 #include "rvswd_operation.h"
 #include "rvswd_target_profile.h"
-#include "rvswd_target_session.h"
 #include "rvswd_transport.h"
 #include "rvswd_types.h"
+#include "wchlink_target_ports.h"
 
 #include <stddef.h>
 
 // 连接实现封装唤醒、Debug Module 解锁、halt 和身份探测
-// 所有 helper 保持文件私有，调用者只观察 target session 的连接结果
+// 所有 helper 保持文件私有，调用者只观察 target ports 的连接结果
 static const uint8_t rvswd_dmi_control = 0x10u;
 static const uint8_t rvswd_dmi_config = 0x7du;
 static const uint8_t rvswd_dmi_shadow = 0x7eu;
@@ -29,29 +29,29 @@ static const uint32_t rvswd_flash_obr_address = 0x4002201cu;
 static const uint32_t rvswd_flash_obr_read_protected = 1u << 1u;
 
 static const struct rvswd_target_profile *rvswd_target_connect_memory_profile(
-    const struct rvswd_target_session *session) {
+    const struct wchlink_target_ports *ports) {
     const struct rvswd_target_profile *profile = rvswd_target_profile_resolve(
-        session->info.chip_id, session->family_hint,
-        session->family_hint_active);
+        ports->info.chip_id, ports->family_hint,
+        ports->family_hint_active);
 
     if (profile != NULL) {
         return profile;
     }
-    return rvswd_target_profile_from_family(session->family_hint);
+    return rvswd_target_profile_from_family(ports->family_hint);
 }
 
 static bool rvswd_target_connect_read_memory32(
-    struct rvswd_target_session *session, struct rvswd_operation *operation,
+    struct wchlink_target_ports *ports, struct rvswd_operation *operation,
     uint32_t address, uint32_t *value) {
     return rvswd_memory_read32(
-        operation, rvswd_target_connect_memory_profile(session),
-        session->info.chip_id != 0u, address, value);
+        operation, rvswd_target_connect_memory_profile(ports),
+        ports->info.chip_id != 0u, address, value);
 }
 
 static void rvswd_target_connect_reset_identity(
-    struct rvswd_target_session *session) {
-    session->info.chip_id = 0u;
-    session->family_hint_active = false;
+    struct wchlink_target_ports *ports) {
+    ports->info.chip_id = 0u;
+    ports->family_hint_active = false;
 }
 
 static bool rvswd_target_connect_restore_debug_module(
@@ -120,9 +120,9 @@ static bool rvswd_target_connect_read_memory8_ch5xx(
 }
 
 static bool rvswd_target_connect_identify(
-    struct rvswd_target_session *session, struct rvswd_operation *operation) {
+    struct wchlink_target_ports *ports, struct rvswd_operation *operation) {
     const struct rvswd_target_profile *expected_profile =
-        rvswd_target_profile_from_family(session->family_hint);
+        rvswd_target_profile_from_family(ports->family_hint);
     const struct rvswd_target_profile *direct_profile;
     uint32_t direct_chip_id;
     uint32_t memory_chip_id = 0u;
@@ -137,7 +137,7 @@ static bool rvswd_target_connect_identify(
     if (read_result.ok && direct_chip_id != 0u) {
         direct_profile = rvswd_target_profile_from_chip_id(direct_chip_id);
         if (direct_profile != NULL && !direct_profile->ch5xx_protocol) {
-            session->info.chip_id = direct_chip_id;
+            ports->info.chip_id = direct_chip_id;
             rvswd_transport_set_fast_timing(transport,
                                             direct_profile->fast_timing);
             return true;
@@ -152,13 +152,13 @@ static bool rvswd_target_connect_identify(
          ch5xx_chip_id == rvswd_ch5xx_chip_id_ch591 ||
          ch5xx_chip_id == rvswd_ch5xx_chip_id_ch592)) {
         // 协议层使用 family 高字节形式，Flash 命令口在实际擦除流程中单独解锁
-        session->info.chip_id = (uint32_t)ch5xx_chip_id << 24u;
+        ports->info.chip_id = (uint32_t)ch5xx_chip_id << 24u;
         return true;
     }
-    if (rvswd_target_connect_read_memory32(session, operation, 0x1ffff704u,
+    if (rvswd_target_connect_read_memory32(ports, operation, 0x1ffff704u,
                                            &memory_chip_id) &&
         memory_chip_id != 0u) {
-        session->info.chip_id = memory_chip_id;
+        ports->info.chip_id = memory_chip_id;
         direct_profile = rvswd_target_profile_from_chip_id(memory_chip_id);
         rvswd_transport_set_fast_timing(
             transport, direct_profile != NULL && direct_profile->fast_timing);
@@ -166,21 +166,21 @@ static bool rvswd_target_connect_identify(
     }
     if (expected_profile != NULL &&
         rvswd_target_connect_read_memory32(
-            session, operation, rvswd_flash_obr_address, &option_status) &&
+            ports, operation, rvswd_flash_obr_address, &option_status) &&
         (option_status & rvswd_flash_obr_read_protected) != 0u) {
         // ChipID 读取失败时，受限会话才使用主机 SetSpeed 提示的 profile
-        session->family_hint_active = true;
+        ports->family_hint_active = true;
         return true;
     }
     return false;
 }
 
 static bool rvswd_target_connect_known_mode(
-    struct rvswd_target_session *session, struct rvswd_operation *operation) {
-    struct rvswd_transport *transport = &session->transport;
+    struct wchlink_target_ports *ports, struct rvswd_operation *operation) {
+    struct rvswd_transport *transport = &ports->transport;
 
-    session->connect_error = 0u;
-    rvswd_target_connect_reset_identity(session);
+    ports->connect_error = 0u;
+    rvswd_target_connect_reset_identity(ports);
     if (rvswd_transport_packet_mode(transport) == RVSWD_PACKET_LONG) {
         // CH58x 的 V4A 调试模块连接前需要先清空两线接口的唤醒状态
         rvswd_transport_wakeup(transport, true);
@@ -198,22 +198,22 @@ static bool rvswd_target_connect_known_mode(
 
         // 初始化阶段按 DTM 管线推进请求，单次 BUSY 不重复占用同一请求
         if (!rvswd_target_connect_restore_debug_module(operation)) {
-            session->connect_error = 0x12u;
+            ports->connect_error = 0x12u;
             continue;
         }
         // 只有目标核进入 Debug Mode 后，Program Buffer 和 abstract command 才可执行
         if (!rvswd_debug_halt(operation)) {
-            session->connect_error = 0x14u;
+            ports->connect_error = 0x14u;
             continue;
         }
         read_result = rvswd_operation_read_dmi(operation, rvswd_dmi_config);
         config_read = read_result.ok;
         config = read_result.value;
         if (config_read && (config & 0xffff0000u) == 0x5aa50000u) {
-            if (rvswd_target_connect_identify(session, operation)) {
+            if (rvswd_target_connect_identify(ports, operation)) {
                 return true;
             }
-            session->connect_error = 0x13u;
+            ports->connect_error = 0x13u;
         }
 
         // 失败诊断继续读取 DMSTATUS，区分严格签名不匹配和链路不可用
@@ -224,29 +224,29 @@ static bool rvswd_target_connect_known_mode(
 
             // 当前支持的 QingKe V4 目标仅接受 Debug 0.13.2
             if (version == 2u) {
-                if (rvswd_target_connect_identify(session, operation)) {
+                if (rvswd_target_connect_identify(ports, operation)) {
                     return true;
                 }
-                session->connect_error = 0x13u;
+                ports->connect_error = 0x13u;
                 continue;
             }
-            session->connect_error = 0x20u | version;
+            ports->connect_error = 0x20u | version;
         } else {
-            session->connect_error = config_read ? 0x11u : 0x12u;
+            ports->connect_error = config_read ? 0x11u : 0x12u;
         }
     }
     if (rvswd_transport_packet_mode(transport) == RVSWD_PACKET_SHORT) {
         // OpenOCD 可能未预先提供 CH58x family，补一次 long frame 探测
         rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
-        return rvswd_target_connect_known_mode(session, operation);
+        return rvswd_target_connect_known_mode(ports, operation);
     }
     return false;
 }
 
 static bool rvswd_target_connect_short_autodetect(
-    struct rvswd_target_session *session, struct rvswd_operation *operation) {
-    session->connect_error = 0u;
-    rvswd_target_connect_reset_identity(session);
+    struct wchlink_target_ports *ports, struct rvswd_operation *operation) {
+    ports->connect_error = 0u;
+    rvswd_target_connect_reset_identity(ports);
 
     for (uint8_t attempt = 0u; attempt < 3u; ++attempt) {
         uint32_t dmstatus;
@@ -260,18 +260,18 @@ static bool rvswd_target_connect_short_autodetect(
         if (!rvswd_operation_write_dmi(operation, rvswd_dmi_shadow,
                                        rvswd_debug_unlock)
                  .ok) {
-            session->connect_error = 0xa1u;
+            ports->connect_error = 0xa1u;
             continue;
         }
         if (!rvswd_operation_write_dmi(operation, rvswd_dmi_config,
                                        rvswd_debug_unlock)
                  .ok) {
-            session->connect_error = 0xa2u;
+            ports->connect_error = 0xa2u;
             continue;
         }
         read_result = rvswd_operation_read_dmi(operation, 0x11u);
         if (!read_result.ok) {
-            session->connect_error = 0xa3u;
+            ports->connect_error = 0xa3u;
             continue;
         }
         dmstatus = read_result.value;
@@ -280,20 +280,20 @@ static bool rvswd_target_connect_short_autodetect(
         if (!rvswd_operation_write_dmi(operation, rvswd_dmi_control,
                                        0x80000001u)
                  .ok) {
-            session->connect_error = 0xa4u;
+            ports->connect_error = 0xa4u;
             continue;
         }
         if (!rvswd_operation_write_dmi(operation, rvswd_dmi_control,
                                        0x80000001u)
                  .ok) {
-            session->connect_error = 0xa5u;
+            ports->connect_error = 0xa5u;
             continue;
         }
         halt_start = bsp_time_us();
         do {
             read_result = rvswd_operation_read_dmi(operation, 0x11u);
             if (!read_result.ok) {
-                session->connect_error = 0xa6u;
+                ports->connect_error = 0xa6u;
                 break;
             }
             dmstatus = read_result.value;
@@ -304,25 +304,25 @@ static bool rvswd_target_connect_short_autodetect(
             bsp_delay_us(100u);
         } while ((bsp_time_us() - halt_start) < 100000u);
         if (!halted) {
-            if (session->connect_error != 0xa6u) {
-                session->connect_error = 0xa7u;
+            if (ports->connect_error != 0xa6u) {
+                ports->connect_error = 0xa7u;
             }
             continue;
         }
-        if (rvswd_target_connect_identify(session, operation)) {
+        if (rvswd_target_connect_identify(ports, operation)) {
             return true;
         }
-        session->connect_error = 0x13u;
+        ports->connect_error = 0x13u;
     }
     return false;
 }
 
 static bool rvswd_target_connect_transport(
-    struct rvswd_target_session *session, struct rvswd_operation *operation) {
-    struct rvswd_transport *transport = &session->transport;
+    struct wchlink_target_ports *ports, struct rvswd_operation *operation) {
+    struct rvswd_transport *transport = &ports->transport;
 
     rvswd_transport_set_fast_timing(transport, false);
-    if (rvswd_target_profile_from_family(session->family_hint) == NULL) {
+    if (rvswd_target_profile_from_family(ports->family_hint) == NULL) {
         struct rvswd_transport_probe_result probe_result;
         uint16_t long_signature_count = 0u;
 
@@ -341,56 +341,56 @@ static bool rvswd_target_connect_transport(
             }
         }
         rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_SHORT);
-        if (rvswd_target_connect_short_autodetect(session, operation)) {
+        if (rvswd_target_connect_short_autodetect(ports, operation)) {
             return true;
         }
         if (long_signature_count >= 8u) {
-            uint8_t short_error = session->connect_error;
+            uint8_t short_error = ports->connect_error;
 
             rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
-            if (rvswd_target_connect_known_mode(session, operation)) {
+            if (rvswd_target_connect_known_mode(ports, operation)) {
                 return true;
             }
-            session->connect_error = short_error;
+            ports->connect_error = short_error;
         }
         return false;
     }
-    return rvswd_target_connect_known_mode(session, operation);
+    return rvswd_target_connect_known_mode(ports, operation);
 }
 
 static uint8_t rvswd_target_connect_family(
-    const struct rvswd_target_session *session) {
+    const struct wchlink_target_ports *ports) {
     const struct rvswd_target_profile *profile = rvswd_target_profile_resolve(
-        session->info.chip_id, session->family_hint,
-        session->family_hint_active);
+        ports->info.chip_id, ports->family_hint,
+        ports->family_hint_active);
 
     if (profile != NULL) {
         return profile->wchlink_family;
     }
-    profile = rvswd_target_profile_from_family(session->family_hint);
+    profile = rvswd_target_profile_from_family(ports->family_hint);
     return profile == NULL ? 0u : profile->wchlink_family;
 }
 
-struct rvswd_target_result rvswd_target_session_connect(
-    struct rvswd_target_session *session) {
+struct rvswd_target_result wchlink_target_ports_connect(
+    struct wchlink_target_ports *ports) {
     struct rvswd_operation operation;
 
-    if (session == NULL) {
+    if (ports == NULL) {
         return rvswd_target_result_failure(RVSWD_TARGET_RESULT_CONNECT, 0x01u,
                                            false);
     }
-    rvswd_operation_init(&operation, &session->transport);
-    if (rvswd_target_connect_transport(session, &operation)) {
-        session->connect_error = 0u;
-        session->info.family = rvswd_target_connect_family(session);
-        session->info.profile = rvswd_target_profile_resolve(
-            session->info.chip_id, session->family_hint,
-            session->family_hint_active);
-        session->info.connected = session->info.profile != NULL;
+    rvswd_operation_init(&operation, &ports->transport);
+    if (rvswd_target_connect_transport(ports, &operation)) {
+        ports->connect_error = 0u;
+        ports->info.family = rvswd_target_connect_family(ports);
+        ports->info.profile = rvswd_target_profile_resolve(
+            ports->info.chip_id, ports->family_hint,
+            ports->family_hint_active);
+        ports->info.connected = ports->info.profile != NULL;
         return rvswd_target_result_success();
     }
 
-    session->info.connected = false;
+    ports->info.connected = false;
     return rvswd_target_result_failure(RVSWD_TARGET_RESULT_CONNECT,
-                                       session->connect_error, true);
+                                       ports->connect_error, true);
 }

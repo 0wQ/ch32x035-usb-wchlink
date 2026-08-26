@@ -24,6 +24,10 @@ IMPLICIT_ERROR_SYMBOLS = {
     "rvswd_transport_last_status",
 }
 
+REMOVED_TARGET_SYMBOLS = {
+    "rvswd_target_session",
+}
+
 
 def source_files() -> list[Path]:
     return sorted(
@@ -59,6 +63,9 @@ def find_violations() -> list[str]:
         for symbol in sorted(IMPLICIT_ERROR_SYMBOLS):
             if symbol in text:
                 violations.append(f"隐式错误状态符号仍存在 {symbol}: {relative}")
+        for symbol in sorted(REMOVED_TARGET_SYMBOLS):
+            if symbol in text:
+                violations.append(f"已删除 target 浅层符号仍存在 {symbol}: {relative}")
 
         if relative.parts[:3] in {
             ("src", "main.c"),

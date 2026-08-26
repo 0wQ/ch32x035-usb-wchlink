@@ -5,7 +5,6 @@
 #include "rvswd_dmi.h"
 #include "rvswd_memory.h"
 #include "rvswd_reset.h"
-#include "rvswd_target.h"
 #include "rvswd_types.h"
 
 #include <stddef.h>
@@ -460,8 +459,8 @@ static bool rvswd_flash_ch5xx_flash_program_page(
     return true;
 }
 
-bool rvswd_flash_rewrite_page(uint32_t address, const uint8_t *data) {
-    const struct rvswd_target_profile *profile = rvswd_target_profile_current();
+bool rvswd_flash_rewrite_page(const struct rvswd_target_profile *profile,
+                              uint32_t address, const uint8_t *data) {
     struct rvswd_ch5xx_byte_access access = {
         .mode = RVSWD_CH5XX_BYTE_ACCESS_NONE,
     };
@@ -546,8 +545,7 @@ static bool rvswd_flash_ch5xx_flash_erase_all(
     return true;
 }
 
-bool rvswd_flash_erase_all(void) {
-    const struct rvswd_target_profile *profile = rvswd_target_profile_current();
+bool rvswd_flash_erase_all(const struct rvswd_target_profile *profile) {
     uint32_t control;
     uint32_t idle_control;
     uint32_t status;
@@ -644,8 +642,8 @@ cleanup:
     return success;
 }
 
-bool rvswd_flash_read_protected(bool *protected) {
-    const struct rvswd_target_profile *profile = rvswd_target_profile_current();
+bool rvswd_flash_read_protected(const struct rvswd_target_profile *profile,
+                                bool *protected) {
     uint32_t option_status;
 
     rvswd_flash_last_error_value = 0u;
@@ -667,8 +665,8 @@ bool rvswd_flash_read_protected(bool *protected) {
     return true;
 }
 
-bool rvswd_flash_write_protected(bool *protected) {
-    const struct rvswd_target_profile *profile = rvswd_target_profile_current();
+bool rvswd_flash_write_protected(const struct rvswd_target_profile *profile,
+                                 bool *protected) {
     uint32_t write_protection;
 
     rvswd_flash_last_error_value = 0u;
@@ -1066,8 +1064,8 @@ cleanup:
     return success;
 }
 
-bool rvswd_flash_set_read_protected(bool protected) {
-    const struct rvswd_target_profile *profile = rvswd_target_profile_current();
+bool rvswd_flash_set_read_protected(const struct rvswd_target_profile *profile,
+                                    bool protected) {
     uint32_t option_words[RVSWD_OPTION_BYTES_WORD_COUNT];
     bool current;
 
@@ -1075,7 +1073,7 @@ bool rvswd_flash_set_read_protected(bool protected) {
         rvswd_flash_last_error_value = 0x22u;
         return false;
     }
-    if (!rvswd_flash_read_protected(&current)) {
+    if (!rvswd_flash_read_protected(profile, &current)) {
         return false;
     }
     if (current == protected) {
@@ -1123,7 +1121,7 @@ bool rvswd_flash_set_read_protected(bool protected) {
         rvswd_flash_last_error_value = 0x46u;
         return false;
     }
-    if (!rvswd_flash_read_protected(&current)) {
+    if (!rvswd_flash_read_protected(profile, &current)) {
         return false;
     }
     if (current != protected) {

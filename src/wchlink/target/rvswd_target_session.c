@@ -675,7 +675,7 @@ struct rvswd_target_result rvswd_target_session_flash_erase_all(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_flash_erase_all()
+    return rvswd_flash_erase_all(rvswd_target_profile_current())
                ? rvswd_target_result_success()
                : rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
                                              rvswd_flash_last_error(),
@@ -688,7 +688,8 @@ struct rvswd_target_result rvswd_target_session_flash_rewrite_page(
     if (session == NULL || data == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_flash_rewrite_page(address, data)
+    return rvswd_flash_rewrite_page(rvswd_target_profile_current(), address,
+                                    data)
                ? rvswd_target_result_success()
                : rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
                                              rvswd_flash_last_error(),
@@ -703,7 +704,7 @@ struct rvswd_target_result rvswd_target_session_flash_read_protected(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (!rvswd_flash_read_protected(&value)) {
+    if (!rvswd_flash_read_protected(rvswd_target_profile_current(), &value)) {
         return rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
                                            rvswd_flash_last_error(),
                                            rvswd_dmi_failure_retryable());
@@ -721,7 +722,7 @@ struct rvswd_target_result rvswd_target_session_flash_write_protected(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (!rvswd_flash_write_protected(&value)) {
+    if (!rvswd_flash_write_protected(rvswd_target_profile_current(), &value)) {
         return rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
                                            rvswd_flash_last_error(),
                                            rvswd_dmi_failure_retryable());
@@ -736,7 +737,8 @@ struct rvswd_target_result rvswd_target_session_flash_set_read_protected(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_flash_set_read_protected(protected)
+    return rvswd_flash_set_read_protected(rvswd_target_profile_current(),
+                                          protected)
                ? rvswd_target_result_success()
                : rvswd_target_result_failure(RVSWD_TARGET_RESULT_FLASH,
                                              rvswd_flash_last_error(),

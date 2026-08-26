@@ -43,12 +43,6 @@ struct rvswd_target_result rvswd_target_session_write_memory32(
 struct rvswd_target_result rvswd_target_session_write_memory(
     struct rvswd_target_session *session, uint32_t address,
     const uint8_t *data, uint32_t length);
-struct rvswd_target_result rvswd_target_session_write_register(
-    struct rvswd_target_session *session, uint16_t regno, uint32_t value);
-struct rvswd_target_result rvswd_target_session_read_register(
-    struct rvswd_target_session *session, uint16_t regno);
-struct rvswd_target_result rvswd_target_session_halt(
-    struct rvswd_target_session *session);
 struct rvswd_target_result rvswd_target_session_execute(
     struct rvswd_target_session *session, uint32_t entry, uint32_t stack_top,
     uint32_t mode, uint32_t address, uint32_t length, uint32_t data_address);

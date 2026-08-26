@@ -210,53 +210,6 @@ struct rvswd_target_result rvswd_target_session_write_memory(
         operation.memory_code == 0u ? 0x15u : operation.memory_code, success);
 }
 
-struct rvswd_target_result rvswd_target_session_write_register(
-    struct rvswd_target_session *session, uint16_t regno, uint32_t value) {
-    struct rvswd_operation operation;
-    bool success;
-
-    if (session == NULL) {
-        return rvswd_target_session_invalid_result();
-    }
-    rvswd_operation_init(&operation, &session->transport);
-    success = rvswd_debug_write_register(&operation, regno, value);
-    return rvswd_target_session_operation_result(
-        &operation, RVSWD_TARGET_RESULT_DEBUG, operation.dmi_status, success);
-}
-
-struct rvswd_target_result rvswd_target_session_read_register(
-    struct rvswd_target_session *session, uint16_t regno) {
-    uint32_t value = 0u;
-    struct rvswd_target_result result;
-    struct rvswd_operation operation;
-
-    if (session == NULL) {
-        return rvswd_target_session_invalid_result();
-    }
-    rvswd_operation_init(&operation, &session->transport);
-    if (!rvswd_debug_read_register(&operation, regno, &value)) {
-        return rvswd_target_session_operation_result(
-            &operation, RVSWD_TARGET_RESULT_DEBUG, operation.dmi_status, false);
-    }
-    result = rvswd_target_result_success();
-    result.value = value;
-    return result;
-}
-
-struct rvswd_target_result rvswd_target_session_halt(
-    struct rvswd_target_session *session) {
-    struct rvswd_operation operation;
-    bool success;
-
-    if (session == NULL) {
-        return rvswd_target_session_invalid_result();
-    }
-    rvswd_operation_init(&operation, &session->transport);
-    success = rvswd_debug_halt(&operation);
-    return rvswd_target_session_operation_result(
-        &operation, RVSWD_TARGET_RESULT_DEBUG, operation.dmi_status, success);
-}
-
 struct rvswd_target_result rvswd_target_session_execute(
     struct rvswd_target_session *session, uint32_t entry, uint32_t stack_top,
     uint32_t mode, uint32_t address, uint32_t length, uint32_t data_address) {

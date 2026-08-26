@@ -260,7 +260,6 @@ void wchlink_transfer_prepare_read(struct wchlink_transfer *transfer,
 bool wchlink_transfer_start_partial_write(struct wchlink_transfer *transfer,
                                           uint32_t address, uint8_t length) {
     if (transfer == NULL || transfer->target == NULL || length == 0u ||
-        length > sizeof(transfer->partial_write_data) ||
         !wchlink_target_ports_info(transfer->target).connected) {
         return false;
     }

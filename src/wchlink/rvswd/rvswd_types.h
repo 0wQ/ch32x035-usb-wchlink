@@ -25,11 +25,18 @@ enum rvswd_memory_write_mode {
     RVSWD_MEMORY_WRITE_STREAMING,
 };
 
+enum rvswd_target_loader {
+    RVSWD_TARGET_LOADER_DEFAULT,
+    RVSWD_TARGET_LOADER_L103,
+    RVSWD_TARGET_LOADER_CH5XX,
+};
+
 // 目标 profile 只描述目标差异，不承载 RVSWD 操作和 Flash 流程
 struct rvswd_target_profile {
     uint8_t wchlink_family;
     bool ch5xx_protocol;
     bool fast_timing;
+    uint8_t loader;
     enum rvswd_memory_write_mode memory_write_mode;
     enum rvswd_flash_unlock_mode erase_unlock;
     enum rvswd_option_write_mode option_write;

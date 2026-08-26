@@ -381,14 +381,16 @@ struct rvswd_target_result wchlink_target_ports_connect(
     if (rvswd_target_connect_transport(ports, &operation)) {
         ports->connect_error = 0u;
         ports->info.family = rvswd_target_connect_family(ports);
-        ports->info.profile = rvswd_target_profile_resolve(
+        ports->profile = rvswd_target_profile_resolve(
             ports->info.chip_id, ports->family_hint,
             ports->family_hint_active);
-        ports->info.connected = ports->info.profile != NULL;
+        ports->info.connected = ports->profile != NULL;
+        wchlink_target_ports_refresh_info(ports);
         return rvswd_target_result_success();
     }
 
     ports->info.connected = false;
+    wchlink_target_ports_refresh_info(ports);
     return rvswd_target_result_failure(RVSWD_TARGET_RESULT_CONNECT,
                                        ports->connect_error, true);
 }

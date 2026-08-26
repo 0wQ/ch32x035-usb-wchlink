@@ -16,19 +16,8 @@ struct rvswd_target_result wchlink_target_ports_connect(
     struct wchlink_target_ports *ports);
 void wchlink_target_ports_set_family_hint(
     struct wchlink_target_ports *ports, uint8_t family);
-bool wchlink_target_ports_is_connected(
-    const struct wchlink_target_ports *ports);
-const struct rvswd_target_info *wchlink_target_ports_info(
-    const struct wchlink_target_ports *ports);
-uint8_t wchlink_target_ports_family(
-    const struct wchlink_target_ports *ports);
-uint32_t wchlink_target_ports_chip_id(
-    const struct wchlink_target_ports *ports);
-bool wchlink_target_ports_uses_ch5xx_loader(
-    const struct wchlink_target_ports *ports);
-bool wchlink_target_ports_uses_l103_loader(
-    const struct wchlink_target_ports *ports);
-bool wchlink_target_ports_supports_memory_streaming(
+// target port 调用期间 context 必须有效，info 以单次只读快照返回
+struct rvswd_target_info wchlink_target_ports_info(
     const struct wchlink_target_ports *ports);
 
 struct rvswd_target_result wchlink_target_ports_read_dmi(

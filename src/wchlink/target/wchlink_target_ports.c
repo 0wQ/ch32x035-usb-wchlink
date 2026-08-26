@@ -19,6 +19,23 @@ static const struct rvswd_target_profile *wchlink_target_ports_current_profile(
                                         ports->family_hint_active);
 }
 
+void wchlink_target_ports_refresh_info(struct wchlink_target_ports *ports) {
+    const struct rvswd_target_profile *family_profile;
+    const struct rvswd_target_profile *profile;
+
+    if (ports == NULL) {
+        return;
+    }
+    family_profile = rvswd_target_profile_from_family(ports->info.family);
+    ports->info.loader = family_profile == NULL
+                             ? RVSWD_TARGET_LOADER_DEFAULT
+                             : family_profile->loader;
+    profile = wchlink_target_ports_current_profile(ports);
+    ports->info.memory_streaming =
+        profile != NULL &&
+        profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING;
+}
+
 static const struct rvswd_target_profile *
 wchlink_target_ports_memory_profile(
     const struct wchlink_target_ports *ports) {
@@ -101,53 +118,14 @@ void wchlink_target_ports_set_family_hint(
                                : RVSWD_PACKET_SHORT);
     if (!ports->info.connected) {
         ports->info.family = family;
-        ports->info.profile = NULL;
+        ports->profile = NULL;
+        wchlink_target_ports_refresh_info(ports);
     }
 }
 
-bool wchlink_target_ports_is_connected(
+struct rvswd_target_info wchlink_target_ports_info(
     const struct wchlink_target_ports *ports) {
-    return ports != NULL && ports->info.connected;
-}
-
-const struct rvswd_target_info *wchlink_target_ports_info(
-    const struct wchlink_target_ports *ports) {
-    return ports == NULL ? NULL : &ports->info;
-}
-
-uint8_t wchlink_target_ports_family(
-    const struct wchlink_target_ports *ports) {
-    return ports == NULL ? 0u : ports->info.family;
-}
-
-uint32_t wchlink_target_ports_chip_id(
-    const struct wchlink_target_ports *ports) {
-    return ports == NULL ? 0u : ports->info.chip_id;
-}
-
-bool wchlink_target_ports_uses_ch5xx_loader(
-    const struct wchlink_target_ports *ports) {
-    uint8_t family = wchlink_target_ports_family(ports);
-
-    return family == WCHLINK_TARGET_FAMILY_CH58X ||
-           family == WCHLINK_TARGET_FAMILY_CH59X;
-}
-
-bool wchlink_target_ports_uses_l103_loader(
-    const struct wchlink_target_ports *ports) {
-    return wchlink_target_ports_family(ports) == WCHLINK_TARGET_FAMILY_L103;
-}
-
-bool wchlink_target_ports_supports_memory_streaming(
-    const struct wchlink_target_ports *ports) {
-    const struct rvswd_target_profile *profile;
-
-    if (ports == NULL) {
-        return false;
-    }
-    profile = wchlink_target_ports_current_profile(ports);
-    return profile != NULL &&
-           profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING;
+    return ports->info;
 }
 
 struct rvswd_target_result wchlink_target_ports_read_dmi(
@@ -310,7 +288,7 @@ struct rvswd_target_result wchlink_target_ports_flash_erase_all(
         return wchlink_target_ports_invalid_result(RVSWD_TARGET_RESULT_FLASH);
     }
     rvswd_operation_init(&operation, &ports->transport);
-    success = rvswd_flash_erase_all(&operation, ports->info.profile);
+    success = rvswd_flash_erase_all(&operation, ports->profile);
     return wchlink_target_ports_operation_result(
         &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, success);
 }
@@ -329,7 +307,7 @@ struct rvswd_target_result wchlink_target_ports_flash_rewrite_page(
     }
     rvswd_operation_init(&operation, &ports->transport);
     operation.address = address;
-    success = rvswd_flash_rewrite_page(&operation, ports->info.profile,
+    success = rvswd_flash_rewrite_page(&operation, ports->profile,
                                        address, data);
     return wchlink_target_ports_operation_result(
         &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, success);
@@ -345,7 +323,7 @@ struct rvswd_target_result wchlink_target_ports_flash_read_protected(
         return wchlink_target_ports_invalid_result(RVSWD_TARGET_RESULT_FLASH);
     }
     rvswd_operation_init(&operation, &ports->transport);
-    if (!rvswd_flash_read_protected(&operation, ports->info.profile, &value)) {
+    if (!rvswd_flash_read_protected(&operation, ports->profile, &value)) {
         return wchlink_target_ports_operation_result(
             &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, false);
     }
@@ -364,7 +342,7 @@ struct rvswd_target_result wchlink_target_ports_flash_write_protected(
         return wchlink_target_ports_invalid_result(RVSWD_TARGET_RESULT_FLASH);
     }
     rvswd_operation_init(&operation, &ports->transport);
-    if (!rvswd_flash_write_protected(&operation, ports->info.profile,
+    if (!rvswd_flash_write_protected(&operation, ports->profile,
                                      &value)) {
         return wchlink_target_ports_operation_result(
             &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, false);
@@ -384,7 +362,7 @@ struct rvswd_target_result wchlink_target_ports_flash_set_read_protected(
     }
     rvswd_operation_init(&operation, &ports->transport);
     success = rvswd_flash_set_read_protected(
-        &operation, ports->info.profile, protected);
+        &operation, ports->profile, protected);
     return wchlink_target_ports_operation_result(
         &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, success);
 }

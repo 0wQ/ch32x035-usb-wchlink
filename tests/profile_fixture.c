@@ -6,6 +6,7 @@
 
 static void assert_profile(uint32_t chip_id, uint8_t family,
                            bool ch5xx_protocol,
+                           enum rvswd_target_loader loader,
                            enum rvswd_memory_write_mode memory_write_mode) {
     const struct rvswd_target_profile *from_chip =
         rvswd_target_profile_from_chip_id(chip_id);
@@ -16,6 +17,7 @@ static void assert_profile(uint32_t chip_id, uint8_t family,
     assert(from_chip == from_family);
     assert(from_chip->wchlink_family == family);
     assert(from_chip->ch5xx_protocol == ch5xx_protocol);
+    assert(from_chip->loader == loader);
     assert(from_chip->memory_write_mode == memory_write_mode);
 }
 
@@ -24,22 +26,31 @@ int main(void) {
     const struct rvswd_target_profile *ch58x_profile;
 
     assert_profile(0x03510611u, WCHLINK_TARGET_FAMILY_X035, false,
+                   RVSWD_TARGET_LOADER_DEFAULT,
                    RVSWD_MEMORY_WRITE_STREAMING);
     assert_profile(0x10300500u, WCHLINK_TARGET_FAMILY_L103, false,
+                   RVSWD_TARGET_LOADER_L103,
                    RVSWD_MEMORY_WRITE_STREAMING);
     assert_profile(0x30300000u, WCHLINK_TARGET_FAMILY_V30X, false,
+                   RVSWD_TARGET_LOADER_DEFAULT,
                    RVSWD_MEMORY_WRITE_STREAMING);
     assert_profile(0x30500000u, WCHLINK_TARGET_FAMILY_V30X, false,
+                   RVSWD_TARGET_LOADER_DEFAULT,
                    RVSWD_MEMORY_WRITE_STREAMING);
     assert_profile(0x30700500u, WCHLINK_TARGET_FAMILY_V30X, false,
+                   RVSWD_TARGET_LOADER_DEFAULT,
                    RVSWD_MEMORY_WRITE_STREAMING);
     assert_profile(0x82000000u, WCHLINK_TARGET_FAMILY_CH58X, true,
+                   RVSWD_TARGET_LOADER_CH5XX,
                    RVSWD_MEMORY_WRITE_WORD);
     assert_profile(0x83000000u, WCHLINK_TARGET_FAMILY_CH58X, true,
+                   RVSWD_TARGET_LOADER_CH5XX,
                    RVSWD_MEMORY_WRITE_WORD);
     assert_profile(0x91000000u, WCHLINK_TARGET_FAMILY_CH59X, true,
+                   RVSWD_TARGET_LOADER_CH5XX,
                    RVSWD_MEMORY_WRITE_WORD);
     assert_profile(0x92000000u, WCHLINK_TARGET_FAMILY_CH59X, true,
+                   RVSWD_TARGET_LOADER_CH5XX,
                    RVSWD_MEMORY_WRITE_WORD);
 
     assert(rvswd_target_profile_from_chip_id(0u) == NULL);

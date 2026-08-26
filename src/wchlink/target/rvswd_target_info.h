@@ -5,10 +5,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// target info 是一次连接的快照，profile 在识别成功后锁定
+// target info 是按值返回的只读快照，不泄漏锁定 profile 和 transport 状态
 struct rvswd_target_info {
     uint32_t chip_id;
     uint8_t family;
-    const struct rvswd_target_profile *profile;
+    uint8_t loader;
     bool connected;
+    bool memory_streaming;
 };

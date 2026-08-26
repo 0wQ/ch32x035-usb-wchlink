@@ -10,46 +10,6 @@
 
 #include <ch32x035.h>
 
-#define RVSWD_DMI_CONTROL      0x10u
-#define RVSWD_DMI_CONFIG       0x7du
-#define RVSWD_DMI_SHADOW       0x7eu
-#define RVSWD_DMI_CHIP_ID      0x7fu
-#define RVSWD_DMI_HARTINFO     0x12u
-#define RVSWD_DMI_DATA0        0x04u
-#define RVSWD_DMI_DATA1        0x05u
-#define RVSWD_DMI_ABSTRACTCS   0x16u
-#define RVSWD_DMI_COMMAND      0x17u
-#define RVSWD_DMI_ABSTRACTAUTO 0x18u
-#define RVSWD_DMI_PROGBUF0     0x20u
-#define RVSWD_DMI_PROGBUF1     0x21u
-#define RVSWD_DMI_PROGBUF2     0x22u
-
-#define RVSWD_STATUS_OK           1u
-#define RVSWD_STATUS_BUSY         3u
-#define RVSWD_LONG_STATUS_OK      0u
-#define RVSWD_LONG_STATUS_BUSY    3u
-#define RVSWD_INTERFRAME_GUARD_US 0u
-
-#define RVSWD_DMI_WRITE_RETRY_COUNT     16u
-#define RVSWD_DMI_READ_RETRY_COUNT      64u
-#define RVSWD_MEMORY_READ_RETRY_COUNT   3u
-#define RVSWD_DMI_BUSY_DELAY_US         100u
-#define RVSWD_DMI_ERROR_DELAY_US        50u
-#define RVSWD_ABSTRACT_COMMAND_DELAY_US 100u
-#define RVSWD_ABSTRACT_TIMEOUT_US       10000u
-#define RVSWD_RESUME_MIN_DELAY_US       1000u
-#define RVSWD_EXECUTE_TIMEOUT_MS        5000u
-#define RVSWD_DEBUG_UNLOCK              0x5aa50400u
-#define RVSWD_ABSTRACT_COMMAND_EXECUTE  0x00240000u
-#define RVSWD_ABSTRACTAUTO_DATA0        0x00000001u
-#define RVSWD_DEBUG_DATA_ADDRESS_BASE   0xe0000000u
-
-#define RVSWD_CH5XX_CHIP_ID_ADDRESS 0x40001041u
-#define RVSWD_CH5XX_CHIP_ID_CH591   0x91u
-#define RVSWD_CH5XX_CHIP_ID_CH592   0x92u
-#define RVSWD_CH5XX_CHIP_ID_CH582   0x82u
-#define RVSWD_CH5XX_CHIP_ID_CH583   0x83u
-
 #define RVSWD_CH5XX_FLASH_KEY_ADDRESS       0x40001040u
 #define RVSWD_CH5XX_FLASH_WORD_DATA_ADDRESS 0x40001800u
 #define RVSWD_CH5XX_FLASH_BYTE_DATA_ADDRESS 0x40001804u
@@ -57,7 +17,6 @@
 #define RVSWD_CH5XX_DEBUG_DATA_ADDRESS      0xe0000380u
 #define RVSWD_CH5XX_FLASH_END               0x00078000u
 #define RVSWD_CH5XX_FLASH_PAGE_SIZE         0x00000100u
-#define RVSWD_CH5XX_FLASH_BLOCK_4K          0x00001000u
 #define RVSWD_CH5XX_FLASH_STATUS_RETRIES    102u
 #define RVSWD_CH5XX_PAGE_PROGRAM_TIMEOUT_US 100000u
 #define RVSWD_CH5XX_ERASE_STUB_ADDRESS      0x20004000u
@@ -92,7 +51,6 @@
 #define RVSWD_FLASH_OBR_ADDRESS      0x4002201cu
 #define RVSWD_FLASH_WPR_ADDRESS      0x40022020u
 #define RVSWD_FLASH_MODEKEYR_ADDRESS 0x40022024u
-#define RVSWD_OPTION_BYTES_ADDRESS   0x1ffff800u
 
 #define RVSWD_FLASH_KEY1 0x45670123u
 #define RVSWD_FLASH_KEY2 0xcdef89abu
@@ -115,6 +73,8 @@
 #define RVSWD_OPTION_RDP_PROTECTED      0x00ffu
 #define RVSWD_OPTION_RDP_UNPROTECTED    0x5aa5u
 #define RVSWD_FLASH_ERASE_TIMEOUT_US    6000000u
+
+static const uint32_t rvswd_flash_abstract_timeout_us = 10000u;
 
 extern const uint8_t ch5xx_flash_erase_stub_start[];
 extern const uint8_t ch5xx_flash_erase_stub_end[];
@@ -961,7 +921,7 @@ static bool rvswd_flash_write_option_bytes_halfword(
                                   idle_control | RVSWD_FLASH_CTLR_OPTION_PROGRAM) ||
             !rvswd_memory_write16(operation,
                                   profile->option_base + index * 2u, value,
-                                  RVSWD_ABSTRACT_TIMEOUT_US) ||
+                                  rvswd_flash_abstract_timeout_us) ||
             !rvswd_flash_wait_ready(operation, profile, &status, 0x5cu,
                                     0x5du)) {
             if (operation->flash_code == 0u) {

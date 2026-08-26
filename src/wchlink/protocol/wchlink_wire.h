@@ -1,5 +1,9 @@
 #pragma once
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
 // WCH-Link USB wire family 编号
 #define WCHLINK_FAMILY_RESET         0x0bu
 #define WCHLINK_FAMILY_SPEED         0x0cu
@@ -53,3 +57,38 @@
 #define WCHLINK_CH5XX_LOADER_PAGE_SIZE        256u
 #define WCHLINK_CH5XX_LOADER_CHECKSUM_ADDRESS 0x20006010u
 #define WCHLINK_L103_LOADER_CHECKSUM_ADDRESS  0x20002010u
+
+struct wchlink_wire_chip_info {
+    bool ch5xx;
+    uint32_t flash_size;
+    uint32_t uid_low;
+    uint32_t uid_high;
+    uint32_t uid_tail;
+    uint32_t chip_id;
+};
+
+// Wire encoder 只写入调用者提供的 buffer，容量不足或参数无效时返回 0
+size_t wchlink_wire_ack(uint8_t *response, size_t capacity, uint8_t family);
+size_t wchlink_wire_unsupported(uint8_t *response, size_t capacity,
+                                uint8_t family);
+size_t wchlink_wire_family_error(uint8_t *response, size_t capacity,
+                                 uint8_t family, uint32_t code);
+size_t wchlink_wire_target_error(uint8_t *response, size_t capacity,
+                                 uint32_t code);
+size_t wchlink_wire_command_reply(uint8_t *response, size_t capacity,
+                                  uint8_t family, uint8_t command);
+size_t wchlink_wire_identity(uint8_t *response, size_t capacity);
+size_t wchlink_wire_connect_reply(uint8_t *response, size_t capacity,
+                                  bool connected, uint32_t error,
+                                  uint8_t family, uint32_t chip_id);
+size_t wchlink_wire_chip_info(uint8_t *response, size_t capacity,
+                              const struct wchlink_wire_chip_info *info);
+size_t wchlink_wire_dmi_reply(uint8_t *response, size_t capacity,
+                              uint8_t address, uint32_t data, bool success,
+                              bool retryable);
+size_t wchlink_wire_loader_error(uint8_t *response, size_t capacity,
+                                 uint8_t family, uint8_t loader_error,
+                                 uint8_t dmi_status, uint32_t address,
+                                 uint32_t abstractcs);
+size_t wchlink_wire_data_reply(uint8_t *response, size_t capacity,
+                               uint8_t status);

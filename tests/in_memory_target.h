@@ -1,6 +1,9 @@
 #pragma once
 
-#include "wchlink/target/wchlink_target_ports.h"
+#include "wchlink/target/wchlink_target_control.h"
+#include "wchlink/target/wchlink_target_dmi.h"
+#include "wchlink/target/wchlink_target_flash.h"
+#include "wchlink/target/wchlink_target_transfer.h"
 
 #include <stdbool.h>
 #include <stddef.h>

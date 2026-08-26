@@ -1,5 +1,9 @@
 #include "wchlink/session/wchlink_transfer.h"
 
+#include "wchlink/target/wchlink_target_control.h"
+#include "wchlink/target/wchlink_target_flash.h"
+#include "wchlink/target/wchlink_target_transfer.h"
+
 #include <string.h>
 
 struct wchlink_loader_layout {

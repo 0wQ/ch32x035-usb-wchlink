@@ -75,6 +75,29 @@ TARGET_INTERNAL_HEADER_CONSUMERS = {
     },
 }
 
+TARGET_PORT_HEADER_CONSUMERS = {
+    "wchlink/target/wchlink_target_control.h": {
+        "src/wchlink/session/wchlink_command.c",
+        "src/wchlink/session/wchlink_transfer.c",
+        "src/wchlink/target/rvswd_target_connect.c",
+        "src/wchlink/target/wchlink_target_ports.c",
+    },
+    "wchlink/target/wchlink_target_dmi.h": {
+        "src/wchlink/session/wchlink_command.c",
+        "src/wchlink/target/wchlink_target_ports.c",
+    },
+    "wchlink/target/wchlink_target_flash.h": {
+        "src/wchlink/session/wchlink_command.c",
+        "src/wchlink/session/wchlink_transfer.c",
+        "src/wchlink/target/wchlink_target_ports.c",
+    },
+    "wchlink/target/wchlink_target_transfer.h": {
+        "src/wchlink/session/wchlink_command.c",
+        "src/wchlink/session/wchlink_transfer.c",
+        "src/wchlink/target/wchlink_target_ports.c",
+    },
+}
+
 
 def source_files() -> list[Path]:
     return sorted(
@@ -152,9 +175,15 @@ def find_violations() -> list[str]:
         for header, consumers in TARGET_INTERNAL_HEADER_CONSUMERS.items():
             if header in text and relative.as_posix() not in consumers:
                 violations.append(f"调用者读取 target 私有存储: {relative}")
+        for header, consumers in TARGET_PORT_HEADER_CONSUMERS.items():
+            if header in text and relative.as_posix() not in consumers:
+                violations.append(f"调用者越过 target 私有 port: {relative}")
         if relative.as_posix().startswith("src/wchlink/flash/"):
             if re.search(r'#include\s+["<]wchlink/(?:session|protocol|usb)/', text):
                 violations.append(f"Flash backend 反向依赖上层模块: {relative}")
+
+    if (WCHLINK_SOURCE_ROOT / "target/wchlink_target_ports.h").exists():
+        violations.append("target umbrella port header 被重新引入")
 
     xmake_text = XMAKE.read_text(encoding="utf-8")
     include_dir_calls = re.findall(r"add_includedirs\((.*?)\)", xmake_text, re.DOTALL)

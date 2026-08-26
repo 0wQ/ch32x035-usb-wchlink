@@ -1,12 +1,12 @@
 #pragma once
 
 #include "wchlink/protocol/wchlink_wire.h"
-#include "wchlink/target/rvswd_target_result.h"
-#include "wchlink/target/wchlink_target_ports.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+struct wchlink_target_ports;
 
 // data IN 和 data OUT 是独立端点，两个方向允许同时处于活动状态
 enum wchlink_transfer_in_state {

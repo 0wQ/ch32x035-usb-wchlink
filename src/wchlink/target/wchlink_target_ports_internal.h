@@ -1,6 +1,6 @@
 #pragma once
 
-#include "wchlink/target/wchlink_target_ports.h"
+#include "wchlink/target/rvswd_target_info.h"
 #include "wchlink/transport/rvswd_transport.h"
 
 struct rvswd_target_profile;

@@ -6,7 +6,11 @@
 #include "wchlink/rvswd/rvswd_reset.h"
 #include "wchlink/rvswd/rvswd_types.h"
 #include "wchlink/target/rvswd_target_profile.h"
+#include "wchlink/target/wchlink_target_control.h"
+#include "wchlink/target/wchlink_target_dmi.h"
+#include "wchlink/target/wchlink_target_flash.h"
 #include "wchlink/target/wchlink_target_ports_internal.h"
+#include "wchlink/target/wchlink_target_transfer.h"
 #include "wchlink/transport/rvswd_transport.h"
 
 #include <stddef.h>

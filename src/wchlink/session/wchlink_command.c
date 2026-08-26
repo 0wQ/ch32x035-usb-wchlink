@@ -5,6 +5,10 @@
 #include "drv/drv_power_switch.h"
 #include "wchlink/protocol/wchlink_family.h"
 #include "wchlink/protocol/wchlink_wire.h"
+#include "wchlink/target/wchlink_target_control.h"
+#include "wchlink/target/wchlink_target_dmi.h"
+#include "wchlink/target/wchlink_target_flash.h"
+#include "wchlink/target/wchlink_target_transfer.h"
 
 #include <stdbool.h>
 

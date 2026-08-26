@@ -4,7 +4,47 @@
 
 static const uint32_t wchlink_test_ram_base = 0x20000000u;
 static const uint32_t wchlink_test_system_base = 0x1ffff000u;
+static const uint32_t wchlink_test_loader_packet_size = 256u;
 static const size_t wchlink_test_flash_page_size = 256u;
+
+struct wchlink_test_loader_layout {
+    uint32_t code_address;
+    uint32_t data_address;
+    uint32_t stack_top;
+    uint32_t checksum_address;
+};
+
+static const struct wchlink_test_loader_layout wchlink_test_loader_default = {
+    .code_address = 0x20000000u,
+    .data_address = 0x20001000u,
+    .stack_top = 0x20005000u,
+    .checksum_address = 0u,
+};
+
+static const struct wchlink_test_loader_layout wchlink_test_loader_l103 = {
+    .code_address = 0x20000000u,
+    .data_address = 0x20001000u,
+    .stack_top = 0x20005000u,
+    .checksum_address = 0x20002010u,
+};
+
+static const struct wchlink_test_loader_layout wchlink_test_loader_ch5xx = {
+    .code_address = 0x20004000u,
+    .data_address = 0x20005000u,
+    .stack_top = 0x20007000u,
+    .checksum_address = 0x20006010u,
+};
+
+static const struct wchlink_test_loader_layout *wchlink_test_loader_layout(
+    const struct wchlink_target_ports *target) {
+    if (target->info.loader == RVSWD_TARGET_LOADER_CH5XX) {
+        return &wchlink_test_loader_ch5xx;
+    }
+    if (target->info.loader == RVSWD_TARGET_LOADER_L103) {
+        return &wchlink_test_loader_l103;
+    }
+    return &wchlink_test_loader_default;
+}
 
 // 三个窗口覆盖 transfer 使用的目标 Flash、loader RAM 和 ESIG 地址
 static bool wchlink_test_target_range(uint32_t address, uint32_t base,
@@ -289,7 +329,7 @@ struct rvswd_target_result wchlink_target_ports_read_memory32(
     return wchlink_test_target_success(value);
 }
 
-struct rvswd_target_result wchlink_target_ports_write_memory32(
+static struct rvswd_target_result wchlink_target_ports_write_memory32(
     struct wchlink_target_ports *target, uint32_t address, uint32_t value) {
     uint8_t data[] = {
         (uint8_t)value,
@@ -309,7 +349,7 @@ struct rvswd_target_result wchlink_target_ports_write_memory32(
     return rvswd_target_result_success();
 }
 
-struct rvswd_target_result wchlink_target_ports_write_memory(
+static struct rvswd_target_result wchlink_target_ports_write_memory(
     struct wchlink_target_ports *target, uint32_t address,
     const uint8_t *data, uint32_t length) {
     struct rvswd_target_result result;
@@ -324,7 +364,7 @@ struct rvswd_target_result wchlink_target_ports_write_memory(
     return rvswd_target_result_success();
 }
 
-struct rvswd_target_result wchlink_target_ports_execute(
+static struct rvswd_target_result wchlink_target_ports_execute(
     struct wchlink_target_ports *target, uint32_t entry, uint32_t stack_top,
     uint32_t mode, uint32_t address, uint32_t length,
     uint32_t data_address) {
@@ -345,6 +385,60 @@ struct rvswd_target_result wchlink_target_ports_execute(
     };
     target->execute_seen = true;
     return wchlink_test_target_success(target->execute_value);
+}
+
+struct rvswd_target_result wchlink_target_ports_write_loader_code(
+    struct wchlink_target_ports *target, uint32_t offset,
+    const uint8_t *data, uint32_t length) {
+    const struct wchlink_test_loader_layout *loader =
+        wchlink_test_loader_layout(target);
+    struct rvswd_target_result result;
+
+    if (data == NULL || length == 0u ||
+        length > wchlink_test_loader_packet_size ||
+        offset > target->info.loader_download_limit ||
+        length > target->info.loader_download_limit - offset) {
+        result = rvswd_target_result_failure(RVSWD_TARGET_RESULT_MEMORY, 0xefu,
+                                             false);
+        result.address = loader->code_address + offset;
+        result.abstractcs = 0xffffffffu;
+        return result;
+    }
+    return wchlink_target_ports_write_memory(
+        target, loader->code_address + offset, data, length);
+}
+
+struct rvswd_target_result wchlink_target_ports_write_loader_data(
+    struct wchlink_target_ports *target, uint32_t offset,
+    const uint8_t *data, uint32_t length) {
+    const struct wchlink_test_loader_layout *loader =
+        wchlink_test_loader_layout(target);
+
+    return wchlink_target_ports_write_memory(
+        target, loader->data_address + offset, data, length);
+}
+
+struct rvswd_target_result wchlink_target_ports_execute_loader(
+    struct wchlink_target_ports *target,
+    const struct rvswd_target_loader_execute *request) {
+    const struct wchlink_test_loader_layout *loader =
+        wchlink_test_loader_layout(target);
+    struct rvswd_target_result result;
+
+    if (request == NULL) {
+        return wchlink_test_target_memory_failure(0u);
+    }
+    if (request->write_checksum && loader->checksum_address != 0u) {
+        result = wchlink_target_ports_write_memory32(
+            target, loader->checksum_address, request->checksum);
+        if (!result.ok) {
+            result.value = 0x15u;
+            return result;
+        }
+    }
+    return wchlink_target_ports_execute(
+        target, loader->code_address, loader->stack_top, request->mode,
+        request->address, request->length, loader->data_address);
 }
 
 static struct rvswd_target_result wchlink_test_target_simple_operation(

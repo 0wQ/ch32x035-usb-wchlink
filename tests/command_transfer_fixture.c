@@ -30,14 +30,19 @@ void drv_power_switch_set_enabled(bool enabled) {
 }
 
 static struct rvswd_target_info wchlink_test_info(
-    uint32_t chip_id, uint8_t family, uint8_t loader,
+    uint32_t chip_id, uint8_t family, enum rvswd_target_loader loader,
     bool memory_streaming) {
+    bool ch5xx = loader == RVSWD_TARGET_LOADER_CH5XX;
+
     return (struct rvswd_target_info){
         .chip_id = chip_id,
         .family = family,
         .loader = loader,
+        .loader_download_limit = ch5xx ? 2048u : 512u,
+        .loader_data_page_size = ch5xx ? 256u : 1u,
         .connected = true,
         .memory_streaming = memory_streaming,
+        .loader_variable_length = ch5xx,
     };
 }
 
@@ -754,6 +759,27 @@ static void wchlink_test_transfer_ch5xx_padding(void) {
     assert(execute.data_address == 0x20005000u);
 }
 
+static void wchlink_test_transfer_l103_checksum(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x10300500u, WCHLINK_TARGET_FAMILY_L103,
+        RVSWD_TARGET_LOADER_L103, true);
+    const uint8_t packet[] = {0x01u, 0x02u, 0x03u, 0x04u};
+    struct wchlink_test_fixture fixture;
+    struct wchlink_transfer_finish_result finish;
+    uint8_t checksum[sizeof(packet)];
+
+    wchlink_test_fixture_init(&fixture, info, true);
+    finish = wchlink_test_finish_default_loader(&fixture, 0x08000000u,
+                                                sizeof(packet));
+    assert(finish.status == WCHLINK_TRANSFER_FINISH_READY);
+    assert(wchlink_transfer_start_flash(&fixture.transfer, 0x03u));
+    wchlink_transfer_write_data(&fixture.transfer, packet, sizeof(packet));
+    assert(wchlink_test_take_status(&fixture.transfer) == 0x04u);
+    assert(wchlink_test_target_load(&fixture.target, 0x20002010u, checksum,
+                                    sizeof(checksum)));
+    assert(memcmp(checksum, packet, sizeof(packet)) == 0);
+}
+
 static void wchlink_test_transfer_partial_write(void) {
     const struct rvswd_target_info info = wchlink_test_info(
         0x82000000u, WCHLINK_TARGET_FAMILY_CH58X,
@@ -830,6 +856,7 @@ static void wchlink_test_transfer_error_repeat_and_abort(void) {
     struct rvswd_target_result failure;
     uint8_t first[] = {0x01u, 0x02u, 0x03u, 0x04u};
     uint8_t loader[WCHLINK_FLASH_PACKET_SIZE];
+    uint8_t oversized_loader[WCHLINK_FLASH_PACKET_SIZE + 1u];
     uint8_t loaded[4];
 
     // 重复开始丢弃旧接收游标，abort 清空 I/O，target 诊断按值返回
@@ -867,6 +894,17 @@ static void wchlink_test_transfer_error_repeat_and_abort(void) {
     assert(finish.dmi_status == 0x03u);
     assert(finish.address == 0x20000000u);
     assert(finish.abstractcs == 0x00000700u);
+
+    wchlink_transfer_prepare_write(&fixture.transfer, 0x08000000u, 4u);
+    assert(wchlink_transfer_start_loader(&fixture.transfer));
+    memset(oversized_loader, 0xa5, sizeof(oversized_loader));
+    wchlink_transfer_write_data(&fixture.transfer, oversized_loader,
+                                sizeof(oversized_loader));
+    finish = wchlink_transfer_finish_loader(&fixture.transfer, 0x07u);
+    assert(finish.status == WCHLINK_TRANSFER_FINISH_LOADER_ERROR);
+    assert(finish.loader_error == 0xefu);
+    assert(finish.address == 0x20000000u);
+    assert(finish.abstractcs == 0xffffffffu);
 }
 
 int main(void) {
@@ -879,6 +917,7 @@ int main(void) {
     wchlink_test_transfer_read();
     wchlink_test_transfer_chunk_boundary();
     wchlink_test_transfer_ch5xx_padding();
+    wchlink_test_transfer_l103_checksum();
     wchlink_test_transfer_partial_write();
     wchlink_test_transfer_bidirectional_activity();
     wchlink_test_transfer_error_repeat_and_abort();

@@ -9,7 +9,10 @@
 struct rvswd_target_info {
     uint32_t chip_id;
     uint8_t family;
-    uint8_t loader;
+    enum rvswd_target_loader loader;
+    uint32_t loader_download_limit;
+    uint32_t loader_data_page_size;
     bool connected;
     bool memory_streaming;
+    bool loader_variable_length;
 };

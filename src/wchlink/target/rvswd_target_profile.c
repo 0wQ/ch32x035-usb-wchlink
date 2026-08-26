@@ -6,11 +6,47 @@
 
 static const uint32_t rvswd_chip_family_mask = 0xfff00000u;
 
+static const struct rvswd_target_loader_profile rvswd_loader_profile_default = {
+    .kind = RVSWD_TARGET_LOADER_DEFAULT,
+    .code_address = 0x20000000u,
+    .data_address = 0x20001000u,
+    .stack_top = 0x20005000u,
+    .checksum_address = 0u,
+    .download_limit = 512u,
+    .download_packet_size = 256u,
+    .data_page_size = 1u,
+    .variable_length = false,
+};
+
+static const struct rvswd_target_loader_profile rvswd_loader_profile_l103 = {
+    .kind = RVSWD_TARGET_LOADER_L103,
+    .code_address = 0x20000000u,
+    .data_address = 0x20001000u,
+    .stack_top = 0x20005000u,
+    .checksum_address = 0x20002010u,
+    .download_limit = 512u,
+    .download_packet_size = 256u,
+    .data_page_size = 1u,
+    .variable_length = false,
+};
+
+static const struct rvswd_target_loader_profile rvswd_loader_profile_ch5xx = {
+    .kind = RVSWD_TARGET_LOADER_CH5XX,
+    .code_address = 0x20004000u,
+    .data_address = 0x20005000u,
+    .stack_top = 0x20007000u,
+    .checksum_address = 0x20006010u,
+    .download_limit = 2048u,
+    .download_packet_size = 256u,
+    .data_page_size = 256u,
+    .variable_length = true,
+};
+
 static const struct rvswd_target_profile rvswd_target_profile_x035 = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_X035,
     .ch5xx_protocol = false,
     .fast_timing = false,
-    .loader = RVSWD_TARGET_LOADER_DEFAULT,
+    .loader = &rvswd_loader_profile_default,
     .memory_write_mode = RVSWD_MEMORY_WRITE_STREAMING,
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
     .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,
@@ -21,7 +57,7 @@ static const struct rvswd_target_profile rvswd_target_profile_l103 = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_L103,
     .ch5xx_protocol = false,
     .fast_timing = false,
-    .loader = RVSWD_TARGET_LOADER_L103,
+    .loader = &rvswd_loader_profile_l103,
     .memory_write_mode = RVSWD_MEMORY_WRITE_STREAMING,
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_OPTION_AND_FAST,
     .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,
@@ -32,7 +68,7 @@ static const struct rvswd_target_profile rvswd_target_profile_v30x = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_V30X,
     .ch5xx_protocol = false,
     .fast_timing = false,
-    .loader = RVSWD_TARGET_LOADER_DEFAULT,
+    .loader = &rvswd_loader_profile_default,
     .memory_write_mode = RVSWD_MEMORY_WRITE_STREAMING,
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
     .option_write = RVSWD_OPTION_WRITE_HALFWORD,
@@ -43,7 +79,7 @@ static const struct rvswd_target_profile rvswd_target_profile_ch59x = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_CH59X,
     .ch5xx_protocol = true,
     .fast_timing = false,
-    .loader = RVSWD_TARGET_LOADER_CH5XX,
+    .loader = &rvswd_loader_profile_ch5xx,
     .memory_write_mode = RVSWD_MEMORY_WRITE_WORD,
     // CH5xx 使用专用 Flash 命令和 loader，这两个字段只为保持 profile 接口完整
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
@@ -55,7 +91,7 @@ static const struct rvswd_target_profile rvswd_target_profile_ch58x = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_CH58X,
     .ch5xx_protocol = true,
     .fast_timing = false,
-    .loader = RVSWD_TARGET_LOADER_CH5XX,
+    .loader = &rvswd_loader_profile_ch5xx,
     .memory_write_mode = RVSWD_MEMORY_WRITE_WORD,
     // CH5xx 使用专用 Flash 命令和 loader，这两个字段只为保持 profile 接口完整
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,

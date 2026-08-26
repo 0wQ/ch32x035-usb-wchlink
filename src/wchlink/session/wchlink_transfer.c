@@ -5,33 +5,6 @@
 
 #include <string.h>
 
-struct wchlink_loader_layout {
-    uint32_t entry;
-    uint32_t data;
-    uint32_t stack_top;
-};
-
-static const struct wchlink_loader_layout wchlink_loader_layout_default = {
-    .entry = 0x20000000u,
-    .data = 0x20001000u,
-    .stack_top = 0x20005000u,
-};
-
-static const struct wchlink_loader_layout wchlink_loader_layout_ch59x = {
-    .entry = 0x20004000u,
-    .data = 0x20005000u,
-    .stack_top = 0x20007000u,
-};
-
-static const struct wchlink_loader_layout *wchlink_transfer_loader_layout(
-    const struct wchlink_transfer *transfer) {
-    if (wchlink_target_ports_info(transfer->target).loader ==
-        RVSWD_TARGET_LOADER_CH5XX) {
-        return &wchlink_loader_layout_ch59x;
-    }
-    return &wchlink_loader_layout_default;
-}
-
 static uint32_t wchlink_transfer_checksum_add(uint32_t checksum,
                                               const uint8_t *data,
                                               size_t length) {
@@ -46,20 +19,20 @@ static uint32_t wchlink_transfer_checksum_add(uint32_t checksum,
 
 static uint32_t wchlink_transfer_padded_data_length(
     const struct wchlink_transfer *transfer) {
+    const struct rvswd_target_info target_info =
+        wchlink_target_ports_info(transfer->target);
     uint32_t length = transfer->flash_chunk_length;
+    uint32_t page_size = target_info.loader_data_page_size;
 
-    // CH5xx loader 以完整 256 字节页参与校验，尾页需要保持擦除态
-    if (wchlink_target_ports_info(transfer->target).loader ==
-        RVSWD_TARGET_LOADER_CH5XX) {
-        length = (length + (WCHLINK_CH5XX_LOADER_PAGE_SIZE - 1u)) &
-                 ~(WCHLINK_CH5XX_LOADER_PAGE_SIZE - 1u);
+    // 需要页对齐的 loader 以完整页参与校验，尾页保持擦除态
+    if (page_size > 1u) {
+        length = (length + (page_size - 1u)) & ~(page_size - 1u);
     }
     return length;
 }
 
 static struct rvswd_target_result wchlink_transfer_write_padding(
-    struct wchlink_transfer *transfer,
-    const struct wchlink_loader_layout *layout, uint32_t from, uint32_t to) {
+    struct wchlink_transfer *transfer, uint32_t from, uint32_t to) {
     while (from < to) {
         uint32_t length = to - from;
         struct rvswd_target_result result;
@@ -68,9 +41,8 @@ static struct rvswd_target_result wchlink_transfer_write_padding(
             length = sizeof(transfer->flash_padding);
         }
         memset(transfer->flash_padding, 0xff, length);
-        result = wchlink_target_ports_write_memory(
-            transfer->target, layout->data + from, transfer->flash_padding,
-            length);
+        result = wchlink_target_ports_write_loader_data(
+            transfer->target, from, transfer->flash_padding, length);
         if (!result.ok) {
             return result;
         }
@@ -182,7 +154,6 @@ void wchlink_transfer_init(struct wchlink_transfer *transfer,
     }
     memset(transfer, 0, sizeof(*transfer));
     transfer->target = target;
-    transfer->loader_expected = WCHLINK_LOADER_DEFAULT_SIZE;
 }
 
 void wchlink_transfer_bind_target(struct wchlink_transfer *transfer,
@@ -205,7 +176,7 @@ void wchlink_transfer_clear_operation(struct wchlink_transfer *transfer) {
     transfer->write_address = 0u;
     transfer->write_remaining = 0u;
     transfer->loader_received = 0u;
-    transfer->loader_expected = WCHLINK_LOADER_DEFAULT_SIZE;
+    transfer->loader_expected = 0u;
     transfer->loader_variable_length = false;
     transfer->loader_error = 0u;
     transfer->flash_data_received = 0u;
@@ -296,12 +267,13 @@ bool wchlink_transfer_start_loader(struct wchlink_transfer *transfer) {
     transfer->loader_failure_address = 0u;
     transfer->loader_failure_abstractcs = 0u;
     transfer->loader_ready = false;
-    // CH58x 和 CH59x 的 loader 长度由主机分包决定，0x07 是结束边界
-    transfer->loader_variable_length =
-        target_info.loader == RVSWD_TARGET_LOADER_CH5XX;
-    transfer->loader_expected = transfer->loader_variable_length
-                                    ? WCHLINK_CH5XX_LOADER_MAX_SIZE
-                                    : WCHLINK_LOADER_DEFAULT_SIZE;
+    // 变长 loader 由主机结束命令确定实际长度，固定 loader 收满后立即停止 OUT
+    transfer->loader_variable_length = target_info.loader_variable_length;
+    transfer->loader_expected = target_info.loader_download_limit;
+    if (transfer->loader_expected == 0u) {
+        transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
+        return false;
+    }
     return true;
 }
 
@@ -317,7 +289,7 @@ struct wchlink_transfer_finish_result wchlink_transfer_finish_loader(
         .status = WCHLINK_TRANSFER_FINISH_INCOMPLETE,
         .target_value = 0xffffffffu,
     };
-    const struct wchlink_loader_layout *layout;
+    struct rvswd_target_loader_execute execute = {.mode = 0x01u};
     struct rvswd_target_info target_info;
     struct rvswd_target_result result;
     bool success;
@@ -342,21 +314,18 @@ struct wchlink_transfer_finish_result wchlink_transfer_finish_loader(
         return finish;
     }
 
-    layout = wchlink_transfer_loader_layout(transfer);
     // LinkE 固件连续两次以 mode 1 初始化 loader
-    result = wchlink_target_ports_execute(transfer->target, layout->entry,
-                                          layout->stack_top, 0x01u, 0u, 0u,
-                                          layout->data);
+    result = wchlink_target_ports_execute_loader(transfer->target, &execute);
     finish.target_value = result.value;
     success = result.ok && result.value == 0u;
     if (success) {
-        result = wchlink_target_ports_execute(
-            transfer->target, layout->entry, layout->stack_top,
+        execute.mode =
             (transfer->flash_prepare_seen &&
              target_info.loader != RVSWD_TARGET_LOADER_CH5XX)
                 ? 0x03u
-                : 0x01u,
-            0u, 0u, layout->data);
+                : 0x01u;
+        result =
+            wchlink_target_ports_execute_loader(transfer->target, &execute);
         finish.target_value = result.value;
         success = result.ok && result.value == 0u;
     }
@@ -441,7 +410,6 @@ enum wchlink_transfer_io_request wchlink_transfer_next_io(
 
 void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
                                  const uint8_t *data, size_t length) {
-    const struct wchlink_loader_layout *layout;
     struct rvswd_target_info target_info;
 
     if (transfer == NULL || transfer->target == NULL || data == NULL ||
@@ -453,27 +421,16 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
     if (transfer->out_state == WCHLINK_TRANSFER_OUT_LOADER) {
         struct rvswd_target_result result;
 
-        layout = wchlink_transfer_loader_layout(transfer);
         if (transfer->loader_error == 0u) {
-            if (length > WCHLINK_FLASH_PACKET_SIZE ||
-                length > transfer->loader_expected - transfer->loader_received) {
-                // 长度错误属于 USB 会话状态异常，不读取陈旧的 RVSWD 诊断信息
-                transfer->loader_error = 0xefu;
-                transfer->loader_failure_address =
-                    layout->entry + transfer->loader_received;
-                transfer->loader_failure_abstractcs = 0xffffffffu;
-            } else {
-                result = wchlink_target_ports_write_memory(
-                    transfer->target,
-                    layout->entry + transfer->loader_received, data,
-                    (uint32_t)length);
-                if (!result.ok) {
-                    transfer->loader_error =
-                        wchlink_transfer_target_error_code(result);
-                    transfer->loader_failure_dmi_status = result.dmi_status;
-                    transfer->loader_failure_address = result.address;
-                    transfer->loader_failure_abstractcs = result.abstractcs;
-                }
+            result = wchlink_target_ports_write_loader_code(
+                transfer->target, transfer->loader_received, data,
+                (uint32_t)length);
+            if (!result.ok) {
+                transfer->loader_error =
+                    wchlink_transfer_target_error_code(result);
+                transfer->loader_failure_dmi_status = result.dmi_status;
+                transfer->loader_failure_address = result.address;
+                transfer->loader_failure_abstractcs = result.abstractcs;
             }
         }
 
@@ -522,7 +479,6 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
         uint32_t transfer_remaining;
         size_t write_length = 0u;
 
-        layout = wchlink_transfer_loader_layout(transfer);
         if (transfer->flash_transfer_length == 0u) {
             if (transfer->flash_openocd_mode) {
                 // 新版 OpenOCD 发送对齐段长，旧版仍发送固定 4096 字节
@@ -559,9 +515,9 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
                            data, write_length);
                 } else {
                     struct rvswd_target_result result =
-                        wchlink_target_ports_write_memory(
+                        wchlink_target_ports_write_loader_data(
                             transfer->target,
-                            layout->data + transfer->flash_transfer_received,
+                            transfer->flash_transfer_received,
                             data, (uint32_t)write_length);
 
                     if (!result.ok) {
@@ -590,8 +546,8 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
         if (target_info.memory_streaming &&
             transfer->flash_data_received != 0u) {
             struct rvswd_target_result result =
-                wchlink_target_ports_write_memory(
-                    transfer->target, layout->data,
+                wchlink_target_ports_write_loader_data(
+                    transfer->target, 0u,
                     transfer->flash_chunk_data, transfer->flash_chunk_length);
 
             if (!result.ok) {
@@ -611,8 +567,7 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
 
             if (transfer->flash_data_received < padded_length) {
                 result = wchlink_transfer_write_padding(
-                    transfer, layout, transfer->flash_data_received,
-                    padded_length);
+                    transfer, transfer->flash_data_received, padded_length);
             }
             if (!result.ok) {
                 transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
@@ -623,33 +578,21 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
             transfer->flash_data_received = padded_length;
         }
         {
+            struct rvswd_target_loader_execute execute = {
+                .mode = transfer->flash_loader_mode,
+                .address = transfer->write_address,
+                .length = transfer->flash_chunk_length,
+                .checksum = transfer->flash_checksum,
+                .write_checksum =
+                    (transfer->flash_loader_mode & 0x10u) != 0u,
+            };
             uint32_t target_value = 0xffffffffu;
-            uint32_t checksum_address = 0u;
             bool success;
             struct rvswd_target_result result;
 
-            if ((transfer->flash_loader_mode & 0x10u) != 0u) {
-                // L103 和 CH5xx loader 从目标 RAM 读取主机计算的校验和
-                if (target_info.loader == RVSWD_TARGET_LOADER_CH5XX) {
-                    checksum_address = WCHLINK_CH5XX_LOADER_CHECKSUM_ADDRESS;
-                } else if (target_info.loader == RVSWD_TARGET_LOADER_L103) {
-                    checksum_address = WCHLINK_L103_LOADER_CHECKSUM_ADDRESS;
-                }
-                if (checksum_address != 0u) {
-                    result = wchlink_target_ports_write_memory32(
-                        transfer->target, checksum_address,
-                        transfer->flash_checksum);
-                    if (!result.ok) {
-                        transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
-                        wchlink_transfer_set_reply(transfer, 0x15u);
-                        return;
-                    }
-                }
-            }
-            result = wchlink_target_ports_execute(
-                transfer->target, layout->entry, layout->stack_top,
-                transfer->flash_loader_mode, transfer->write_address,
-                transfer->flash_chunk_length, layout->data);
+            // target port 按锁定 profile 写入可选 checksum 并执行 loader
+            result =
+                wchlink_target_ports_execute_loader(transfer->target, &execute);
             success = result.ok;
             target_value = result.value;
 

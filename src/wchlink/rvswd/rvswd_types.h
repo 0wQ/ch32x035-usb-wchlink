@@ -31,12 +31,25 @@ enum rvswd_target_loader {
     RVSWD_TARGET_LOADER_CH5XX,
 };
 
+// Loader profile 集中目标 RAM 布局和下载策略，session 不直接持有目标地址
+struct rvswd_target_loader_profile {
+    enum rvswd_target_loader kind;
+    uint32_t code_address;
+    uint32_t data_address;
+    uint32_t stack_top;
+    uint32_t checksum_address;
+    uint32_t download_limit;
+    uint32_t download_packet_size;
+    uint32_t data_page_size;
+    bool variable_length;
+};
+
 // 目标 profile 只描述目标差异，不承载 RVSWD 操作和 Flash 流程
 struct rvswd_target_profile {
     uint8_t wchlink_family;
     bool ch5xx_protocol;
     bool fast_timing;
-    uint8_t loader;
+    const struct rvswd_target_loader_profile *loader;
     enum rvswd_memory_write_mode memory_write_mode;
     enum rvswd_flash_unlock_mode erase_unlock;
     enum rvswd_option_write_mode option_write;

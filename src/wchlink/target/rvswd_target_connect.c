@@ -48,6 +48,7 @@ static bool rvswd_target_connect_read_memory32(
 static void rvswd_target_connect_reset_identity(
     struct wchlink_target_ports *ports) {
     ports->info.chip_id = 0u;
+    ports->profile = NULL;
     ports->family_hint_active = false;
 }
 

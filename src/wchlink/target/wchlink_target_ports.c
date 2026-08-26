@@ -18,23 +18,27 @@
 
 static const struct rvswd_target_profile *wchlink_target_ports_current_profile(
     const struct wchlink_target_ports *ports) {
+    // 连接成功后只使用已锁定 profile，hint 只参与连接前候选解析
+    if (ports->profile != NULL) {
+        return ports->profile;
+    }
     return rvswd_target_profile_resolve(ports->info.chip_id,
                                         ports->family_hint,
                                         ports->family_hint_active);
 }
 
 void wchlink_target_ports_refresh_info(struct wchlink_target_ports *ports) {
-    const struct rvswd_target_profile *family_profile;
     const struct rvswd_target_profile *profile;
 
     if (ports == NULL) {
         return;
     }
-    family_profile = rvswd_target_profile_from_family(ports->info.family);
-    ports->info.loader = family_profile == NULL
-                             ? RVSWD_TARGET_LOADER_DEFAULT
-                             : family_profile->loader;
     profile = wchlink_target_ports_current_profile(ports);
+    if (profile == NULL) {
+        profile = rvswd_target_profile_from_family(ports->info.family);
+    }
+    ports->info.loader = profile == NULL ? RVSWD_TARGET_LOADER_DEFAULT
+                                         : profile->loader;
     ports->info.memory_streaming =
         profile != NULL &&
         profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING;

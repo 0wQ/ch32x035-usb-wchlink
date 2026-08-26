@@ -12,9 +12,6 @@
 #include <stddef.h>
 #include <string.h>
 
-extern const uint8_t ch5xx_flash_erase_stub_start[];
-extern const uint8_t ch5xx_flash_erase_stub_end[];
-
 static const struct rvswd_target_profile *rvswd_target_session_current_profile(
     const struct rvswd_target_session *session) {
     return rvswd_target_profile_resolve(session->info.chip_id,
@@ -34,93 +31,13 @@ rvswd_target_session_memory_profile(
     return rvswd_target_profile_from_family(session->family_hint);
 }
 
-static void rvswd_target_session_legacy_init(void) {
-    rvswd_dmi_reset();
-    rvswd_phy_gpio_init();
-}
-
-static void rvswd_target_session_legacy_disconnect(void) {
-    rvswd_phy_gpio_disconnect();
-}
-
-static bool rvswd_target_session_legacy_write_dmi(uint8_t address,
-                                                  uint32_t value) {
-    return rvswd_dmi_write(address, value);
-}
-
-static bool rvswd_target_session_legacy_read_memory32(
-    struct rvswd_target_session *session, uint32_t address, uint32_t *value) {
-    return rvswd_memory_read32(rvswd_target_session_memory_profile(session),
-                               session->info.chip_id != 0u, address, value);
-}
-
-static bool rvswd_target_session_legacy_write_memory32(uint32_t address, uint32_t value) {
-    return rvswd_memory_write32(address, value);
-}
-
-static bool rvswd_target_session_legacy_write_memory(
-    struct rvswd_target_session *session, uint32_t address,
-    const uint8_t *data, uint32_t length) {
-    return rvswd_memory_write(rvswd_target_session_current_profile(session),
-                              address, data, length);
-}
-
-static bool rvswd_target_session_legacy_reset_and_halt(void) {
-    return rvswd_reset_and_halt();
-}
-
-static bool rvswd_target_session_legacy_soft_reset_and_run(void) {
-    return rvswd_soft_reset_and_run();
-}
-
-static bool rvswd_target_session_legacy_reset_and_run(void) {
-    return rvswd_reset_and_run();
-}
-
-static bool rvswd_target_session_legacy_write_register(uint16_t regno, uint32_t value) {
-    return rvswd_debug_write_register(regno, value);
-}
-
-static bool rvswd_target_session_legacy_read_register(uint16_t regno, uint32_t *value) {
-    return rvswd_debug_read_register(regno, value);
-}
-
-static bool rvswd_target_session_legacy_halt(void) {
-    return rvswd_debug_halt();
-}
-
-static bool rvswd_target_session_legacy_execute(uint32_t entry, uint32_t stack_top, uint32_t mode,
-                                                uint32_t address, uint32_t length, uint32_t data_address,
-                                                uint32_t *result) {
-    return rvswd_debug_execute(entry, stack_top, mode, address, length,
-                               data_address, result);
-}
-
-static bool rvswd_target_session_legacy_read_dmi(uint8_t address,
-                                                 uint32_t *value) {
-    return rvswd_dmi_read(address, value);
-}
-
-static bool rvswd_target_session_legacy_dmi_failure_retryable(void) {
-    return rvswd_dmi_failure_retryable();
-}
-
-static bool rvswd_target_session_target_supports_memory_streaming(
-    const struct rvswd_target_session *session) {
-    const struct rvswd_target_profile *profile =
-        rvswd_target_session_current_profile(session);
-
-    return profile != NULL &&
-           profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING;
-}
-
 static struct rvswd_target_result rvswd_target_session_invalid_result(void) {
     return rvswd_target_result_failure(RVSWD_TARGET_RESULT_CONNECT, 0x01u,
                                        false);
 }
 
 static struct rvswd_target_result rvswd_target_session_memory_result(
-    struct rvswd_target_session *session, uint32_t address, bool success) {
+    uint32_t address, bool success) {
     struct rvswd_target_result result;
 
     if (success) {
@@ -134,7 +51,6 @@ static struct rvswd_target_result rvswd_target_session_memory_result(
         result.dmi_status = rvswd_memory_failure_dmi_status();
         result.abstractcs = rvswd_memory_failure_abstractcs();
     }
-    (void)session;
     if (!success && result.code == 0u) {
         result.code = 0x15u;
     }
@@ -154,14 +70,15 @@ void rvswd_target_session_init(struct rvswd_target_session *session) {
     family_hint = session->family_hint;
     memset(session, 0, sizeof(*session));
     session->family_hint = family_hint;
-    rvswd_target_session_legacy_init();
+    rvswd_dmi_reset();
+    rvswd_phy_gpio_init();
 }
 
 void rvswd_target_session_disconnect(struct rvswd_target_session *session) {
     if (session == NULL) {
         return;
     }
-    rvswd_target_session_legacy_disconnect();
+    rvswd_phy_gpio_disconnect();
     session->info.connected = false;
 }
 
@@ -193,8 +110,14 @@ const struct rvswd_target_info *rvswd_target_session_info(
 
 bool rvswd_target_session_supports_memory_streaming(
     const struct rvswd_target_session *session) {
-    return session != NULL &&
-           rvswd_target_session_target_supports_memory_streaming(session);
+    const struct rvswd_target_profile *profile;
+
+    if (session == NULL) {
+        return false;
+    }
+    profile = rvswd_target_session_current_profile(session);
+    return profile != NULL &&
+           profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING;
 }
 
 struct rvswd_target_result rvswd_target_session_read_dmi(
@@ -205,14 +128,14 @@ struct rvswd_target_result rvswd_target_session_read_dmi(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (rvswd_target_session_legacy_read_dmi(address, &value)) {
+    if (rvswd_dmi_read(address, &value)) {
         result = rvswd_target_result_success();
         result.value = value;
         return result;
     }
     return rvswd_target_result_failure(RVSWD_TARGET_RESULT_DMI,
                                        rvswd_dmi_last_status(),
-                                       rvswd_target_session_legacy_dmi_failure_retryable());
+                                       rvswd_dmi_failure_retryable());
 }
 
 struct rvswd_target_result rvswd_target_session_write_dmi(
@@ -220,12 +143,12 @@ struct rvswd_target_result rvswd_target_session_write_dmi(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (rvswd_target_session_legacy_write_dmi(address, value)) {
+    if (rvswd_dmi_write(address, value)) {
         return rvswd_target_result_success();
     }
     return rvswd_target_result_failure(RVSWD_TARGET_RESULT_DMI,
                                        rvswd_dmi_last_status(),
-                                       rvswd_target_session_legacy_dmi_failure_retryable());
+                                       rvswd_dmi_failure_retryable());
 }
 
 struct rvswd_target_result rvswd_target_session_read_memory32(
@@ -237,8 +160,9 @@ struct rvswd_target_result rvswd_target_session_read_memory32(
         return rvswd_target_session_invalid_result();
     }
     result = rvswd_target_session_memory_result(
-        session, address,
-        rvswd_target_session_legacy_read_memory32(session, address, &value));
+        address,
+        rvswd_memory_read32(rvswd_target_session_memory_profile(session),
+                            session->info.chip_id != 0u, address, &value));
     if (result.ok) {
         result.value = value;
     }
@@ -251,8 +175,7 @@ struct rvswd_target_result rvswd_target_session_write_memory32(
         return rvswd_target_session_invalid_result();
     }
     return rvswd_target_session_memory_result(
-        session, address,
-        rvswd_target_session_legacy_write_memory32(address, value));
+        address, rvswd_memory_write32(address, value));
 }
 
 struct rvswd_target_result rvswd_target_session_write_memory(
@@ -262,9 +185,9 @@ struct rvswd_target_result rvswd_target_session_write_memory(
         return rvswd_target_session_invalid_result();
     }
     return rvswd_target_session_memory_result(
-        session, address,
-        rvswd_target_session_legacy_write_memory(session, address, data,
-                                                 length));
+        address,
+        rvswd_memory_write(rvswd_target_session_current_profile(session),
+                           address, data, length));
 }
 
 struct rvswd_target_result rvswd_target_session_write_register(
@@ -272,7 +195,7 @@ struct rvswd_target_result rvswd_target_session_write_register(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_target_session_legacy_write_register(regno, value)
+    return rvswd_debug_write_register(regno, value)
                ? rvswd_target_result_success()
                : rvswd_target_result_failure(RVSWD_TARGET_RESULT_DEBUG,
                                              rvswd_dmi_last_status(),
@@ -287,7 +210,7 @@ struct rvswd_target_result rvswd_target_session_read_register(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    if (!rvswd_target_session_legacy_read_register(regno, &value)) {
+    if (!rvswd_debug_read_register(regno, &value)) {
         return rvswd_target_result_failure(RVSWD_TARGET_RESULT_DEBUG,
                                            rvswd_dmi_last_status(),
                                            rvswd_dmi_failure_retryable());
@@ -302,7 +225,7 @@ struct rvswd_target_result rvswd_target_session_halt(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_target_session_legacy_halt()
+    return rvswd_debug_halt()
                ? rvswd_target_result_success()
                : rvswd_target_result_failure(RVSWD_TARGET_RESULT_DEBUG,
                                              rvswd_dmi_last_status(),
@@ -319,9 +242,8 @@ struct rvswd_target_result rvswd_target_session_execute(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    success = rvswd_target_session_legacy_execute(entry, stack_top, mode,
-                                                  address, length, data_address,
-                                                  &value);
+    success = rvswd_debug_execute(entry, stack_top, mode, address, length,
+                                  data_address, &value);
     result = success
                  ? rvswd_target_result_success()
                  : rvswd_target_result_failure(RVSWD_TARGET_RESULT_DEBUG,
@@ -337,7 +259,7 @@ struct rvswd_target_result rvswd_target_session_reset_and_halt(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_target_session_legacy_reset_and_halt()
+    return rvswd_reset_and_halt()
                ? rvswd_target_result_success()
                : rvswd_target_result_failure(RVSWD_TARGET_RESULT_RESET,
                                              rvswd_dmi_last_status(),
@@ -349,7 +271,7 @@ struct rvswd_target_result rvswd_target_session_soft_reset_and_run(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_target_session_legacy_soft_reset_and_run()
+    return rvswd_soft_reset_and_run()
                ? rvswd_target_result_success()
                : rvswd_target_result_failure(RVSWD_TARGET_RESULT_RESET,
                                              rvswd_dmi_last_status(),
@@ -361,7 +283,7 @@ struct rvswd_target_result rvswd_target_session_reset_and_run(
     if (session == NULL) {
         return rvswd_target_session_invalid_result();
     }
-    return rvswd_target_session_legacy_reset_and_run()
+    return rvswd_reset_and_run()
                ? rvswd_target_result_success()
                : rvswd_target_result_failure(RVSWD_TARGET_RESULT_RESET,
                                              rvswd_dmi_last_status(),

@@ -8,11 +8,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
-enum wchlink_transfer_mode {
-    WCHLINK_TRANSFER_IDLE,
-    WCHLINK_TRANSFER_LOADER,
-    WCHLINK_TRANSFER_FLASH,
-    WCHLINK_TRANSFER_PARTIAL_WRITE,
+// data IN 和 data OUT 是独立端点，两个方向允许同时处于活动状态
+enum wchlink_transfer_in_state {
+    WCHLINK_TRANSFER_IN_IDLE,
+    WCHLINK_TRANSFER_IN_READING,
+};
+
+enum wchlink_transfer_out_state {
+    WCHLINK_TRANSFER_OUT_IDLE,
+    WCHLINK_TRANSFER_OUT_LOADER,
+    WCHLINK_TRANSFER_OUT_FLASH,
+    WCHLINK_TRANSFER_OUT_PARTIAL_WRITE,
 };
 
 // USB 适配层只根据该方向挂载端点，不读取 transfer 内部状态
@@ -42,12 +48,12 @@ struct wchlink_transfer_finish_result {
 // 该结构由 wchlink_session 独占，USB callback 不持有其中任何 buffer
 struct wchlink_transfer {
     struct wchlink_target_ports *target;
+    enum wchlink_transfer_in_state in_state;
+    enum wchlink_transfer_out_state out_state;
     uint32_t read_address;
     uint32_t read_remaining;
-    bool read_active;
     uint32_t write_address;
     uint32_t write_remaining;
-    enum wchlink_transfer_mode write_mode;
     uint32_t loader_received;
     uint32_t loader_expected;
     bool loader_variable_length;

@@ -439,6 +439,39 @@ static void wchlink_test_transfer_partial_write(void) {
            WCHLINK_PARTIAL_WRITE_REPLY_FAILED);
 }
 
+static void wchlink_test_transfer_bidirectional_activity(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x82000000u, WCHLINK_TARGET_FAMILY_CH58X,
+        RVSWD_TARGET_LOADER_CH5XX, false);
+    struct wchlink_test_fixture fixture;
+    uint8_t page[WCHLINK_FLASH_PACKET_SIZE];
+    uint8_t read_data[4];
+    const uint8_t patch[] = {0x12u, 0x34u};
+
+    wchlink_test_fixture_init(&fixture, info, true);
+    memset(page, 0xaau, sizeof(page));
+    assert(wchlink_test_target_store(&fixture.target, 0x100u, page,
+                                     sizeof(page)));
+
+    // 独立 USB 方向允许读游标和 partial-write OUT 同时处于活动状态
+    wchlink_transfer_prepare_read(&fixture.transfer, 0x100u, 4u);
+    wchlink_transfer_begin_read(&fixture.transfer);
+    assert(wchlink_transfer_start_partial_write(
+        &fixture.transfer, 0x104u, (uint8_t)sizeof(patch)));
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           (WCHLINK_TRANSFER_IO_DATA_IN | WCHLINK_TRANSFER_IO_DATA_OUT));
+
+    wchlink_transfer_write_data(&fixture.transfer, patch, sizeof(patch));
+    assert(wchlink_test_take_status(&fixture.transfer) ==
+           WCHLINK_PARTIAL_WRITE_REPLY_OK);
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_DATA_IN);
+    assert(wchlink_transfer_read_data(&fixture.transfer, read_data,
+                                      sizeof(read_data)) == sizeof(read_data));
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_NONE);
+}
+
 static void wchlink_test_transfer_error_repeat_and_abort(void) {
     const struct rvswd_target_info info = wchlink_test_info(
         0x03510611u, WCHLINK_TARGET_FAMILY_X035,
@@ -495,6 +528,7 @@ int main(void) {
     wchlink_test_transfer_chunk_boundary();
     wchlink_test_transfer_ch5xx_padding();
     wchlink_test_transfer_partial_write();
+    wchlink_test_transfer_bidirectional_activity();
     wchlink_test_transfer_error_repeat_and_abort();
     return 0;
 }

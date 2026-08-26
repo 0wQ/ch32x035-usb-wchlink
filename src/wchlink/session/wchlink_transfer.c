@@ -167,6 +167,11 @@ static uint8_t wchlink_transfer_target_error_code(
     return result.code == 0u ? 0x15u : (uint8_t)result.code;
 }
 
+static bool wchlink_transfer_accepts_data_out(
+    const struct wchlink_transfer *transfer) {
+    return transfer->out_state != WCHLINK_TRANSFER_OUT_IDLE;
+}
+
 void wchlink_transfer_init(struct wchlink_transfer *transfer,
                            struct wchlink_target_ports *target) {
     if (transfer == NULL) {
@@ -190,12 +195,12 @@ void wchlink_transfer_clear_operation(struct wchlink_transfer *transfer) {
     }
 
     // 下载缓存和 OpenOCD Prepare 跨相邻 command 保留，其余状态在新操作前清空
+    transfer->in_state = WCHLINK_TRANSFER_IN_IDLE;
+    transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
     transfer->read_address = 0u;
     transfer->read_remaining = 0u;
-    transfer->read_active = false;
     transfer->write_address = 0u;
     transfer->write_remaining = 0u;
-    transfer->write_mode = WCHLINK_TRANSFER_IDLE;
     transfer->loader_received = 0u;
     transfer->loader_expected = WCHLINK_LOADER_DEFAULT_SIZE;
     transfer->loader_variable_length = false;
@@ -265,7 +270,7 @@ bool wchlink_transfer_start_partial_write(struct wchlink_transfer *transfer,
     }
     transfer->partial_write_address = address;
     transfer->partial_write_length = length;
-    transfer->write_mode = WCHLINK_TRANSFER_PARTIAL_WRITE;
+    transfer->out_state = WCHLINK_TRANSFER_OUT_PARTIAL_WRITE;
     return true;
 }
 
@@ -281,7 +286,7 @@ bool wchlink_transfer_start_loader(struct wchlink_transfer *transfer) {
         return false;
     }
 
-    transfer->write_mode = WCHLINK_TRANSFER_LOADER;
+    transfer->out_state = WCHLINK_TRANSFER_OUT_LOADER;
     transfer->loader_received = 0u;
     transfer->loader_error = 0u;
     transfer->loader_failure_dmi_status = 0u;
@@ -320,7 +325,7 @@ struct wchlink_transfer_finish_result wchlink_transfer_finish_loader(
     target_info = wchlink_target_ports_info(transfer->target);
 
     // loader 数据到此结束，后续数据只能在初始化成功后进入 Flash 状态
-    transfer->write_mode = WCHLINK_TRANSFER_IDLE;
+    transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
     if (transfer->loader_error != 0u) {
         finish.status = WCHLINK_TRANSFER_FINISH_LOADER_ERROR;
         finish.loader_error = transfer->loader_error;
@@ -366,7 +371,7 @@ struct wchlink_transfer_finish_result wchlink_transfer_finish_loader(
         : target_info.loader == RVSWD_TARGET_LOADER_CH5XX
             ? 0x08u
             : (transfer->flash_prepare_seen ? 0x18u : 0x08u);
-    transfer->write_mode = WCHLINK_TRANSFER_FLASH;
+    transfer->out_state = WCHLINK_TRANSFER_OUT_FLASH;
     transfer->flash_openocd_mode = true;
     transfer->flash_data_received = 0u;
     transfer->flash_transfer_received = 0u;
@@ -384,7 +389,7 @@ bool wchlink_transfer_start_flash(struct wchlink_transfer *transfer,
         (command != 0x02u && command != 0x03u && command != 0x04u)) {
         return false;
     }
-    transfer->write_mode = WCHLINK_TRANSFER_FLASH;
+    transfer->out_state = WCHLINK_TRANSFER_OUT_FLASH;
     transfer->flash_data_received = 0u;
     transfer->flash_transfer_received = 0u;
     transfer->flash_transfer_length = 0u;
@@ -409,7 +414,8 @@ void wchlink_transfer_begin_read(struct wchlink_transfer *transfer) {
     if (transfer != NULL && transfer->target != NULL &&
         wchlink_target_ports_info(transfer->target).connected &&
         transfer->read_remaining != 0u) {
-        transfer->read_active = true;
+        // 地址帧只准备游标，Flash 0x0c 命令到达后才开放 data IN
+        transfer->in_state = WCHLINK_TRANSFER_IN_READING;
     }
 }
 
@@ -420,10 +426,11 @@ enum wchlink_transfer_io_request wchlink_transfer_next_io(
     if (transfer == NULL) {
         return WCHLINK_TRANSFER_IO_NONE;
     }
-    if (transfer->data_reply_pending || transfer->read_active) {
+    if (transfer->data_reply_pending ||
+        transfer->in_state == WCHLINK_TRANSFER_IN_READING) {
         request |= WCHLINK_TRANSFER_IO_DATA_IN;
     }
-    if (transfer->write_mode != WCHLINK_TRANSFER_IDLE) {
+    if (wchlink_transfer_accepts_data_out(transfer)) {
         request |= WCHLINK_TRANSFER_IO_DATA_OUT;
     }
     return (enum wchlink_transfer_io_request)request;
@@ -435,12 +442,12 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
     struct rvswd_target_info target_info;
 
     if (transfer == NULL || transfer->target == NULL || data == NULL ||
-        length == 0u || transfer->write_mode == WCHLINK_TRANSFER_IDLE) {
+        length == 0u || !wchlink_transfer_accepts_data_out(transfer)) {
         return;
     }
     target_info = wchlink_target_ports_info(transfer->target);
 
-    if (transfer->write_mode == WCHLINK_TRANSFER_LOADER) {
+    if (transfer->out_state == WCHLINK_TRANSFER_OUT_LOADER) {
         struct rvswd_target_result result;
 
         layout = wchlink_transfer_loader_layout(transfer);
@@ -471,7 +478,7 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
         if (!transfer->loader_variable_length &&
             transfer->loader_received + length >= transfer->loader_expected) {
             transfer->loader_received = transfer->loader_expected;
-            transfer->write_mode = WCHLINK_TRANSFER_IDLE;
+            transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
             transfer->loader_ready = transfer->loader_error == 0u;
         } else {
             uint32_t remaining =
@@ -487,25 +494,25 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
         return;
     }
 
-    if (transfer->write_mode == WCHLINK_TRANSFER_PARTIAL_WRITE) {
+    if (transfer->out_state == WCHLINK_TRANSFER_OUT_PARTIAL_WRITE) {
         bool success;
 
         if (length != transfer->partial_write_length ||
             length > sizeof(transfer->partial_write_data)) {
-            transfer->write_mode = WCHLINK_TRANSFER_IDLE;
+            transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
             wchlink_transfer_set_reply(transfer, 0x15u);
             return;
         }
         memcpy(transfer->partial_write_data, data, length);
         success = wchlink_transfer_rewrite_partial_page(transfer);
-        transfer->write_mode = WCHLINK_TRANSFER_IDLE;
+        transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
         wchlink_transfer_set_reply(
             transfer, success ? WCHLINK_PARTIAL_WRITE_REPLY_OK
                               : WCHLINK_PARTIAL_WRITE_REPLY_FAILED);
         return;
     }
 
-    if (transfer->write_mode == WCHLINK_TRANSFER_FLASH &&
+    if (transfer->out_state == WCHLINK_TRANSFER_OUT_FLASH &&
         length <= WCHLINK_FLASH_PACKET_SIZE && (length & 3u) == 0u &&
         transfer->write_remaining != 0u) {
         uint32_t transfer_length;
@@ -555,7 +562,7 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
                             data, (uint32_t)write_length);
 
                     if (!result.ok) {
-                        transfer->write_mode = WCHLINK_TRANSFER_IDLE;
+                        transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
                         wchlink_transfer_set_reply(
                             transfer,
                             wchlink_transfer_target_error_code(result));
@@ -585,7 +592,7 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
                     transfer->flash_chunk_data, transfer->flash_chunk_length);
 
             if (!result.ok) {
-                transfer->write_mode = WCHLINK_TRANSFER_IDLE;
+                transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
                 wchlink_transfer_set_reply(
                     transfer, wchlink_transfer_target_error_code(result));
                 return;
@@ -605,7 +612,7 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
                     padded_length);
             }
             if (!result.ok) {
-                transfer->write_mode = WCHLINK_TRANSFER_IDLE;
+                transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
                 wchlink_transfer_set_reply(
                     transfer, wchlink_transfer_target_error_code(result));
                 return;
@@ -630,7 +637,7 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
                         transfer->target, checksum_address,
                         transfer->flash_checksum);
                     if (!result.ok) {
-                        transfer->write_mode = WCHLINK_TRANSFER_IDLE;
+                        transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
                         wchlink_transfer_set_reply(transfer, 0x15u);
                         return;
                     }
@@ -668,7 +675,7 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
             } else {
                 transfer->write_address = 0u;
                 transfer->write_remaining = 0u;
-                transfer->write_mode = WCHLINK_TRANSFER_IDLE;
+                transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
             }
         }
     }
@@ -689,7 +696,7 @@ size_t wchlink_transfer_read_data(struct wchlink_transfer *transfer,
     size_t produced = 0u;
 
     if (transfer == NULL || transfer->target == NULL || data == NULL ||
-        capacity < 4u || !transfer->read_active) {
+        capacity < 4u || transfer->in_state != WCHLINK_TRANSFER_IN_READING) {
         return 0u;
     }
 
@@ -700,7 +707,7 @@ size_t wchlink_transfer_read_data(struct wchlink_transfer *transfer,
         uint32_t value = result.value;
 
         if (!result.ok) {
-            transfer->read_active = false;
+            transfer->in_state = WCHLINK_TRANSFER_IN_IDLE;
             transfer->read_remaining = 0u;
             return 0u;
         }
@@ -716,7 +723,7 @@ size_t wchlink_transfer_read_data(struct wchlink_transfer *transfer,
     }
 
     if (transfer->read_remaining == 0u) {
-        transfer->read_active = false;
+        transfer->in_state = WCHLINK_TRANSFER_IN_IDLE;
     }
     return produced;
 }

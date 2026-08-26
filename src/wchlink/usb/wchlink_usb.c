@@ -3,7 +3,7 @@
 #include "bsp/bsp_delay.h"
 #include "bsp/bsp_system.h"
 #include "bsp/bsp_uid.h"
-#include "wchlink_protocol.h"
+#include "wchlink_session.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -272,7 +272,7 @@ static void wchlink_event_handler(uint8_t busid, uint8_t event) {
             wchlink_cdc_out_active = false;
             wchlink_cdc_out_pending = false;
             wchlink_cdc_in_pending = false;
-            wchlink_protocol_reset();
+            wchlink_session_reset();
             break;
         case USBD_EVENT_CONFIGURED:
             wchlink_configured = true;
@@ -401,15 +401,15 @@ static void wchlink_service_data_in(void) {
         return;
     }
 
-    if (wchlink_protocol_take_data_reply(wchlink_data_packet,
-                                         sizeof(wchlink_data_packet))) {
+    if (wchlink_session_take_data_reply(wchlink_data_packet,
+                                        sizeof(wchlink_data_packet))) {
         data_length = 4u;
     } else {
-        if (!wchlink_protocol_data_read_active()) {
+        if (!wchlink_session_data_read_active()) {
             return;
         }
-        data_length = wchlink_protocol_read_data(wchlink_data_packet,
-                                                 sizeof(wchlink_data_packet));
+        data_length = wchlink_session_read_data(wchlink_data_packet,
+                                                sizeof(wchlink_data_packet));
     }
     if (data_length == 0u) {
         return;
@@ -443,10 +443,10 @@ static void wchlink_service_data_out(void) {
         data_length = wchlink_data_out_length;
         wchlink_data_out_pending = false;
         __enable_irq();
-        wchlink_protocol_write_data(wchlink_data_out_buffer, data_length);
+        wchlink_session_write_data(wchlink_data_out_buffer, data_length);
     }
 
-    if (wchlink_protocol_data_write_active() && !wchlink_data_out_active &&
+    if (wchlink_session_data_write_active() && !wchlink_data_out_active &&
         !wchlink_data_out_pending) {
         wchlink_data_out_active = true;
         if (usbd_ep_start_read(0u, 0x02u, wchlink_data_out_buffer,
@@ -498,9 +498,9 @@ void wchlink_usb_process(void) {
     // 协议处理包含 RVSWD 长事务，先重新挂载 OUT 端点避免主机在处理期间超时
     wchlink_arm_request();
 
-    response_length = wchlink_protocol_process(request, request_length,
-                                               wchlink_response, sizeof(wchlink_response));
-    if (wchlink_protocol_take_isp_request()) {
+    response_length = wchlink_session_process(request, request_length,
+                                              wchlink_response, sizeof(wchlink_response));
+    if (wchlink_session_take_isp_request()) {
         bsp_system_enter_isp();
     }
     if (response_length == SIZE_MAX) {

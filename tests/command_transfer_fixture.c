@@ -1,0 +1,500 @@
+#include "in_memory_target.h"
+#include "wchlink/protocol/wchlink_family.h"
+#include "wchlink/protocol/wchlink_wire.h"
+#include "wchlink/session/wchlink_command.h"
+#include "wchlink/session/wchlink_transfer.h"
+
+#include <assert.h>
+#include <string.h>
+
+struct wchlink_test_fixture {
+    struct wchlink_target_ports target;
+    struct wchlink_transfer transfer;
+    struct wchlink_command_context command;
+};
+
+void bsp_delay_ms(uint32_t ms) {
+    (void)ms;
+}
+
+void drv_dp_pullup_set_enabled(bool enabled) {
+    (void)enabled;
+}
+
+void drv_power_switch_set_enabled(bool enabled) {
+    (void)enabled;
+}
+
+static struct rvswd_target_info wchlink_test_info(
+    uint32_t chip_id, uint8_t family, uint8_t loader,
+    bool memory_streaming) {
+    return (struct rvswd_target_info){
+        .chip_id = chip_id,
+        .family = family,
+        .loader = loader,
+        .connected = true,
+        .memory_streaming = memory_streaming,
+    };
+}
+
+static void wchlink_test_fixture_init(
+    struct wchlink_test_fixture *fixture, struct rvswd_target_info info,
+    bool connected) {
+    wchlink_test_target_reset(&fixture->target, info, connected);
+    wchlink_transfer_init(&fixture->transfer, &fixture->target);
+    fixture->command = (struct wchlink_command_context){
+        .target = &fixture->target,
+        .transfer = &fixture->transfer,
+    };
+}
+
+static void wchlink_test_expect_bytes(const uint8_t *actual,
+                                      size_t actual_length,
+                                      const uint8_t *expected,
+                                      size_t expected_length) {
+    assert(actual_length == expected_length);
+    assert(memcmp(actual, expected, expected_length) == 0);
+}
+
+static uint8_t wchlink_test_take_status(
+    struct wchlink_transfer *transfer) {
+    uint8_t status = 0xffu;
+
+    assert(wchlink_transfer_take_reply_status(transfer, &status));
+    return status;
+}
+
+static void wchlink_test_command_connect_and_dmi(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x10320710u, WCHLINK_TARGET_FAMILY_L103,
+        RVSWD_TARGET_LOADER_L103, true);
+    struct wchlink_test_fixture fixture;
+    uint8_t response[32];
+    struct wchlink_session_command_result result;
+    const uint8_t short_request[] = {0x81u, 0x0du};
+    const uint8_t connect_request[] = {0x81u, 0x0du, 0x01u, 0x02u};
+    const uint8_t connect_reply[] = {
+        0x82u,
+        0x0du,
+        0x05u,
+        0x0eu,
+        0x10u,
+        0x32u,
+        0x07u,
+        0x10u,
+    };
+    const uint8_t dmi_request[] = {
+        0x81u,
+        0x08u,
+        0x06u,
+        0x11u,
+        0u,
+        0u,
+        0u,
+        0u,
+        0x01u,
+    };
+    const uint8_t dmi_reply[] = {
+        0x82u,
+        0x08u,
+        0x06u,
+        0x11u,
+        0x12u,
+        0x34u,
+        0x56u,
+        0x78u,
+        0u,
+    };
+    const uint8_t dmi_retry_reply[] = {
+        0x82u,
+        0x08u,
+        0x06u,
+        0x11u,
+        0u,
+        0u,
+        0u,
+        0u,
+        0x03u,
+    };
+    const uint8_t stop_request[] = {0x81u, 0x0du, 0x01u, 0xffu};
+    const uint8_t stop_reply[] = {0x82u, 0x0du, 0x01u, 0u};
+    const uint8_t malformed_reply[] = {0x82u, 0x0du, 0x01u, 0u};
+
+    // 同一 command seam 覆盖畸形帧、连接、DMI retry 和会话结束回复
+    wchlink_test_fixture_init(&fixture, info, false);
+    result = wchlink_command_process(
+        &fixture.command, short_request, sizeof(short_request), response,
+        sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_MALFORMED);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              malformed_reply, sizeof(malformed_reply));
+
+    result = wchlink_command_process(
+        &fixture.command, connect_request, sizeof(connect_request), response,
+        sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    wchlink_test_expect_bytes(response, result.response_length, connect_reply,
+                              sizeof(connect_reply));
+
+    wchlink_test_target_set_dmi(&fixture.target, 0x11u, 0x12345678u);
+    result = wchlink_command_process(
+        &fixture.command, dmi_request, sizeof(dmi_request), response,
+        sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    wchlink_test_expect_bytes(response, result.response_length, dmi_reply,
+                              sizeof(dmi_reply));
+
+    wchlink_test_target_fail_next(
+        &fixture.target, WCHLINK_TEST_TARGET_READ_DMI,
+        rvswd_target_result_failure(RVSWD_TARGET_RESULT_DMI, 0x03u, true));
+    result = wchlink_command_process(
+        &fixture.command, dmi_request, sizeof(dmi_request), response,
+        sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_BUSY);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              dmi_retry_reply, sizeof(dmi_retry_reply));
+
+    result = wchlink_command_process(&fixture.command, stop_request,
+                                     sizeof(stop_request), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    assert(result.response_policy == WCHLINK_SESSION_RESPONSE_SESSION_END);
+    wchlink_test_expect_bytes(response, result.response_length, stop_reply,
+                              sizeof(stop_reply));
+    assert(!wchlink_target_ports_info(&fixture.target).connected);
+}
+
+static void wchlink_test_command_connect_failure(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    struct wchlink_test_fixture fixture;
+    uint8_t response[8];
+    const uint8_t request[] = {0x81u, 0x0du, 0x01u, 0x02u};
+    const uint8_t expected[] = {0x81u, 0x55u, 0x01u, 0x12u};
+    struct wchlink_session_command_result result;
+
+    wchlink_test_fixture_init(&fixture, info, false);
+    wchlink_test_target_fail_next(
+        &fixture.target, WCHLINK_TEST_TARGET_CONNECT,
+        rvswd_target_result_failure(RVSWD_TARGET_RESULT_CONNECT, 0x12u,
+                                    true));
+    result = wchlink_command_process(&fixture.command, request,
+                                     sizeof(request), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_TARGET_FAILED);
+    wchlink_test_expect_bytes(response, result.response_length, expected,
+                              sizeof(expected));
+}
+
+static void wchlink_test_command_repeat_and_abort(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    struct wchlink_test_fixture fixture;
+    uint8_t response[8];
+    const uint8_t write_request[] = {
+        0x81u,
+        0x01u,
+        0x08u,
+        0x08u,
+        0u,
+        0u,
+        0u,
+        0u,
+        0u,
+        0u,
+        0x04u,
+    };
+    const uint8_t loader_request[] = {0x81u, 0x02u, 0x01u, 0x05u};
+    const uint8_t abort_request[] = {0x81u, 0x02u, 0x01u, 0x08u};
+    struct wchlink_session_command_result result;
+
+    wchlink_test_fixture_init(&fixture, info, true);
+    result = wchlink_command_process(&fixture.command, write_request,
+                                     sizeof(write_request), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    result = wchlink_command_process(&fixture.command, loader_request,
+                                     sizeof(loader_request), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_DATA_OUT);
+
+    // 重复开始沿用 LinkE 行为，重新建立同一 loader 接收阶段
+    result = wchlink_command_process(&fixture.command, loader_request,
+                                     sizeof(loader_request), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_DATA_OUT);
+
+    result = wchlink_command_process(&fixture.command, abort_request,
+                                     sizeof(abort_request), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_NONE);
+}
+
+static void wchlink_test_transfer_read(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    struct wchlink_test_fixture fixture;
+    const uint8_t memory[] = {
+        0x44u,
+        0x33u,
+        0x22u,
+        0x11u,
+        0x88u,
+        0x77u,
+        0x66u,
+        0x55u,
+    };
+    const uint8_t expected[] = {
+        0x11u,
+        0x22u,
+        0x33u,
+        0x44u,
+        0x55u,
+        0x66u,
+        0x77u,
+        0x88u,
+    };
+    uint8_t output[8];
+    struct rvswd_target_result failure;
+
+    // data IN 按 32 位大端输出，容量不足一个 word 时保留剩余游标
+    wchlink_test_fixture_init(&fixture, info, true);
+    assert(wchlink_test_target_store(&fixture.target, 0x100u, memory,
+                                     sizeof(memory)));
+    wchlink_transfer_prepare_read(&fixture.transfer, 0x100u, sizeof(memory));
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_NONE);
+    wchlink_transfer_begin_read(&fixture.transfer);
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_DATA_IN);
+    assert(wchlink_transfer_read_data(&fixture.transfer, output, 6u) == 4u);
+    assert(memcmp(output, expected, 4u) == 0);
+    assert(wchlink_transfer_read_data(&fixture.transfer, &output[4], 4u) ==
+           4u);
+    assert(memcmp(output, expected, sizeof(expected)) == 0);
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_NONE);
+
+    failure = rvswd_target_result_failure(RVSWD_TARGET_RESULT_MEMORY, 0x15u,
+                                          false);
+    failure.address = 0x100u;
+    wchlink_transfer_prepare_read(&fixture.transfer, 0x100u, 4u);
+    wchlink_transfer_begin_read(&fixture.transfer);
+    wchlink_test_target_fail_next(
+        &fixture.target, WCHLINK_TEST_TARGET_READ_MEMORY, failure);
+    assert(wchlink_transfer_read_data(&fixture.transfer, output,
+                                      sizeof(output)) == 0u);
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_NONE);
+}
+
+static struct wchlink_transfer_finish_result
+wchlink_test_finish_default_loader(struct wchlink_test_fixture *fixture,
+                                   uint32_t address, uint32_t length) {
+    uint8_t loader[WCHLINK_FLASH_PACKET_SIZE];
+
+    memset(loader, 0x5au, sizeof(loader));
+    wchlink_transfer_prepare_write(&fixture->transfer, address, length);
+    assert(wchlink_transfer_start_loader(&fixture->transfer));
+    wchlink_transfer_write_data(&fixture->transfer, loader, sizeof(loader));
+    wchlink_transfer_write_data(&fixture->transfer, loader, sizeof(loader));
+    return wchlink_transfer_finish_loader(&fixture->transfer, 0x07u);
+}
+
+static void wchlink_test_transfer_chunk_boundary(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    struct wchlink_test_fixture fixture;
+    struct wchlink_transfer_finish_result finish;
+    struct wchlink_test_execute execute;
+    uint8_t packet[WCHLINK_FLASH_PACKET_SIZE];
+    const uint8_t tail[] = {0x11u, 0x22u, 0x33u, 0x44u};
+
+    // 4096 字节完成后继续保留 OUT，尾块完成后只留下最终 IN reply
+    wchlink_test_fixture_init(&fixture, info, true);
+    finish = wchlink_test_finish_default_loader(
+        &fixture, 0x08000000u, WCHLINK_FLASH_CHUNK_SIZE + sizeof(tail));
+    assert(finish.status == WCHLINK_TRANSFER_FINISH_READY);
+    assert(wchlink_transfer_start_flash(&fixture.transfer, 0x02u));
+
+    memset(packet, 0x3cu, sizeof(packet));
+    for (size_t offset = 0u; offset < WCHLINK_FLASH_CHUNK_SIZE;
+         offset += sizeof(packet)) {
+        wchlink_transfer_write_data(&fixture.transfer, packet,
+                                    sizeof(packet));
+    }
+    assert(wchlink_test_take_status(&fixture.transfer) == 0x04u);
+    assert(wchlink_test_target_last_execute(&fixture.target, &execute));
+    assert(execute.mode == 0x08u);
+    assert(execute.address == 0x08000000u);
+    assert(execute.length == WCHLINK_FLASH_CHUNK_SIZE);
+    assert(execute.data_address == 0x20001000u);
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_DATA_OUT);
+
+    wchlink_test_target_set_execute_value(&fixture.target, 8u);
+    wchlink_transfer_write_data(&fixture.transfer, tail, sizeof(tail));
+    assert(wchlink_test_take_status(&fixture.transfer) == 0x03u);
+    assert(wchlink_test_target_last_execute(&fixture.target, &execute));
+    assert(execute.address == 0x08001000u);
+    assert(execute.length == sizeof(tail));
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_NONE);
+}
+
+static void wchlink_test_transfer_ch5xx_padding(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x82000000u, WCHLINK_TARGET_FAMILY_CH58X,
+        RVSWD_TARGET_LOADER_CH5XX, false);
+    struct wchlink_test_fixture fixture;
+    struct wchlink_transfer_finish_result finish;
+    struct wchlink_test_execute execute;
+    uint8_t packet[WCHLINK_FLASH_PACKET_SIZE];
+    uint8_t target_page[WCHLINK_FLASH_PACKET_SIZE];
+    uint8_t checksum[4];
+    const uint8_t loader[] = {0x13u, 0x37u, 0x42u, 0x24u};
+
+    // CH5xx OpenOCD 路径接收完整 4 KiB 窗口，loader 只消费实际数据和页尾 0xff
+    wchlink_test_fixture_init(&fixture, info, true);
+    wchlink_transfer_prepare_write(&fixture.transfer, 0x100u, 4u);
+    assert(wchlink_transfer_start_loader(&fixture.transfer));
+    wchlink_transfer_write_data(&fixture.transfer, loader, sizeof(loader));
+    finish = wchlink_transfer_finish_loader(&fixture.transfer, 0x0bu);
+    assert(finish.status == WCHLINK_TRANSFER_FINISH_READY);
+
+    memset(packet, 0xa5, sizeof(packet));
+    packet[0] = 0x01u;
+    packet[1] = 0x02u;
+    packet[2] = 0x03u;
+    packet[3] = 0x04u;
+    for (size_t offset = 0u; offset < WCHLINK_FLASH_CHUNK_SIZE;
+         offset += sizeof(packet)) {
+        wchlink_transfer_write_data(&fixture.transfer, packet,
+                                    sizeof(packet));
+    }
+    assert(wchlink_test_take_status(&fixture.transfer) == 0x04u);
+    assert(wchlink_test_target_load(&fixture.target, 0x20005000u, target_page,
+                                    sizeof(target_page)));
+    assert(memcmp(target_page, packet, 4u) == 0);
+    for (size_t offset = 4u; offset < sizeof(target_page); ++offset) {
+        assert(target_page[offset] == 0xffu);
+    }
+    assert(wchlink_test_target_load(&fixture.target,
+                                    WCHLINK_CH5XX_LOADER_CHECKSUM_ADDRESS,
+                                    checksum, sizeof(checksum)));
+    {
+        const uint8_t expected_checksum[] = {0xc2u, 0x01u, 0x03u, 0x04u};
+
+        assert(memcmp(checksum, expected_checksum,
+                      sizeof(expected_checksum)) == 0);
+    }
+    assert(wchlink_test_target_last_execute(&fixture.target, &execute));
+    assert(execute.mode == 0x10u);
+    assert(execute.address == 0x100u);
+    assert(execute.length == 4u);
+    assert(execute.data_address == 0x20005000u);
+}
+
+static void wchlink_test_transfer_partial_write(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x82000000u, WCHLINK_TARGET_FAMILY_CH58X,
+        RVSWD_TARGET_LOADER_CH5XX, false);
+    struct wchlink_test_fixture fixture;
+    uint8_t page[WCHLINK_FLASH_PACKET_SIZE];
+    const uint8_t patch[] = {0x12u, 0x34u};
+    const uint8_t short_patch[] = {0x56u};
+
+    // 无下载缓存时从目标回读完整页，合并短写后交给 Flash rewrite port
+    wchlink_test_fixture_init(&fixture, info, true);
+    memset(page, 0xaau, sizeof(page));
+    assert(wchlink_test_target_store(&fixture.target, 0x100u, page,
+                                     sizeof(page)));
+    assert(wchlink_transfer_start_partial_write(
+        &fixture.transfer, 0x104u, (uint8_t)sizeof(patch)));
+    wchlink_transfer_write_data(&fixture.transfer, patch, sizeof(patch));
+    assert(wchlink_test_take_status(&fixture.transfer) ==
+           WCHLINK_PARTIAL_WRITE_REPLY_OK);
+    assert(wchlink_test_target_load(&fixture.target, 0x100u, page,
+                                    sizeof(page)));
+    assert(page[3] == 0xaau);
+    assert(page[4] == patch[0]);
+    assert(page[5] == patch[1]);
+    assert(page[6] == 0xaau);
+
+    assert(wchlink_transfer_start_partial_write(
+        &fixture.transfer, 0x108u, (uint8_t)sizeof(patch)));
+    wchlink_transfer_write_data(&fixture.transfer, short_patch,
+                                sizeof(short_patch));
+    assert(wchlink_test_take_status(&fixture.transfer) ==
+           WCHLINK_PARTIAL_WRITE_REPLY_FAILED);
+}
+
+static void wchlink_test_transfer_error_repeat_and_abort(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    struct wchlink_test_fixture fixture;
+    struct wchlink_transfer_finish_result finish;
+    struct rvswd_target_result failure;
+    uint8_t first[] = {0x01u, 0x02u, 0x03u, 0x04u};
+    uint8_t loader[WCHLINK_FLASH_PACKET_SIZE];
+    uint8_t loaded[4];
+
+    // 重复开始丢弃旧接收游标，abort 清空 I/O，target 诊断按值返回
+    wchlink_test_fixture_init(&fixture, info, true);
+    wchlink_transfer_prepare_write(&fixture.transfer, 0x08000000u, 4u);
+    assert(wchlink_transfer_start_loader(&fixture.transfer));
+    wchlink_transfer_write_data(&fixture.transfer, first, sizeof(first));
+    assert(wchlink_transfer_start_loader(&fixture.transfer));
+    memset(loader, 0x6bu, sizeof(loader));
+    wchlink_transfer_write_data(&fixture.transfer, loader, sizeof(loader));
+    memset(loader, 0x7cu, sizeof(loader));
+    wchlink_transfer_write_data(&fixture.transfer, loader, sizeof(loader));
+    finish = wchlink_transfer_finish_loader(&fixture.transfer, 0x07u);
+    assert(finish.status == WCHLINK_TRANSFER_FINISH_READY);
+    assert(wchlink_test_target_load(&fixture.target, 0x20000000u, loaded,
+                                    sizeof(loaded)));
+    assert(loaded[0] == 0x6bu);
+    wchlink_transfer_abort(&fixture.transfer);
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_NONE);
+
+    wchlink_transfer_prepare_write(&fixture.transfer, 0x08000000u, 4u);
+    assert(wchlink_transfer_start_loader(&fixture.transfer));
+    failure = rvswd_target_result_failure(RVSWD_TARGET_RESULT_MEMORY, 0x07u,
+                                          false);
+    failure.address = 0x20000000u;
+    failure.dmi_status = 0x03u;
+    failure.abstractcs = 0x00000700u;
+    wchlink_test_target_fail_next(
+        &fixture.target, WCHLINK_TEST_TARGET_WRITE_MEMORY, failure);
+    wchlink_transfer_write_data(&fixture.transfer, first, sizeof(first));
+    finish = wchlink_transfer_finish_loader(&fixture.transfer, 0x07u);
+    assert(finish.status == WCHLINK_TRANSFER_FINISH_LOADER_ERROR);
+    assert(finish.loader_error == 0x07u);
+    assert(finish.dmi_status == 0x03u);
+    assert(finish.address == 0x20000000u);
+    assert(finish.abstractcs == 0x00000700u);
+}
+
+int main(void) {
+    wchlink_test_command_connect_and_dmi();
+    wchlink_test_command_connect_failure();
+    wchlink_test_command_repeat_and_abort();
+    wchlink_test_transfer_read();
+    wchlink_test_transfer_chunk_boundary();
+    wchlink_test_transfer_ch5xx_padding();
+    wchlink_test_transfer_partial_write();
+    wchlink_test_transfer_error_repeat_and_abort();
+    return 0;
+}

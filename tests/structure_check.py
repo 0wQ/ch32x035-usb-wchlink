@@ -75,6 +75,12 @@ TARGET_INTERNAL_HEADER_CONSUMERS = {
     },
 }
 
+TRANSFER_INTERNAL_HEADER_CONSUMERS = {
+    "src/wchlink/session/wchlink_session.c",
+    "src/wchlink/session/wchlink_transfer.c",
+    "tests/command_transfer_fixture.c",
+}
+
 TARGET_PORT_HEADER_CONSUMERS = {
     "wchlink/target/wchlink_target_control.h": {
         "src/wchlink/session/wchlink_command_target.c",
@@ -145,6 +151,11 @@ def find_violations() -> list[str]:
                 violations.append(
                     f"WCH-Link header 未使用限定路径 {include}: {relative}"
                 )
+        if (
+            "wchlink/session/wchlink_transfer_internal.h" in text
+            and relative.as_posix() not in TRANSFER_INTERNAL_HEADER_CONSUMERS
+        ):
+            violations.append(f"调用者读取 transfer 私有存储: {relative}")
 
     for path in files:
         text = path.read_text(encoding="utf-8")

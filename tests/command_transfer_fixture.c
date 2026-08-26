@@ -2,7 +2,7 @@
 #include "wchlink/protocol/wchlink_family.h"
 #include "wchlink/protocol/wchlink_wire.h"
 #include "wchlink/session/wchlink_command_internal.h"
-#include "wchlink/session/wchlink_transfer.h"
+#include "wchlink/session/wchlink_transfer_internal.h"
 
 #include <assert.h>
 #include <string.h>

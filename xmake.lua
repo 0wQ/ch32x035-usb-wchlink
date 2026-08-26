@@ -22,7 +22,7 @@ target("firmware")
     add_files("src/main.c", "src/bsp/bsp_delay.c", "src/bsp/bsp_system.c", "src/bsp/bsp_uid.c", "src/drv/*.c", "src/usb/bsp_usb.c", "src/wchlink/transport/*.c", "src/wchlink/rvswd/*.c", "src/wchlink/flash/*.c", "src/wchlink/flash/*.S", "src/wchlink/target/*.c", "src/wchlink/session/*.c", "src/wchlink/protocol/*.c", "src/wchlink/usb/*.c", "sdk/Startup/startup_ch32x035_highcode.S")
     add_files("sdk/Core/*.c", "sdk/Peripheral/src/*.c", "sdk/System/*.c")
     add_files("third_party/cherryusb/core/usbd_core.c", "third_party/cherryusb/class/cdc/usbd_cdc_acm.c", "third_party/cherryusb_port/usb_ch32x035_dc_usbfs.c")
-    add_includedirs("src", "src/wchlink/transport", "src/wchlink/rvswd", "src/wchlink/target", "src/wchlink/session", "src/wchlink/protocol", "src/wchlink/usb", "src/usb", "sdk/Core", "sdk/Peripheral/inc", "sdk/System")
+    add_includedirs("src", "src/usb", "sdk/Core", "sdk/Peripheral/inc", "sdk/System")
     add_sysincludedirs("third_party/cherryusb/core", "third_party/cherryusb/common", "third_party/cherryusb/class/cdc", "third_party/cherryusb_port")
 
     add_cxflags(arch_flags, "-D__PACKED=__attribute__((packed))", "-fmessage-length=0", "-fsigned-char", "-ffunction-sections", "-fdata-sections", "-fno-common", "-Wno-comment", "-Wno-unused-parameter", "-Wno-missing-prototypes", {force = true})

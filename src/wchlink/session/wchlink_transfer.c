@@ -1,4 +1,4 @@
-#include "wchlink_transfer.h"
+#include "wchlink/session/wchlink_transfer.h"
 
 #include <string.h>
 

@@ -1,4 +1,4 @@
-#include "wchlink_wire.h"
+#include "wchlink/protocol/wchlink_wire.h"
 
 #include <assert.h>
 #include <string.h>

@@ -1,11 +1,11 @@
 #include "bsp/bsp_delay.h"
-#include "rvswd_debug.h"
-#include "rvswd_memory.h"
-#include "rvswd_operation.h"
-#include "rvswd_target_profile.h"
-#include "rvswd_transport.h"
-#include "rvswd_types.h"
-#include "wchlink_target_ports.h"
+#include "wchlink/rvswd/rvswd_debug.h"
+#include "wchlink/rvswd/rvswd_memory.h"
+#include "wchlink/rvswd/rvswd_operation.h"
+#include "wchlink/rvswd/rvswd_types.h"
+#include "wchlink/target/rvswd_target_profile.h"
+#include "wchlink/target/wchlink_target_ports.h"
+#include "wchlink/transport/rvswd_transport.h"
 
 #include <stddef.h>
 

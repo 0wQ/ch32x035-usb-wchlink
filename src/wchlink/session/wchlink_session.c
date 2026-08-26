@@ -1,8 +1,8 @@
-#include "wchlink_session.h"
+#include "wchlink/session/wchlink_session.h"
 
-#include "wchlink_command.h"
-#include "wchlink_transfer.h"
-#include "wchlink_wire.h"
+#include "wchlink/protocol/wchlink_wire.h"
+#include "wchlink/session/wchlink_command.h"
+#include "wchlink/session/wchlink_transfer.h"
 
 struct wchlink_session {
     struct wchlink_target_ports target;

@@ -1,4 +1,4 @@
-#include "rvswd_target_result.h"
+#include "wchlink/target/rvswd_target_result.h"
 
 struct rvswd_target_result rvswd_target_result_success(void) {
     struct rvswd_target_result result = {

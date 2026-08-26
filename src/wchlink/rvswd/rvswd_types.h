@@ -1,6 +1,6 @@
 #pragma once
 
-#include "wchlink_family.h"
+#include "wchlink/protocol/wchlink_family.h"
 
 #include <stdbool.h>
 #include <stdint.h>

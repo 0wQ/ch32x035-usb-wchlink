@@ -1,10 +1,10 @@
-#include "wchlink_command.h"
+#include "wchlink/session/wchlink_command.h"
 
 #include "bsp/bsp_delay.h"
 #include "drv/drv_dp_pullup.h"
 #include "drv/drv_power_switch.h"
-#include "wchlink_family.h"
-#include "wchlink_wire.h"
+#include "wchlink/protocol/wchlink_family.h"
+#include "wchlink/protocol/wchlink_wire.h"
 
 #include <stdbool.h>
 

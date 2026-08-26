@@ -1,8 +1,8 @@
 #pragma once
 
-#include "rvswd_target_info.h"
-#include "rvswd_target_result.h"
-#include "rvswd_transport.h"
+#include "wchlink/target/rvswd_target_info.h"
+#include "wchlink/target/rvswd_target_result.h"
+#include "wchlink/transport/rvswd_transport.h"
 
 #include <stdbool.h>
 #include <stdint.h>

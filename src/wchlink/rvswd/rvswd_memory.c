@@ -1,7 +1,7 @@
-#include "rvswd_memory.h"
+#include "wchlink/rvswd/rvswd_memory.h"
 
-#include "rvswd_debug.h"
-#include "rvswd_types.h"
+#include "wchlink/rvswd/rvswd_debug.h"
+#include "wchlink/rvswd/rvswd_types.h"
 
 #include <stddef.h>
 

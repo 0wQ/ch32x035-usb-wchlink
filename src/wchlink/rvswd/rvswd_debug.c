@@ -1,4 +1,4 @@
-#include "rvswd_debug.h"
+#include "wchlink/rvswd/rvswd_debug.h"
 
 #include "bsp/bsp_delay.h"
 

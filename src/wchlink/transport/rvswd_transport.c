@@ -1,8 +1,8 @@
-#include "rvswd_transport.h"
+#include "wchlink/transport/rvswd_transport.h"
 
 #include "bsp/bsp_delay.h"
-#include "rvswd_frame.h"
-#include "rvswd_phy_gpio.h"
+#include "wchlink/transport/rvswd_frame.h"
+#include "wchlink/transport/rvswd_phy_gpio.h"
 
 #include <stddef.h>
 

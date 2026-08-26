@@ -1,8 +1,8 @@
 #pragma once
 
-#include "wchlink_session.h"
-#include "wchlink_target_ports.h"
-#include "wchlink_transfer.h"
+#include "wchlink/session/wchlink_session.h"
+#include "wchlink/session/wchlink_transfer.h"
+#include "wchlink/target/wchlink_target_ports.h"
 
 #include <stdbool.h>
 #include <stddef.h>

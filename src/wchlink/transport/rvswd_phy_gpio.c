@@ -1,6 +1,6 @@
-#include "rvswd_phy_gpio.h"
+#include "wchlink/transport/rvswd_phy_gpio.h"
 
-#include "rvswd_frame.h"
+#include "wchlink/transport/rvswd_frame.h"
 
 #include <ch32x035.h>
 

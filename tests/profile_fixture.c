@@ -1,5 +1,5 @@
-#include "rvswd_target_profile.h"
-#include "wchlink_family.h"
+#include "wchlink/protocol/wchlink_family.h"
+#include "wchlink/target/rvswd_target_profile.h"
 
 #include <assert.h>
 #include <stddef.h>

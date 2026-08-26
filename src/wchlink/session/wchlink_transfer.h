@@ -1,8 +1,8 @@
 #pragma once
 
-#include "rvswd_target_result.h"
-#include "wchlink_target_ports.h"
-#include "wchlink_wire.h"
+#include "wchlink/protocol/wchlink_wire.h"
+#include "wchlink/target/rvswd_target_result.h"
+#include "wchlink/target/wchlink_target_ports.h"
 
 #include <stdbool.h>
 #include <stddef.h>

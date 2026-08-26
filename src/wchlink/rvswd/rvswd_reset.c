@@ -1,7 +1,7 @@
-#include "rvswd_reset.h"
+#include "wchlink/rvswd/rvswd_reset.h"
 
 #include "bsp/bsp_delay.h"
-#include "rvswd_debug.h"
+#include "wchlink/rvswd/rvswd_debug.h"
 
 static const uint32_t rvswd_reset_release_delay_us = 1000u;
 

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "rvswd_operation.h"
-#include "rvswd_types.h"
+#include "wchlink/rvswd/rvswd_operation.h"
+#include "wchlink/rvswd/rvswd_types.h"
 
 #include <stdbool.h>
 #include <stdint.h>

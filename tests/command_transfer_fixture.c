@@ -228,6 +228,131 @@ static void wchlink_test_command_connect_and_dmi(void) {
     assert(!wchlink_target_ports_info(&fixture.target).connected);
 }
 
+static void wchlink_test_command_direct_dmi_resume_completion(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x30520528u, WCHLINK_TARGET_FAMILY_V30X,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    struct wchlink_test_fixture fixture;
+    uint8_t response[9];
+    const uint8_t halt_with_ack[] = {
+        0x81u, 0x08u, 0x06u, 0x10u, 0xa0u, 0u, 0u, 0x01u, 0x02u};
+    const uint8_t halt[] = {
+        0x81u, 0x08u, 0x06u, 0x10u, 0x80u, 0u, 0u, 0x01u, 0x02u};
+    const uint8_t clear_halt[] = {
+        0x81u, 0x08u, 0x06u, 0x10u, 0u, 0u, 0u, 0x01u, 0x02u};
+    const uint8_t resume[] = {
+        0x81u, 0x08u, 0x06u, 0x10u, 0x40u, 0u, 0u, 0x01u, 0x02u};
+    const uint8_t read_status[] = {
+        0x81u, 0x08u, 0x06u, 0x11u, 0u, 0u, 0u, 0u, 0x01u};
+    const uint8_t resume_with_hartreset[] = {
+        0x81u, 0x08u, 0x06u, 0x10u, 0x60u, 0u, 0u, 0x01u, 0x02u};
+    const uint8_t speed_request[] = {0x81u, 0x0cu, 0x02u, 0x06u, 0x03u};
+    const uint8_t running_with_resume_ack_reply[] = {
+        0x82u, 0x08u, 0x06u, 0x11u, 0u, 0x0fu, 0x0cu, 0x82u, 0u};
+    struct wchlink_session_command_result result;
+
+    wchlink_test_fixture_init(&fixture, info, true);
+
+    // 单次 resume 必须完成真实握手，不能用 reset-and-run 替代继续执行
+    wchlink_test_target_set_dmi(&fixture.target, 0x11u, 0x000c0c82u);
+    result = wchlink_command_process(&fixture.command, resume, sizeof(resume),
+                                     response, sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    assert(fixture.target.dmi[0x10u] == 0x00000001u);
+    assert(wchlink_test_target_operation_count(
+               &fixture.target, WCHLINK_TEST_TARGET_SOFT_RESET_AND_RUN) == 0u);
+    assert(wchlink_test_target_operation_count(
+               &fixture.target, WCHLINK_TEST_TARGET_RESUME_DMI) == 1u);
+
+    result = wchlink_command_process(&fixture.command, read_status,
+                                     sizeof(read_status), response,
+                                     sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              running_with_resume_ack_reply,
+                              sizeof(running_with_resume_ack_reply));
+
+    // halt 和 clear 仍逐笔透传，最终 resume 只完成调试握手，不重置目标
+    (void)wchlink_command_process(&fixture.command, halt_with_ack,
+                                  sizeof(halt_with_ack), response,
+                                  sizeof(response));
+    (void)wchlink_command_process(&fixture.command, read_status,
+                                  sizeof(read_status), response,
+                                  sizeof(response));
+    (void)wchlink_command_process(&fixture.command, halt, sizeof(halt),
+                                  response, sizeof(response));
+    (void)wchlink_command_process(&fixture.command, halt, sizeof(halt),
+                                  response, sizeof(response));
+    (void)wchlink_command_process(&fixture.command, clear_halt,
+                                  sizeof(clear_halt), response,
+                                  sizeof(response));
+    result = wchlink_command_process(&fixture.command, resume, sizeof(resume),
+                                     response, sizeof(response));
+
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    assert(wchlink_test_target_operation_count(
+               &fixture.target, WCHLINK_TEST_TARGET_SOFT_RESET_AND_RUN) == 0u);
+    assert(wchlink_test_target_operation_count(
+               &fixture.target, WCHLINK_TEST_TARGET_RESUME_DMI) == 2u);
+
+    // 已验证状态只交付一次，后续读取必须重新访问目标
+    result = wchlink_command_process(&fixture.command, read_status,
+                                     sizeof(read_status), response,
+                                     sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              running_with_resume_ack_reply,
+                              sizeof(running_with_resume_ack_reply));
+
+    wchlink_test_target_set_dmi(&fixture.target, 0x11u, 0x00000382u);
+    result = wchlink_command_process(&fixture.command, read_status,
+                                     sizeof(read_status), response,
+                                     sizeof(response));
+    assert(response[4] == 0u && response[5] == 0u && response[6] == 0x03u &&
+           response[7] == 0x82u);
+
+    // 目标未进入 running 时，resumereq 写入本身必须向主机报告失败
+    result = wchlink_command_process(&fixture.command, resume, sizeof(resume),
+                                     response, sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_TARGET_FAILED);
+    assert(wchlink_test_target_operation_count(
+               &fixture.target, WCHLINK_TEST_TARGET_RESUME_DMI) == 3u);
+    assert(wchlink_test_target_operation_count(
+               &fixture.target, WCHLINK_TEST_TARGET_SOFT_RESET_AND_RUN) == 0u);
+    assert(fixture.target.dmi[0x10u] == 0x00000001u);
+
+    result = wchlink_command_process(&fixture.command, read_status,
+                                     sizeof(read_status), response,
+                                     sizeof(response));
+    assert(response[4] == 0u && response[5] == 0u && response[6] == 0x03u &&
+           response[7] == 0x82u);
+
+    // 额外 reset 语义必须按普通 DMI 写入透传，不能误入 resume completion
+    result = wchlink_command_process(
+        &fixture.command, resume_with_hartreset,
+        sizeof(resume_with_hartreset), response, sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    assert(fixture.target.dmi[0x10u] == 0x60000001u);
+    assert(wchlink_test_target_operation_count(
+               &fixture.target, WCHLINK_TEST_TARGET_RESUME_DMI) == 3u);
+
+    // 任意插入命令都使一次性快照失效，后续 DMSTATUS 必须访问真实目标
+    wchlink_test_target_set_dmi(&fixture.target, 0x11u, 0x000c0c82u);
+    result = wchlink_command_process(&fixture.command, resume, sizeof(resume),
+                                     response, sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    assert(wchlink_test_target_operation_count(
+               &fixture.target, WCHLINK_TEST_TARGET_RESUME_DMI) == 4u);
+    result = wchlink_command_process(&fixture.command, speed_request,
+                                     sizeof(speed_request), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    wchlink_test_target_set_dmi(&fixture.target, 0x11u, 0x00000382u);
+    result = wchlink_command_process(&fixture.command, read_status,
+                                     sizeof(read_status), response,
+                                     sizeof(response));
+    assert(response[4] == 0u && response[5] == 0u && response[6] == 0x03u &&
+           response[7] == 0x82u);
+}
+
 static void wchlink_test_command_connect_failure(void) {
     const struct rvswd_target_info info = wchlink_test_info(
         0x03510611u, WCHLINK_TARGET_FAMILY_X035,
@@ -939,6 +1064,7 @@ static void wchlink_test_transfer_abort_pending_data_in(void) {
 
 int main(void) {
     wchlink_test_command_connect_and_dmi();
+    wchlink_test_command_direct_dmi_resume_completion();
     wchlink_test_command_connect_failure();
     wchlink_test_command_config_and_reset();
     wchlink_test_command_control_and_device_mode();

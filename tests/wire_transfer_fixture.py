@@ -57,6 +57,7 @@ def run_command_transfer_fixture() -> None:
                 str(project / "tests/in_memory_target.c"),
                 str(project / "src/wchlink/session/wchlink_command.c"),
                 str(project / "src/wchlink/session/wchlink_command_target.c"),
+                str(project / "src/wchlink/session/wchlink_direct_dmi_resume.c"),
                 str(project / "src/wchlink/session/wchlink_command_transfer.c"),
                 str(project / "src/wchlink/session/wchlink_transfer.c"),
                 str(project / "src/wchlink/protocol/wchlink_wire.c"),
@@ -94,11 +95,37 @@ def run_profile_fixture() -> None:
         subprocess.run([str(executable)], check=True)
 
 
+def run_rvswd_debug_resume_fixture() -> None:
+    project = Path(__file__).resolve().parents[1]
+    compiler = os.environ.get("CC", "cc")
+
+    with tempfile.TemporaryDirectory(prefix="rvswd-debug-resume-") as temp_dir:
+        executable = Path(temp_dir) / "rvswd_debug_resume_fixture"
+        subprocess.run(
+            [
+                compiler,
+                "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-I",
+                str(project / "src"),
+                str(project / "tests/rvswd_debug_resume_fixture.c"),
+                str(project / "src/wchlink/rvswd/rvswd_debug.c"),
+                "-o",
+                str(executable),
+            ],
+            check=True,
+        )
+        subprocess.run([str(executable)], check=True)
+
+
 def run() -> None:
     run_wire_fixture()
     run_command_transfer_fixture()
     run_profile_fixture()
-    print("wire/command/transfer/profile fixture: pass")
+    run_rvswd_debug_resume_fixture()
+    print("wire/command/transfer/profile/debug fixture: pass")
 
 
 if __name__ == "__main__":

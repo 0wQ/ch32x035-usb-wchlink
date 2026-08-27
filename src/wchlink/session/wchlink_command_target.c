@@ -11,9 +11,8 @@
 
 #include <stdbool.h>
 
-enum wchlink_dmi_operation {
-    WCHLINK_DMI_OPERATION_READ = 0x01u,
-    WCHLINK_DMI_OPERATION_WRITE = 0x02u,
+enum {
+    WCHLINK_CONFIG_PAYLOAD_OFFSET = 4u,
 };
 
 void wchlink_command_target_init(struct wchlink_command_context *context) {
@@ -72,17 +71,31 @@ static struct wchlink_session_command_result wchlink_handle_dmi(
     address = request[3];
     data = wchlink_command_read_be32(&request[4]);
     if (request[8] == WCHLINK_DMI_OPERATION_READ) {
-        result = wchlink_target_ports_read_dmi(context->target,
-                                               address);
-        if (result.ok) {
-            data = result.value;
+        if (wchlink_direct_dmi_resume_take_status(
+                &context->direct_dmi_resume, address, &data)) {
+            result = rvswd_target_result_success();
+        } else {
+            result = wchlink_target_ports_read_dmi(context->target, address);
+            if (result.ok) {
+                data = result.value;
+            }
         }
     } else if (request[8] == WCHLINK_DMI_OPERATION_WRITE) {
-        result = wchlink_target_ports_write_dmi(context->target,
-                                                address, data);
+        wchlink_direct_dmi_resume_reset(&context->direct_dmi_resume);
+        if (wchlink_direct_dmi_resume_is_request(address, data)) {
+            // resume completion 保持当前 DPC，只为缺少轮询的主机完成 WCH 调试握手
+            result = wchlink_target_ports_resume_dmi(context->target, data);
+            if (result.ok) {
+                wchlink_direct_dmi_resume_store_status(
+                    &context->direct_dmi_resume, result.value);
+            }
+        } else {
+            result = wchlink_target_ports_write_dmi(context->target, address,
+                                                    data);
+        }
     } else {
-        result = rvswd_target_result_failure(RVSWD_TARGET_RESULT_DMI, 0u,
-                                             false);
+        wchlink_direct_dmi_resume_reset(&context->direct_dmi_resume);
+        result = rvswd_target_result_failure(RVSWD_TARGET_RESULT_DMI, 0u, false);
     }
 
     if (request[8] != WCHLINK_DMI_OPERATION_READ &&
@@ -189,6 +202,7 @@ void wchlink_command_reset(struct wchlink_command_context *context) {
     // 失败连接也会配置调试引脚，所有会话复位都必须释放总线
     wchlink_command_target_disconnect(context);
     context->ch5xx_info_query_seen = false;
+    wchlink_direct_dmi_resume_reset(&context->direct_dmi_resume);
     wchlink_transfer_reset(context->transfer);
 }
 

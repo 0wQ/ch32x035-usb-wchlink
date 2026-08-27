@@ -5,6 +5,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+enum {
+    RVSWD_OPTION_CONFIG_BYTE_COUNT = 7u,
+};
+
 enum rvswd_flash_unlock_mode {
     RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
     RVSWD_FLASH_UNLOCK_MAIN_OPTION_AND_FAST,

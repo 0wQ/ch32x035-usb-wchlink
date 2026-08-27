@@ -6,6 +6,8 @@
 
 static const uint32_t rvswd_debug_abstract_timeout_us = 10000u;
 static const uint32_t rvswd_debug_resume_request_delay_us = 1000u;
+static const uint32_t rvswd_debug_resume_poll_interval_us = 10u;
+static const uint32_t rvswd_debug_resume_timeout_us = 3000u;
 static const uint32_t rvswd_debug_execute_timeout_ms = 5000u;
 
 bool rvswd_debug_wait_abstract_idle_timeout(struct rvswd_operation *operation,
@@ -154,6 +156,64 @@ bool rvswd_debug_halt(struct rvswd_operation *operation) {
                                      0x80000001u)
                .ok &&
            rvswd_debug_wait_dmstatus(operation, 1u << 9u, true, 100u);
+}
+
+bool rvswd_debug_resume(struct rvswd_operation *operation,
+                        uint32_t dmcontrol, uint32_t *dmstatus) {
+    const uint32_t idle_control =
+        dmcontrol & ~RVSWD_DMCONTROL_RESUMEREQ;
+    uint64_t start;
+
+    if (operation == NULL || dmstatus == NULL ||
+        (dmcontrol & (RVSWD_DMCONTROL_DMACTIVE |
+                      RVSWD_DMCONTROL_RESUMEREQ)) !=
+            (RVSWD_DMCONTROL_DMACTIVE | RVSWD_DMCONTROL_RESUMEREQ) ||
+        (dmcontrol & ~RVSWD_DMCONTROL_RESUME_ALLOWED) != 0u) {
+        return false;
+    }
+
+    // WCH OpenOCD 在每次 resume 前清除 DMOD，避免目标保留旧的 Debug Mode 状态
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_DMOD, 0u).ok) {
+        return false;
+    }
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL, dmcontrol)
+             .ok) {
+        // 写事务失败也可能已经到达目标，使用独立清理事务释放 resumereq
+        rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_CONTROL,
+                                          idle_control);
+        return false;
+    }
+
+    start = bsp_time_us();
+    do {
+        struct rvswd_transport_result read_result;
+
+        bsp_delay_us(rvswd_debug_resume_poll_interval_us);
+        read_result =
+            rvswd_operation_read_dmi(operation, RVSWD_DMI_STATUS);
+        if (read_result.ok &&
+            (read_result.value & RVSWD_DMSTATUS_RUNNING) ==
+                RVSWD_DMSTATUS_RUNNING) {
+            if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL,
+                                           idle_control)
+                     .ok) {
+                rvswd_operation_cleanup_write_dmi(
+                    operation, RVSWD_DMI_CONTROL, idle_control);
+                return false;
+            }
+            // WCH V30x 已 running 时仍可能不置 resumeack，仅在真实运行后补齐主机快照
+            *dmstatus = read_result.value | RVSWD_DMSTATUS_RESUMEACK;
+            return true;
+        }
+        if (!read_result.ok && !read_result.retryable) {
+            break;
+        }
+    } while ((bsp_time_us() - start) < rvswd_debug_resume_timeout_us);
+
+    // 失败路径也释放 resumereq，不能把跨命令状态留给下一次调试操作
+    rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_CONTROL,
+                                      idle_control);
+    return false;
 }
 
 bool rvswd_debug_execute(struct rvswd_operation *operation, uint32_t entry,

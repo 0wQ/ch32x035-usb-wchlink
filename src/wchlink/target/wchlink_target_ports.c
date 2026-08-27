@@ -224,6 +224,26 @@ struct rvswd_target_result wchlink_target_ports_write_dmi(
     return wchlink_target_ports_dmi_result(transport_result, 0u);
 }
 
+struct rvswd_target_result wchlink_target_ports_resume_dmi(
+    struct wchlink_target_ports *ports, uint32_t dmcontrol) {
+    struct rvswd_operation operation;
+    struct rvswd_target_result result;
+    uint32_t dmstatus = 0u;
+    bool success;
+
+    if (ports == NULL) {
+        return wchlink_target_ports_invalid_result(RVSWD_TARGET_RESULT_DMI);
+    }
+    rvswd_operation_init(&operation, &ports->transport);
+    success = rvswd_debug_resume(&operation, dmcontrol, &dmstatus);
+    result = wchlink_target_ports_operation_result(
+        &operation, RVSWD_TARGET_RESULT_DMI, operation.dmi_status, success);
+    if (result.ok) {
+        result.value = dmstatus;
+    }
+    return result;
+}
+
 struct rvswd_target_result wchlink_target_ports_read_memory32(
     struct wchlink_target_ports *ports, uint32_t address) {
     uint32_t value = 0u;

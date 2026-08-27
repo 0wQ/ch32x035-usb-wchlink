@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wchlink/session/wchlink_command.h"
+#include "wchlink/session/wchlink_direct_dmi_resume.h"
 #include "wchlink/session/wchlink_transfer.h"
 
 #include <stdbool.h>
@@ -19,6 +20,7 @@ enum wchlink_transfer_family {
 struct wchlink_command_context {
     struct wchlink_target_ports *target;
     struct wchlink_transfer *transfer;
+    struct wchlink_direct_dmi_resume direct_dmi_resume;
     bool ch5xx_info_query_seen;
 };
 

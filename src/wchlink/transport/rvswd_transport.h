@@ -24,6 +24,19 @@ enum rvswd_dmi_address {
     RVSWD_DMI_WCH_CONFIG = 0x7du,
     RVSWD_DMI_WCH_SHADOW = 0x7eu,
     RVSWD_DMI_WCH_CHIP_ID = 0x7fu,
+    RVSWD_DMI_WCH_DMOD = 0x80u,
+};
+
+// resume completion 只接管纯 resume 语义，允许保留 hart selection 字段
+enum rvswd_dmcontrol_value {
+    RVSWD_DMCONTROL_DMACTIVE = 1u << 0u,
+    RVSWD_DMCONTROL_RESUMEREQ = 1u << 30u,
+    RVSWD_DMCONTROL_RESUME_ALLOWED = 0x47ffffc1u,
+};
+
+enum rvswd_dmstatus_value {
+    RVSWD_DMSTATUS_RUNNING = 3u << 10u,
+    RVSWD_DMSTATUS_RESUMEACK = 3u << 16u,
 };
 
 // 每个 target ports 实例独占一个 transport，packet mode 和 GPIO timing 不跨实例共享

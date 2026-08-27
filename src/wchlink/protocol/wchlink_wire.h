@@ -21,6 +21,11 @@ enum wchlink_wire_prefix {
     WCHLINK_REPLY_PREFIX = 0x82u,
 };
 
+enum wchlink_dmi_operation {
+    WCHLINK_DMI_OPERATION_READ = 0x01u,
+    WCHLINK_DMI_OPERATION_WRITE = 0x02u,
+};
+
 enum wchlink_partial_write_reply {
     WCHLINK_PARTIAL_WRITE_REPLY_OK = 0x02u,
     WCHLINK_PARTIAL_WRITE_REPLY_FAILED = 0x15u,

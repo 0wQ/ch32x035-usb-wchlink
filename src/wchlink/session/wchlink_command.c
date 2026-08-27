@@ -1,6 +1,7 @@
 #include "wchlink/protocol/wchlink_family.h"
 #include "wchlink/protocol/wchlink_wire.h"
 #include "wchlink/session/wchlink_command_internal.h"
+#include "wchlink/transport/rvswd_transport.h"
 
 struct wchlink_session_command_result wchlink_command_result(
     enum wchlink_session_command_status status, size_t response_length) {
@@ -109,6 +110,17 @@ static struct wchlink_session_command_result wchlink_command_dispatch(
 struct wchlink_session_command_result wchlink_command_process(
     struct wchlink_command_context *context, const uint8_t *request,
     size_t request_length, uint8_t *response, size_t response_capacity) {
+    bool consumes_resume_status =
+        request != NULL && request_length >= 9u &&
+        request[0] == WCHLINK_COMMAND_PREFIX &&
+        request[1] == WCHLINK_FAMILY_DMI &&
+        request[3] == RVSWD_DMI_STATUS &&
+        request[8] == WCHLINK_DMI_OPERATION_READ;
+
+    // resume 状态只属于紧邻的一次 DMSTATUS 读取，不能跨其他命令泄漏
+    if (!consumes_resume_status) {
+        wchlink_direct_dmi_resume_reset(&context->direct_dmi_resume);
+    }
     return wchlink_command_dispatch(context, request, request_length, response,
                                     response_capacity);
 }

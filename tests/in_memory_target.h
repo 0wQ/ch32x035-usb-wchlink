@@ -13,6 +13,7 @@ enum wchlink_test_target_operation {
     WCHLINK_TEST_TARGET_CONNECT,
     WCHLINK_TEST_TARGET_READ_DMI,
     WCHLINK_TEST_TARGET_WRITE_DMI,
+    WCHLINK_TEST_TARGET_RESUME_DMI,
     WCHLINK_TEST_TARGET_READ_MEMORY,
     WCHLINK_TEST_TARGET_WRITE_MEMORY,
     WCHLINK_TEST_TARGET_EXECUTE,
@@ -24,6 +25,7 @@ enum wchlink_test_target_operation {
     WCHLINK_TEST_TARGET_FLASH_READ_PROTECTION,
     WCHLINK_TEST_TARGET_FLASH_WRITE_PROTECTION,
     WCHLINK_TEST_TARGET_FLASH_SET_PROTECTION,
+    WCHLINK_TEST_TARGET_FLASH_SET_OPTION_BYTES,
 };
 
 struct wchlink_test_execute {
@@ -50,6 +52,7 @@ struct wchlink_target_ports {
     uint8_t flash[WCHLINK_TEST_FLASH_SIZE];
     uint8_t ram[WCHLINK_TEST_RAM_SIZE];
     uint8_t system[WCHLINK_TEST_SYSTEM_SIZE];
+    uint8_t option_bytes[RVSWD_OPTION_CONFIG_BYTE_COUNT];
     uint8_t family_hint;
     bool read_protected;
     uint32_t execute_value;
@@ -57,6 +60,7 @@ struct wchlink_target_ports {
     bool execute_seen;
     enum wchlink_test_target_operation failure_operation;
     struct rvswd_target_result failure_result;
+    uint32_t operation_count[WCHLINK_TEST_TARGET_FLASH_SET_OPTION_BYTES + 1u];
     bool failure_armed;
 };
 
@@ -82,3 +86,6 @@ bool wchlink_test_target_last_execute(
     struct wchlink_test_execute *execute);
 bool wchlink_test_target_has_family_hint(
     const struct wchlink_target_ports *target, uint8_t family);
+uint32_t wchlink_test_target_operation_count(
+    const struct wchlink_target_ports *target,
+    enum wchlink_test_target_operation operation);

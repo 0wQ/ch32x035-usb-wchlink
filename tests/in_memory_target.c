@@ -205,6 +205,12 @@ bool wchlink_test_target_has_family_hint(
     return target->family_hint == family;
 }
 
+uint32_t wchlink_test_target_operation_count(
+    const struct wchlink_target_ports *target,
+    enum wchlink_test_target_operation operation) {
+    return target->operation_count[operation];
+}
+
 void wchlink_target_ports_init(struct wchlink_target_ports *target) {
     uint8_t family_hint = target->family_hint;
 
@@ -308,6 +314,30 @@ struct rvswd_target_result wchlink_target_ports_write_dmi(
     }
     target->dmi[address] = value;
     return rvswd_target_result_success();
+}
+
+struct rvswd_target_result wchlink_target_ports_resume_dmi(
+    struct wchlink_target_ports *target, uint32_t dmcontrol) {
+    const uint32_t dmstatus_running = 3u << 10u;
+    const uint32_t dmstatus_resumeack = 3u << 16u;
+    struct rvswd_target_result result;
+
+    ++target->operation_count[WCHLINK_TEST_TARGET_RESUME_DMI];
+    if (wchlink_test_target_take_failure(
+            target, WCHLINK_TEST_TARGET_RESUME_DMI, &result)) {
+        return result;
+    }
+    // adapter 与固件端口保持一致，完成或超时后都释放 resumereq
+    target->dmi[0x10u] = dmcontrol & ~(1u << 30u);
+    if ((target->dmi[0x11u] & dmstatus_running) != dmstatus_running) {
+        return rvswd_target_result_failure(
+            RVSWD_TARGET_RESULT_DMI, 0u, false);
+    }
+
+    // 测试 adapter 模拟完成握手后的最终状态快照
+    result = rvswd_target_result_success();
+    result.value = target->dmi[0x11u] | dmstatus_resumeack;
+    return result;
 }
 
 struct rvswd_target_result wchlink_target_ports_read_memory32(
@@ -445,6 +475,8 @@ static struct rvswd_target_result wchlink_test_target_simple_operation(
     struct wchlink_target_ports *target,
     enum wchlink_test_target_operation operation) {
     struct rvswd_target_result result;
+
+    ++target->operation_count[operation];
 
     if (wchlink_test_target_take_failure(target, operation, &result)) {
         return result;

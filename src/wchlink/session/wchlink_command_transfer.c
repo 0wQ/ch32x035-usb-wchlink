@@ -152,7 +152,16 @@ struct wchlink_session_command_result wchlink_command_handle_flash(
                 wchlink_wire_command_reply(response, response_capacity, family,
                                            request[3]));
         case 0x08u:
+            // Program End 将目标整理到复位入口并保持停止，后续 resume 才会进入应用
+            target_result =
+                wchlink_target_ports_reset_and_halt(context->target);
             wchlink_transfer_abort(context->transfer);
+            if (!target_result.ok) {
+                return wchlink_command_result(
+                    WCHLINK_SESSION_COMMAND_TARGET_FAILED,
+                    wchlink_wire_family_error(response, response_capacity,
+                                              family, target_result.code));
+            }
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_COMPLETED,
                 wchlink_wire_ack(response, response_capacity, family));

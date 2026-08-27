@@ -734,6 +734,31 @@ static void wchlink_test_command_repeat_and_abort(void) {
            WCHLINK_TRANSFER_IO_NONE);
 }
 
+static void wchlink_test_command_program_end_resets_and_halts(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    struct wchlink_test_fixture fixture;
+    uint8_t response[8];
+    const uint8_t end_request[] = {0x81u, 0x02u, 0x01u, 0x08u};
+    const uint8_t expected[] = {0x81u, 0x02u, 0x01u, 0x5au};
+    struct rvswd_target_result failure = rvswd_target_result_failure(
+        RVSWD_TARGET_RESULT_RESET, 0x5au, false);
+    struct wchlink_session_command_result result;
+
+    wchlink_test_fixture_init(&fixture, info, true);
+    wchlink_test_target_fail_next(
+        &fixture.target, WCHLINK_TEST_TARGET_RESET_AND_HALT, failure);
+
+    // Program End 必须离开 loader 的 ebreak 上下文，失败不能静默返回成功
+    result = wchlink_command_process(&fixture.command, end_request,
+                                     sizeof(end_request), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_TARGET_FAILED);
+    wchlink_test_expect_bytes(response, result.response_length, expected,
+                              sizeof(expected));
+}
+
 static void wchlink_test_transfer_read(void) {
     const struct rvswd_target_info info = wchlink_test_info(
         0x03510611u, WCHLINK_TARGET_FAMILY_X035,
@@ -1087,6 +1112,7 @@ int main(void) {
     wchlink_test_command_control_and_device_mode();
     wchlink_test_command_ch5xx_info_stop();
     wchlink_test_command_repeat_and_abort();
+    wchlink_test_command_program_end_resets_and_halts();
     wchlink_test_transfer_read();
     wchlink_test_transfer_chunk_boundary();
     wchlink_test_transfer_ch5xx_padding();

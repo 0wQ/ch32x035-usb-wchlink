@@ -30,6 +30,18 @@ static const struct rvswd_target_loader_profile rvswd_loader_profile_l103 = {
     .variable_length = false,
 };
 
+static const struct rvswd_target_loader_profile rvswd_loader_profile_v30x = {
+    .kind = RVSWD_TARGET_LOADER_DEFAULT,
+    .code_address = 0x20000000u,
+    .data_address = 0x20001000u,
+    .stack_top = 0x20005000u,
+    .checksum_address = 0x20002010u,
+    .download_limit = 512u,
+    .download_packet_size = 256u,
+    .data_page_size = 1u,
+    .variable_length = false,
+};
+
 static const struct rvswd_target_loader_profile rvswd_loader_profile_ch5xx = {
     .kind = RVSWD_TARGET_LOADER_CH5XX,
     .code_address = 0x20004000u,
@@ -68,7 +80,7 @@ static const struct rvswd_target_profile rvswd_target_profile_v30x = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_V30X,
     .ch5xx_protocol = false,
     .fast_timing = false,
-    .loader = &rvswd_loader_profile_default,
+    .loader = &rvswd_loader_profile_v30x,
     .memory_write_mode = RVSWD_MEMORY_WRITE_STREAMING,
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
     .option_write = RVSWD_OPTION_WRITE_HALFWORD,

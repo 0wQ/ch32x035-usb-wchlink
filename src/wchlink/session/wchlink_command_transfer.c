@@ -43,8 +43,8 @@ struct wchlink_session_command_result wchlink_command_handle_memory_read(
     wchlink_transfer_prepare_read(context->transfer, address, length);
     return wchlink_command_result(
         WCHLINK_SESSION_COMMAND_COMPLETED,
-        wchlink_wire_ack(response, response_capacity,
-                         WCHLINK_TRANSFER_FAMILY_READ));
+        wchlink_wire_command_reply(response, response_capacity,
+                                   WCHLINK_TRANSFER_FAMILY_READ, 0x01u));
 }
 
 struct wchlink_session_command_result wchlink_command_handle_flash(
@@ -169,7 +169,8 @@ struct wchlink_session_command_result wchlink_command_handle_flash(
             wchlink_transfer_begin_read(context->transfer);
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_COMPLETED,
-                wchlink_wire_ack(response, response_capacity, family));
+                wchlink_wire_command_reply(response, response_capacity, family,
+                                           request[3]));
         default:
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_COMPLETED,

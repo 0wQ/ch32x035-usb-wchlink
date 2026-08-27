@@ -87,7 +87,8 @@ int main(void) {
                   512u, 256u, 1u, false);
     assert_loader(l103_profile, 0x20000000u, 0x20001000u, 0x20005000u,
                   0x20002010u, 512u, 256u, 1u, false);
-    assert_loader(v30x_profile, 0x20000000u, 0x20001000u, 0x20005000u, 0u,
+    assert_loader(v30x_profile, 0x20000000u, 0x20001000u, 0x20005000u,
+                  0x20002010u,
                   512u, 256u, 1u, false);
     assert_loader(ch58x_profile, 0x20004000u, 0x20005000u, 0x20007000u,
                   0x20006010u, 2048u, 256u, 256u, true);

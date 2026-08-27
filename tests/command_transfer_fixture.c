@@ -818,6 +818,77 @@ static void wchlink_test_transfer_read(void) {
            WCHLINK_TRANSFER_IO_NONE);
 }
 
+static void wchlink_test_command_official_memory_reads(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x30700528u, WCHLINK_TARGET_FAMILY_V30X,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    const uint8_t memory[] = {
+        0x10u,
+        0x21u,
+        0x32u,
+        0x43u,
+        0x54u,
+        0x65u,
+        0x76u,
+        0x87u,
+    };
+    const uint8_t expected_reply[] = {0x82u, 0x03u, 0x01u, 0x01u};
+    const uint8_t expected_flash_reply[] = {0x82u, 0x02u, 0x01u, 0x0cu};
+    const uint8_t windows_region[] = {
+        0x81u,
+        0x03u,
+        0x08u,
+        0x00u,
+        0x00u,
+        0x01u,
+        0x00u,
+        0x00u,
+        0x00u,
+        0x00u,
+        0x08u,
+    };
+    const uint8_t windows_read[] = {0x81u, 0x02u, 0x01u, 0x0cu};
+    struct wchlink_test_fixture fixture;
+    struct wchlink_session_command_result result;
+    uint8_t response[16];
+    uint8_t output[8];
+
+    wchlink_test_fixture_init(&fixture, info, true);
+    assert(wchlink_test_target_store(&fixture.target, 0x100u, memory,
+                                     sizeof(memory)));
+
+    // Windows WCH-LinkUtility 的普通读路径使用独立的读 family 和 0x0c 命令
+    result = wchlink_command_process(
+        &fixture.command, windows_region, sizeof(windows_region), response,
+        sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              expected_reply, sizeof(expected_reply));
+    result = wchlink_command_process(&fixture.command, windows_read,
+                                     sizeof(windows_read), response,
+                                     sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              expected_flash_reply,
+                              sizeof(expected_flash_reply));
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_DATA_IN);
+    assert(wchlink_transfer_read_data(&fixture.transfer, output,
+                                      sizeof(output)) == sizeof(output));
+    {
+        const uint8_t expected_data[] = {
+            0x43u,
+            0x32u,
+            0x21u,
+            0x10u,
+            0x87u,
+            0x76u,
+            0x65u,
+            0x54u,
+        };
+
+        assert(memcmp(output, expected_data, sizeof(output)) == 0);
+    }
+}
+
 static struct wchlink_transfer_finish_result
 wchlink_test_finish_default_loader(struct wchlink_test_fixture *fixture,
                                    uint32_t address, uint32_t length) {
@@ -939,6 +1010,28 @@ static void wchlink_test_transfer_l103_checksum(void) {
                                                 sizeof(packet));
     assert(finish.status == WCHLINK_TRANSFER_FINISH_READY);
     assert(wchlink_transfer_start_flash(&fixture.transfer, 0x03u));
+    wchlink_transfer_write_data(&fixture.transfer, packet, sizeof(packet));
+    assert(wchlink_test_take_status(&fixture.transfer) == 0x04u);
+    assert(wchlink_test_target_load(&fixture.target, 0x20002010u, checksum,
+                                    sizeof(checksum)));
+    assert(memcmp(checksum, packet, sizeof(packet)) == 0);
+}
+
+static void wchlink_test_transfer_v30x_checksum(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x30700528u, WCHLINK_TARGET_FAMILY_V30X,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    const uint8_t packet[] = {0x01u, 0x02u, 0x03u, 0x04u};
+    struct wchlink_test_fixture fixture;
+    struct wchlink_transfer_finish_result finish;
+    uint8_t checksum[sizeof(packet)];
+
+    // V30X 的 flash_op307 在编程加校验前需要写入 checksum mailbox
+    wchlink_test_fixture_init(&fixture, info, true);
+    finish = wchlink_test_finish_default_loader(&fixture, 0x08000000u,
+                                                sizeof(packet));
+    assert(finish.status == WCHLINK_TRANSFER_FINISH_READY);
+    assert(wchlink_transfer_start_flash(&fixture.transfer, 0x04u));
     wchlink_transfer_write_data(&fixture.transfer, packet, sizeof(packet));
     assert(wchlink_test_take_status(&fixture.transfer) == 0x04u);
     assert(wchlink_test_target_load(&fixture.target, 0x20002010u, checksum,
@@ -1114,9 +1207,11 @@ int main(void) {
     wchlink_test_command_repeat_and_abort();
     wchlink_test_command_program_end_resets_and_halts();
     wchlink_test_transfer_read();
+    wchlink_test_command_official_memory_reads();
     wchlink_test_transfer_chunk_boundary();
     wchlink_test_transfer_ch5xx_padding();
     wchlink_test_transfer_l103_checksum();
+    wchlink_test_transfer_v30x_checksum();
     wchlink_test_transfer_partial_write();
     wchlink_test_transfer_bidirectional_activity();
     wchlink_test_transfer_error_repeat_and_abort();

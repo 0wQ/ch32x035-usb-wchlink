@@ -528,3 +528,18 @@ struct rvswd_target_result wchlink_target_ports_flash_set_read_protected(
     return wchlink_target_ports_operation_result(
         &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, success);
 }
+
+struct rvswd_target_result wchlink_target_ports_flash_set_option_bytes(
+    struct wchlink_target_ports *ports, const uint8_t *values, size_t count) {
+    struct rvswd_operation operation;
+    bool success;
+
+    if (ports == NULL || values == NULL) {
+        return wchlink_target_ports_invalid_result(RVSWD_TARGET_RESULT_FLASH);
+    }
+    rvswd_operation_init(&operation, &ports->transport);
+    success = rvswd_flash_set_option_bytes(
+        &operation, ports->profile, values, count);
+    return wchlink_target_ports_operation_result(
+        &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, success);
+}

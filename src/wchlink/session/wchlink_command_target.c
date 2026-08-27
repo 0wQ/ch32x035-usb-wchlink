@@ -153,8 +153,21 @@ static struct wchlink_session_command_result wchlink_handle_config(
                                : WCHLINK_CONFIG_READ_UNPROTECTED;
             break;
         case WCHLINK_CONFIG_DISABLE_PROTECTION:
-        case WCHLINK_CONFIG_ENABLE_PROTECTION:
-            // 扩展帧还包含 USER 和 WRP 配置，不能按基础保护命令处理
+            if (request_length ==
+                WCHLINK_CONFIG_PAYLOAD_OFFSET +
+                    RVSWD_OPTION_CONFIG_BYTE_COUNT) {
+                // 扩展解除保护帧携带 USER、DATA0、DATA1 和 WRP0..3
+                target_result = wchlink_target_ports_flash_set_option_bytes(
+                    context->target, &request[WCHLINK_CONFIG_PAYLOAD_OFFSET],
+                    RVSWD_OPTION_CONFIG_BYTE_COUNT);
+                if (!target_result.ok) {
+                    return wchlink_command_result(
+                        WCHLINK_SESSION_COMMAND_TARGET_FAILED,
+                        wchlink_wire_target_error(response, capacity, target_result.code));
+                }
+                result = request[3];
+                break;
+            }
             if (request_length != 4u) {
                 return wchlink_command_result(
                     WCHLINK_SESSION_COMMAND_MALFORMED,
@@ -162,8 +175,25 @@ static struct wchlink_session_command_result wchlink_handle_config(
                                              WCHLINK_FAMILY_CONFIG));
             }
             target_result = wchlink_target_ports_flash_set_read_protected(
-                context->target,
-                request[3] == WCHLINK_CONFIG_ENABLE_PROTECTION);
+                context->target, false);
+            if (!target_result.ok) {
+                return wchlink_command_result(
+                    WCHLINK_SESSION_COMMAND_TARGET_FAILED,
+                    wchlink_wire_target_error(response, capacity,
+                                              target_result.code));
+            }
+            result = request[3];
+            break;
+        case WCHLINK_CONFIG_ENABLE_PROTECTION:
+            // 启用保护只接受基础帧，避免丢弃扩展 Option Byte 参数
+            if (request_length != 4u) {
+                return wchlink_command_result(
+                    WCHLINK_SESSION_COMMAND_MALFORMED,
+                    wchlink_wire_unsupported(response, capacity,
+                                             WCHLINK_FAMILY_CONFIG));
+            }
+            target_result = wchlink_target_ports_flash_set_read_protected(
+                context->target, true);
             if (!target_result.ok) {
                 return wchlink_command_result(
                     WCHLINK_SESSION_COMMAND_TARGET_FAILED,

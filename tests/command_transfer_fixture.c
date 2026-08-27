@@ -394,7 +394,11 @@ static void wchlink_test_command_config_and_reset(void) {
     const uint8_t write_protection[] = {
         0x81u, WCHLINK_FAMILY_CONFIG, 0x01u,
         WCHLINK_CONFIG_WRITE_PROTECTION};
-    const uint8_t extended_protection[] = {
+    const uint8_t extended_disable_protection[] = {
+        0x81u, WCHLINK_FAMILY_CONFIG, 0x08u,
+        WCHLINK_CONFIG_DISABLE_PROTECTION,
+        0xffu, 0xfeu, 0xfdu, 0xfcu, 0xfbu, 0xfau, 0xf9u};
+    const uint8_t extended_enable_protection[] = {
         0x81u, WCHLINK_FAMILY_CONFIG, 0x02u,
         WCHLINK_CONFIG_ENABLE_PROTECTION, 0x00u};
     const uint8_t soft_reset[] = {
@@ -430,7 +434,7 @@ static void wchlink_test_command_config_and_reset(void) {
         0x81u, WCHLINK_FAMILY_RESET, 0x01u, 0x02u};
     struct wchlink_session_command_result result;
 
-    // Protection command 通过 target port 返回状态，扩展帧不能退化为基础命令
+    // Protection command 通过 target port 返回状态，扩展解除帧完整传递 Option Bytes
     wchlink_test_fixture_init(&fixture, info, true);
     result = wchlink_command_process(
         &fixture.command, read_protection, sizeof(read_protection), response,
@@ -476,7 +480,20 @@ static void wchlink_test_command_config_and_reset(void) {
                               sizeof(config_unprotected_reply));
 
     result = wchlink_command_process(
-        &fixture.command, extended_protection, sizeof(extended_protection),
+        &fixture.command, extended_disable_protection,
+        sizeof(extended_disable_protection), response, sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              config_disable_reply,
+                              sizeof(config_disable_reply));
+    wchlink_test_expect_bytes(
+        fixture.target.option_bytes, sizeof(fixture.target.option_bytes),
+        &extended_disable_protection[4],
+        sizeof(extended_disable_protection) - 4u);
+
+    result = wchlink_command_process(
+        &fixture.command, extended_enable_protection,
+        sizeof(extended_enable_protection),
         response, sizeof(response));
     assert(result.status == WCHLINK_SESSION_COMMAND_MALFORMED);
     wchlink_test_expect_bytes(response, result.response_length,

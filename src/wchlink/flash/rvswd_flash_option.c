@@ -62,6 +62,7 @@ enum rvswd_flash_option_error {
     RVSWD_FLASH_OPTION_ERROR_READ_IMAGE = 0x45u,
     RVSWD_FLASH_OPTION_ERROR_RESET_AND_HALT = 0x46u,
     RVSWD_FLASH_OPTION_ERROR_VERIFY = 0x47u,
+    RVSWD_FLASH_OPTION_ERROR_CONFIG_INPUT = 0x48u,
     RVSWD_FLASH_OPTION_ERROR_HALFWORD_INITIAL_STATUS_READ = 0x51u,
     RVSWD_FLASH_OPTION_ERROR_HALFWORD_INITIAL_STATUS_TIMEOUT = 0x52u,
     RVSWD_FLASH_OPTION_ERROR_HALFWORD_CONTROL_READ = 0x53u,
@@ -126,6 +127,10 @@ static bool rvswd_flash_option_write16(struct rvswd_operation *operation,
     }
 
     return ((abstractcs >> 8u) & 0x07u) == 0u;
+}
+
+static uint16_t rvswd_flash_option_encode_byte(uint8_t value) {
+    return (uint16_t)value | (uint16_t)((uint16_t)(~value) << 8u);
 }
 
 bool rvswd_flash_read_protected(struct rvswd_operation *operation,
@@ -722,6 +727,71 @@ bool rvswd_flash_set_read_protected(struct rvswd_operation *operation,
     if (current != protected) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_VERIFY;
         return false;
+    }
+    return true;
+}
+
+bool rvswd_flash_set_option_bytes(struct rvswd_operation *operation,
+                                  const struct rvswd_target_profile *profile,
+                                  const uint8_t *values, size_t count) {
+    uint32_t option_words[RVSWD_FLASH_OPTION_WORD_COUNT];
+    uint32_t actual;
+
+    operation->flash_code = 0u;
+    if (profile == NULL || profile->ch5xx_protocol) {
+        operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
+        return false;
+    }
+    if (values == NULL || count != RVSWD_OPTION_CONFIG_BYTE_COUNT) {
+        operation->flash_code = RVSWD_FLASH_OPTION_ERROR_CONFIG_INPUT;
+        return false;
+    }
+
+    // 扩展配置包含 USER、DATA0、DATA1 和 WRP0..3，RDP 固定保持可调试状态
+    option_words[0] =
+        (uint32_t)rvswd_flash_option_rdp_unprotected |
+        ((uint32_t)rvswd_flash_option_encode_byte(values[0]) << 16u);
+    for (uint32_t index = 1u; index < RVSWD_FLASH_OPTION_WORD_COUNT; ++index) {
+        uint32_t value_index = index * 2u - 1u;
+
+        option_words[index] =
+            (uint32_t)rvswd_flash_option_encode_byte(values[value_index]) |
+            ((uint32_t)rvswd_flash_option_encode_byte(
+                 values[value_index + 1u])
+             << 16u);
+    }
+
+    switch (profile->option_write) {
+        case RVSWD_OPTION_WRITE_FAST_BUFFER:
+            if (!rvswd_flash_option_write_fast_buffer(
+                    operation, profile, option_words)) {
+                return false;
+            }
+            break;
+        case RVSWD_OPTION_WRITE_HALFWORD:
+            if (!rvswd_flash_option_write_halfword(
+                    operation, profile, option_words)) {
+                return false;
+            }
+            break;
+        default:
+            operation->flash_code = RVSWD_FLASH_OPTION_ERROR_WRITE_MODE;
+            return false;
+    }
+
+    // 复位使 OBR 和 WRPR 装载新值，再逐字验证完整 Option Bytes 镜像
+    if (!rvswd_reset_and_halt(operation)) {
+        operation->flash_code = RVSWD_FLASH_OPTION_ERROR_RESET_AND_HALT;
+        return false;
+    }
+    for (uint32_t index = 0u; index < RVSWD_FLASH_OPTION_WORD_COUNT; ++index) {
+        if (!rvswd_memory_read32(operation, profile, true,
+                                 profile->option_base + index * 4u,
+                                 &actual) ||
+            actual != option_words[index]) {
+            operation->flash_code = RVSWD_FLASH_OPTION_ERROR_VERIFY;
+            return false;
+        }
     }
     return true;
 }

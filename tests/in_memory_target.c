@@ -563,3 +563,20 @@ struct rvswd_target_result wchlink_target_ports_flash_set_read_protected(
     target->read_protected = protected;
     return rvswd_target_result_success();
 }
+
+struct rvswd_target_result wchlink_target_ports_flash_set_option_bytes(
+    struct wchlink_target_ports *target, const uint8_t *values, size_t count) {
+    struct rvswd_target_result result;
+
+    if (wchlink_test_target_take_failure(
+            target, WCHLINK_TEST_TARGET_FLASH_SET_OPTION_BYTES, &result)) {
+        return result;
+    }
+    if (values == NULL || count != sizeof(target->option_bytes)) {
+        return rvswd_target_result_failure(
+            RVSWD_TARGET_RESULT_FLASH, 0x48u, false);
+    }
+    memcpy(target->option_bytes, values, count);
+    target->read_protected = false;
+    return rvswd_target_result_success();
+}

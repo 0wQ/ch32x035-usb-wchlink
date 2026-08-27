@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 struct rvswd_operation;
@@ -21,3 +22,6 @@ bool rvswd_flash_write_protected(struct rvswd_operation *operation,
 bool rvswd_flash_set_read_protected(struct rvswd_operation *operation,
                                     const struct rvswd_target_profile *profile,
                                     bool protected);
+bool rvswd_flash_set_option_bytes(struct rvswd_operation *operation,
+                                  const struct rvswd_target_profile *profile,
+                                  const uint8_t *values, size_t count);

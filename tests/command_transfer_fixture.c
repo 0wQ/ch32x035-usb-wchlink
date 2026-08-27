@@ -906,6 +906,37 @@ static void wchlink_test_transfer_error_repeat_and_abort(void) {
     assert(finish.abstractcs == 0xffffffffu);
 }
 
+static void wchlink_test_transfer_abort_pending_data_in(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    struct wchlink_test_fixture fixture;
+    uint8_t patch[] = {0x12u, 0x34u, 0x56u, 0x78u};
+    uint8_t status;
+
+    wchlink_test_fixture_init(&fixture, info, true);
+
+    // 放弃回读后不得继续生成旧 data IN 包
+    wchlink_transfer_prepare_read(&fixture.transfer, 0x100u, 64u);
+    wchlink_transfer_begin_read(&fixture.transfer);
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_DATA_IN);
+    wchlink_transfer_abort(&fixture.transfer);
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_NONE);
+
+    // 已生成但未被主机读取的 ACK 也必须随旧操作清除
+    assert(wchlink_transfer_start_partial_write(
+        &fixture.transfer, 0x100u, (uint8_t)sizeof(patch)));
+    wchlink_transfer_write_data(&fixture.transfer, patch, sizeof(patch));
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_DATA_IN);
+    wchlink_transfer_abort(&fixture.transfer);
+    assert(wchlink_transfer_next_io(&fixture.transfer) ==
+           WCHLINK_TRANSFER_IO_NONE);
+    assert(!wchlink_transfer_take_reply_status(&fixture.transfer, &status));
+}
+
 int main(void) {
     wchlink_test_command_connect_and_dmi();
     wchlink_test_command_connect_failure();
@@ -920,5 +951,6 @@ int main(void) {
     wchlink_test_transfer_partial_write();
     wchlink_test_transfer_bidirectional_activity();
     wchlink_test_transfer_error_repeat_and_abort();
+    wchlink_test_transfer_abort_pending_data_in();
     return 0;
 }

@@ -37,6 +37,8 @@ struct wchlink_session_command_result {
 };
 
 void wchlink_session_reset(void);
+// USB host 放弃 data 阶段后取消旧操作，保留已经建立的目标连接
+void wchlink_session_abort_transfer(void);
 struct wchlink_session_command_result wchlink_session_process(
     const uint8_t *request, size_t request_length, uint8_t *response,
     size_t response_capacity);

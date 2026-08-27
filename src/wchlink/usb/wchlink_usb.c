@@ -411,6 +411,26 @@ static void wchlink_service_data_in(void) {
     }
 }
 
+static void wchlink_service_abandoned_data_in(void) {
+    bool endpoint_pending;
+
+    if (!wchlink_request_pending ||
+        (!wchlink_data_in_pending &&
+         (wchlink_session_next_data_io() & WCHLINK_SESSION_DATA_IO_IN) == 0u)) {
+        return;
+    }
+
+    // 新 command 表示 host 已放弃旧 data 阶段，先停止 producer 再回收端点
+    wchlink_session_abort_transfer();
+    __disable_irq();
+    endpoint_pending = wchlink_data_in_pending;
+    wchlink_data_in_pending = false;
+    __enable_irq();
+    if (endpoint_pending) {
+        (void)ch32x035_usbd_ep_abort_in(0u, 0x82u);
+    }
+}
+
 static void wchlink_service_data_out(void) {
     uint16_t data_length;
 
@@ -488,6 +508,7 @@ void wchlink_usb_process(void) {
     // Callback 只更新完成标志，主循环统一决定何时重挂端点
     wchlink_arm_request();
     wchlink_service_response_timeout();
+    wchlink_service_abandoned_data_in();
     wchlink_service_data_out();
     wchlink_service_data_in();
     wchlink_cdc_service();

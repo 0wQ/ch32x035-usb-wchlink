@@ -22,6 +22,10 @@ void wchlink_session_reset(void) {
     wchlink_command_reset(&wchlink_session_commands);
 }
 
+void wchlink_session_abort_transfer(void) {
+    wchlink_transfer_abort(&wchlink_session_state.transfer);
+}
+
 enum wchlink_session_data_io wchlink_session_next_data_io(void) {
     enum wchlink_transfer_io_request transfer_io =
         wchlink_transfer_next_io(&wchlink_session_state.transfer);

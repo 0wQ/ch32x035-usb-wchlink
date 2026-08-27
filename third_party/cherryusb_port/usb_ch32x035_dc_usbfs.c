@@ -5,6 +5,8 @@
  * In particular, EP4 shares UEP0_DMA, while EP1-3 and EP5-7 each use one DMA
  * base with OUT at offset 0 and IN at offset 64 when both directions are open.
  */
+#include "usb_ch32x035_dc_usbfs.h"
+
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -12,8 +14,6 @@
 #include <ch32x035.h>
 #include <ch32x035_usb.h>
 #include <usbd_core.h>
-
-#include "usb_ch32x035_dc_usbfs.h"
 
 #ifdef CONFIG_USB_HS
 #error "CH32X035 only provides a USB full-speed device controller"
@@ -71,6 +71,11 @@ static bool x035_usb_bus_valid(uint8_t busid) {
 
 static bool x035_usb_ep_valid(uint8_t ep_idx) {
     return ep_idx < X035_USB_EP_COUNT;
+}
+
+// CH32X035 仅在 endpoint 1/2/3 上提供硬件自动 data toggle
+static bool x035_usb_auto_toggle_supported(uint8_t ep_idx) {
+    return ep_idx >= 1u && ep_idx <= 3u;
 }
 
 static uint8_t x035_usb_ep_slot(uint8_t ep_idx) {
@@ -318,9 +323,13 @@ static void x035_usb_reset_endpoint_registers(void) {
     USBFSD->UEP567_MOD = 0u;
 
     for (uint8_t ep_idx = 0u; ep_idx < X035_USB_EP_COUNT; ++ep_idx) {
+        uint8_t auto_toggle = x035_usb_auto_toggle_supported(ep_idx)
+                                  ? USBFS_UEP_T_AUTO_TOG
+                                  : 0u;
+
         *x035_usb_tx_len_reg(ep_idx) = 0u;
-        x035_usb_set_tx_ctrl(ep_idx, USBFS_UEP_T_RES_NAK);
-        x035_usb_set_rx_ctrl(ep_idx, USBFS_UEP_R_RES_NAK);
+        x035_usb_set_tx_ctrl(ep_idx, auto_toggle | USBFS_UEP_T_RES_NAK);
+        x035_usb_set_rx_ctrl(ep_idx, auto_toggle | USBFS_UEP_R_RES_NAK);
     }
 }
 
@@ -403,7 +412,8 @@ static void x035_usb_complete_noncontrol_out(uint8_t busid, uint8_t ep_idx, uint
     }
 
     x035_usb_set_rx_response(ep_idx, USBFS_UEP_R_RES_NAK);
-    if (state->type != USB_ENDPOINT_TYPE_ISOCHRONOUS && !toggle_mismatch) {
+    if (state->type != USB_ENDPOINT_TYPE_ISOCHRONOUS && !toggle_mismatch &&
+        !x035_usb_auto_toggle_supported(ep_idx)) {
         x035_usb_set_rx_ctrl(ep_idx, x035_usb_get_rx_ctrl(ep_idx) ^ USBFS_UEP_R_TOG);
     }
     state->accept_toggle_mismatch = false;
@@ -450,7 +460,8 @@ static void x035_usb_complete_noncontrol_in(uint8_t busid, uint8_t ep_idx, uint8
     state->transferred += state->packet_len;
     state->packet_len = 0u;
     state->dma_direct = false;
-    if (state->type != USB_ENDPOINT_TYPE_ISOCHRONOUS) {
+    if (state->type != USB_ENDPOINT_TYPE_ISOCHRONOUS &&
+        !x035_usb_auto_toggle_supported(ep_idx)) {
         x035_usb_set_tx_ctrl(ep_idx, x035_usb_get_tx_ctrl(ep_idx) ^ USBFS_UEP_T_TOG);
     }
     if (state->remaining != 0u) {
@@ -691,9 +702,17 @@ int usbd_ep_open(uint8_t busid, const struct usb_endpoint_descriptor *ep) {
     x035_usb_set_mode(ep_idx, in, true);
     if (in) {
         *x035_usb_tx_len_reg(ep_idx) = 0u;
-        x035_usb_set_tx_ctrl(ep_idx, USBFS_UEP_T_RES_NAK);
+        x035_usb_set_tx_ctrl(ep_idx,
+                             (x035_usb_auto_toggle_supported(ep_idx)
+                                  ? USBFS_UEP_T_AUTO_TOG
+                                  : 0u) |
+                                 USBFS_UEP_T_RES_NAK);
     } else {
-        x035_usb_set_rx_ctrl(ep_idx, USBFS_UEP_R_RES_NAK);
+        x035_usb_set_rx_ctrl(ep_idx,
+                             (x035_usb_auto_toggle_supported(ep_idx)
+                                  ? USBFS_UEP_R_AUTO_TOG
+                                  : 0u) |
+                                 USBFS_UEP_R_RES_NAK);
     }
     return 0;
 }
@@ -807,9 +826,17 @@ int usbd_ep_set_stall(uint8_t busid, const uint8_t ep) {
     x035_usb_reset_transfer(state);
     if (in) {
         *x035_usb_tx_len_reg(ep_idx) = 0u;
-        x035_usb_set_tx_ctrl(ep_idx, USBFS_UEP_T_TOG | USBFS_UEP_T_RES_STALL);
+        x035_usb_set_tx_ctrl(ep_idx,
+                             (x035_usb_auto_toggle_supported(ep_idx)
+                                  ? USBFS_UEP_T_AUTO_TOG
+                                  : 0u) |
+                                 USBFS_UEP_T_TOG | USBFS_UEP_T_RES_STALL);
     } else {
-        x035_usb_set_rx_ctrl(ep_idx, USBFS_UEP_R_TOG | USBFS_UEP_R_RES_STALL);
+        x035_usb_set_rx_ctrl(ep_idx,
+                             (x035_usb_auto_toggle_supported(ep_idx)
+                                  ? USBFS_UEP_R_AUTO_TOG
+                                  : 0u) |
+                                 USBFS_UEP_R_TOG | USBFS_UEP_R_RES_STALL);
     }
 
     if (ep_idx == 0u) {

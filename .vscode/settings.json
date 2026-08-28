@@ -1,0 +1,17 @@
+{
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/.vscode/compile_commands.json",
+  "xmake.compileCommandsDirectory": ".vscode",
+  "xmake.autoGenerateCompileCommands": "onFileChange",
+  "xmake.status.showProject": false,
+  "xmake.status.showXMake": true,
+  "xmake.status.showPlatform": false,
+  "xmake.status.showArch": false,
+  "xmake.status.showMode": true,
+  "xmake.status.showToolchain": false,
+  "xmake.status.showTarget": false,
+  "xmake.status.showBuild": true,
+  "xmake.status.showRebuild": true,
+  "xmake.status.showRun": false,
+  "xmake.status.showDebug": false,
+  "cmake.ignoreCMakeListsMissing": true,
+}

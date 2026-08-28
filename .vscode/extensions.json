@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "tboox.xmake-vscode",
+    "ms-vscode.cpptools",
+    "marus25.cortex-debug",
+    "actboy168.tasks"
+  ]
+}

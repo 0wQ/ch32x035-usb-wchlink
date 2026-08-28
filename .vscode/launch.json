@@ -1,0 +1,46 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "WCH Cortex-Debug (Attach to :3333)",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/debug/firmware.elf",
+      "gdbPath": "${env:WCH_RISCV_ROOT}/bin/riscv-wch-elf-gdb",
+      "preLaunchTask": "Build Debug Firmware",
+      "serverpath": "${env:WCH_OPENOCD_ROOT}/bin/openocd",
+      "configFiles": [
+        "${env:WCH_OPENOCD_ROOT}/bin/wch-riscv.cfg"
+      ],
+      "postAttachCommands": [
+        "monitor reset halt"
+      ],
+      "runToEntryPoint": "main",
+      "showDevDebugOutput": "raw"
+    },
+    {
+      "name": "WCH Cortex-Debug (Load + Run)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/debug/firmware.elf",
+      "gdbPath": "${env:WCH_RISCV_ROOT}/bin/riscv-wch-elf-gdb",
+      "preLaunchTask": "Build Debug Firmware",
+      "serverpath": "${env:WCH_OPENOCD_ROOT}/bin/openocd",
+      "configFiles": [
+        "${env:WCH_OPENOCD_ROOT}/bin/wch-riscv.cfg"
+      ],
+      "postLaunchCommands": [
+        "monitor reset halt",
+        "load",
+        "tbreak main",
+        "continue"
+      ],
+      "runToEntryPoint": "main",
+      "showDevDebugOutput": "raw"
+    }
+  ]
+}

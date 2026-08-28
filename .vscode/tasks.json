@@ -1,0 +1,112 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start OpenOCD",
+      "type": "shell",
+      "command": "${env:WCH_OPENOCD_ROOT}/bin/openocd -f ${env:WCH_OPENOCD_ROOT}/bin/wch-riscv.cfg",
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "silent"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Clean",
+      "type": "process",
+      "command": "xmake",
+      "args": [
+        "clean",
+        "--all"
+      ],
+      "group": "build",
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always",
+        "close": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Debug Firmware",
+      "type": "shell",
+      "command": "xmake f -c -m debug -y && xmake -rv",
+      "hide": true,
+      "group": "build",
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "xmake f -c -m release -y && xmake -r",
+      "group": "build",
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flash (wlink)",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Build"
+      ],
+      "type": "process",
+      "command": "wlink",
+      "args": [
+        "flash",
+        "${workspaceFolder}/build/release/firmware.elf"
+      ],
+      "group": "build",
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flash (wlink sdi)",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Build"
+      ],
+      "type": "process",
+      "command": "wlink",
+      "args": [
+        "flash",
+        "--enable-sdi-print",
+        "${workspaceFolder}/build/release/firmware.elf"
+      ],
+      "group": "build",
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flash (wchisp)",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Build"
+      ],
+      "type": "process",
+      "command": "wchisp",
+      "args": [
+        "flash",
+        "${workspaceFolder}/build/release/firmware.elf"
+      ],
+      "group": "build",
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

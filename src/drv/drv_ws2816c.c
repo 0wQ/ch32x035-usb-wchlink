@@ -20,6 +20,7 @@
 
 static bool ws2816c_initialized;
 static bool ws2816c_dma_busy;
+static uint16_t ws2816c_brightness = UINT16_MAX;
 static uint8_t ws2816c_dma_buffer[WS2816C_DMA_BUFFER_SIZE] __attribute__((aligned(4)));
 
 static void ws2816c_config_mosi(GPIOMode_TypeDef mode) {
@@ -29,6 +30,10 @@ static void ws2816c_config_mosi(GPIOMode_TypeDef mode) {
     gpio.GPIO_Speed = GPIO_Speed_50MHz;
     gpio.GPIO_Mode = mode;
     GPIO_Init(GPIOA, &gpio);
+}
+
+static uint16_t ws2816c_scale_channel(uint16_t value) {
+    return (uint16_t)(((uint32_t)value * ws2816c_brightness + (UINT16_MAX / 2u)) / UINT16_MAX);
 }
 
 static void ws2816c_encode_u16(uint16_t value, uint16_t *index) {
@@ -44,9 +49,9 @@ static uint16_t ws2816c_encode_pixels(const drv_ws2816c_pixel_t *pixels,
     uint16_t index = WS2816C_RESET_BYTES;
 
     for (size_t pixel = 0u; pixel < pixel_count; ++pixel) {
-        ws2816c_encode_u16(pixels[pixel].green, &index);
-        ws2816c_encode_u16(pixels[pixel].red, &index);
-        ws2816c_encode_u16(pixels[pixel].blue, &index);
+        ws2816c_encode_u16(ws2816c_scale_channel(pixels[pixel].green), &index);
+        ws2816c_encode_u16(ws2816c_scale_channel(pixels[pixel].red), &index);
+        ws2816c_encode_u16(ws2816c_scale_channel(pixels[pixel].blue), &index);
     }
     while (index < WS2816C_RESET_BYTES + WS2816C_DATA_BYTES + WS2816C_RESET_BYTES) {
         ws2816c_dma_buffer[index++] = 0u;
@@ -54,15 +59,20 @@ static uint16_t ws2816c_encode_pixels(const drv_ws2816c_pixel_t *pixels,
     return index;
 }
 
-static void ws2816c_wait_idle(void) {
+static void ws2816c_update_busy(void) {
     if (!ws2816c_dma_busy) {
         return;
     }
-    while (DMA_GetCurrDataCounter(DMA1_Channel3) != 0u) {
+    if (DMA_GetCurrDataCounter(DMA1_Channel3) == 0u &&
+        SPI_I2S_GetFlagStatus(SPI1, SPI_I2S_FLAG_BSY) == RESET) {
+        ws2816c_dma_busy = false;
     }
-    while (SPI_I2S_GetFlagStatus(SPI1, SPI_I2S_FLAG_BSY) != RESET) {
+}
+
+static void ws2816c_wait_idle(void) {
+    while (ws2816c_dma_busy) {
+        ws2816c_update_busy();
     }
-    ws2816c_dma_busy = false;
 }
 
 void drv_ws2816c_init(void) {
@@ -118,6 +128,15 @@ void drv_ws2816c_init(void) {
 }
 
 bool drv_ws2816c_write(const drv_ws2816c_pixel_t *pixels, size_t pixel_count) {
+    ws2816c_wait_idle();
+    if (!drv_ws2816c_write_async(pixels, pixel_count)) {
+        return false;
+    }
+    ws2816c_wait_idle();
+    return true;
+}
+
+bool drv_ws2816c_write_async(const drv_ws2816c_pixel_t *pixels, size_t pixel_count) {
     uint16_t transfer_length;
 
     if (!ws2816c_initialized || pixels == NULL || pixel_count > WS2816C_MAX_PIXELS) {
@@ -127,13 +146,23 @@ bool drv_ws2816c_write(const drv_ws2816c_pixel_t *pixels, size_t pixel_count) {
         return true;
     }
 
-    ws2816c_wait_idle();
+    ws2816c_update_busy();
+    if (ws2816c_dma_busy) {
+        return false;
+    }
     transfer_length = ws2816c_encode_pixels(pixels, pixel_count);
     DMA_Cmd(DMA1_Channel3, DISABLE);
     DMA_ClearITPendingBit(DMA1_IT_GL3);
     DMA_SetCurrDataCounter(DMA1_Channel3, transfer_length);
     DMA_Cmd(DMA1_Channel3, ENABLE);
     ws2816c_dma_busy = true;
-    ws2816c_wait_idle();
     return true;
+}
+
+void drv_ws2816c_process(void) {
+    ws2816c_update_busy();
+}
+
+void drv_ws2816c_set_brightness(uint16_t brightness) {
+    ws2816c_brightness = brightness;
 }

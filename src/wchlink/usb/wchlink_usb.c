@@ -4,6 +4,7 @@
 #include "bsp/bsp_system.h"
 #include "bsp/bsp_uid.h"
 #include "wchlink/session/wchlink_session.h"
+#include "wchlink/status/wchlink_status_led.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -398,9 +399,13 @@ static void wchlink_service_data_in(void) {
     if ((wchlink_session_next_data_io() & WCHLINK_SESSION_DATA_IO_IN) == 0u) {
         return;
     }
+    wchlink_status_led_set_state(WCHLINK_STATUS_LED_ACTIVE);
     data_length = wchlink_session_poll_data_in(wchlink_data_packet,
                                                sizeof(wchlink_data_packet));
     if (data_length == 0u) {
+        if (wchlink_session_next_data_io() == WCHLINK_SESSION_DATA_IO_NONE) {
+            wchlink_status_led_set_state(WCHLINK_STATUS_LED_ERROR);
+        }
         return;
     }
 
@@ -408,6 +413,9 @@ static void wchlink_service_data_in(void) {
     if (usbd_ep_start_write(0u, 0x82u, wchlink_data_packet,
                             (uint32_t)data_length) != 0) {
         wchlink_data_in_pending = false;
+        wchlink_status_led_set_state(WCHLINK_STATUS_LED_ERROR);
+    } else if (wchlink_session_next_data_io() == WCHLINK_SESSION_DATA_IO_NONE) {
+        wchlink_status_led_set_state(WCHLINK_STATUS_LED_SUCCESS);
     }
 }
 
@@ -452,7 +460,11 @@ static void wchlink_service_data_out(void) {
         data_length = wchlink_data_out_length;
         wchlink_data_out_pending = false;
         __enable_irq();
+        wchlink_status_led_set_state(WCHLINK_STATUS_LED_ACTIVE);
         wchlink_session_submit_data_out(wchlink_data_out_buffer, data_length);
+        if (wchlink_session_next_data_io() == WCHLINK_SESSION_DATA_IO_NONE) {
+            wchlink_status_led_set_state(WCHLINK_STATUS_LED_SUCCESS);
+        }
     }
 
     if ((wchlink_session_next_data_io() & WCHLINK_SESSION_DATA_IO_OUT) != 0u &&
@@ -525,6 +537,7 @@ void wchlink_usb_process(void) {
     // 协议处理包含 RVSWD 长事务，先重新挂载 OUT 端点避免主机在处理期间超时
     wchlink_arm_request();
 
+    wchlink_status_led_set_state(WCHLINK_STATUS_LED_ACTIVE);
     command_result = wchlink_session_process(
         request, request_length, wchlink_response, sizeof(wchlink_response));
     if (command_result.action == WCHLINK_SESSION_ACTION_ENTER_ISP) {
@@ -533,6 +546,11 @@ void wchlink_usb_process(void) {
     if (command_result.status == WCHLINK_SESSION_COMMAND_NO_RESPONSE) {
         wchlink_arm_request();
         return;
+    }
+    if (command_result.status != WCHLINK_SESSION_COMMAND_COMPLETED) {
+        wchlink_status_led_set_state(WCHLINK_STATUS_LED_ERROR);
+    } else if (wchlink_session_next_data_io() == WCHLINK_SESSION_DATA_IO_NONE) {
+        wchlink_status_led_set_state(WCHLINK_STATUS_LED_SUCCESS);
     }
     response_length = command_result.response_length;
     if (response_length == 0u) {

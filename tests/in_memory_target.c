@@ -21,6 +21,13 @@ static const struct wchlink_test_loader_layout wchlink_test_loader_default = {
     .checksum_address = 0u,
 };
 
+static const struct wchlink_test_loader_layout wchlink_test_loader_x035 = {
+    .code_address = 0x20000000u,
+    .data_address = 0x20001000u,
+    .stack_top = 0x20005000u,
+    .checksum_address = 0x20002010u,
+};
+
 static const struct wchlink_test_loader_layout wchlink_test_loader_l103 = {
     .code_address = 0x20000000u,
     .data_address = 0x20001000u,
@@ -49,6 +56,9 @@ static const struct wchlink_test_loader_layout *wchlink_test_loader_layout(
     }
     if (target->info.loader == RVSWD_TARGET_LOADER_L103) {
         return &wchlink_test_loader_l103;
+    }
+    if (target->info.family == WCHLINK_TARGET_FAMILY_X035) {
+        return &wchlink_test_loader_x035;
     }
     if (target->info.family == WCHLINK_TARGET_FAMILY_V30X) {
         return &wchlink_test_loader_v30x;

@@ -1146,6 +1146,28 @@ static void wchlink_test_transfer_v30x_checksum(void) {
     assert(memcmp(checksum, packet, sizeof(packet)) == 0);
 }
 
+static void wchlink_test_transfer_x035_checksum(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    const uint8_t packet[] = {0x01u, 0x02u, 0x03u, 0x04u};
+    struct wchlink_test_fixture fixture;
+    struct wchlink_transfer_finish_result finish;
+    uint8_t checksum[sizeof(packet)];
+
+    // X035 的 flash_op643 在编程加校验前需要写入 checksum mailbox
+    wchlink_test_fixture_init(&fixture, info, true);
+    finish = wchlink_test_finish_default_loader(&fixture, 0x08000000u,
+                                                sizeof(packet));
+    assert(finish.status == WCHLINK_TRANSFER_FINISH_READY);
+    assert(wchlink_transfer_start_flash(&fixture.transfer, 0x04u));
+    wchlink_transfer_write_data(&fixture.transfer, packet, sizeof(packet));
+    assert(wchlink_test_take_status(&fixture.transfer) == 0x04u);
+    assert(wchlink_test_target_load(&fixture.target, 0x20002010u, checksum,
+                                    sizeof(checksum)));
+    assert(memcmp(checksum, packet, sizeof(packet)) == 0);
+}
+
 static void wchlink_test_transfer_partial_write(void) {
     const struct rvswd_target_info info = wchlink_test_info(
         0x82000000u, WCHLINK_TARGET_FAMILY_CH58X,
@@ -1320,6 +1342,7 @@ int main(void) {
     wchlink_test_transfer_ch5xx_padding();
     wchlink_test_transfer_l103_checksum();
     wchlink_test_transfer_v30x_checksum();
+    wchlink_test_transfer_x035_checksum();
     wchlink_test_transfer_partial_write();
     wchlink_test_transfer_bidirectional_activity();
     wchlink_test_transfer_error_repeat_and_abort();

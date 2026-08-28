@@ -83,7 +83,8 @@ int main(void) {
     l103_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_L103);
     v30x_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_V30X);
     ch58x_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_CH58X);
-    assert_loader(x035_profile, 0x20000000u, 0x20001000u, 0x20005000u, 0u,
+    assert_loader(x035_profile, 0x20000000u, 0x20001000u, 0x20005000u,
+                  0x20002010u,
                   512u, 256u, 1u, false);
     assert_loader(l103_profile, 0x20000000u, 0x20001000u, 0x20005000u,
                   0x20002010u, 512u, 256u, 1u, false);

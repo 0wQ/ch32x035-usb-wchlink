@@ -6,12 +6,12 @@
 
 static const uint32_t rvswd_chip_family_mask = 0xfff00000u;
 
-static const struct rvswd_target_loader_profile rvswd_loader_profile_default = {
+static const struct rvswd_target_loader_profile rvswd_loader_profile_x035 = {
     .kind = RVSWD_TARGET_LOADER_DEFAULT,
     .code_address = 0x20000000u,
     .data_address = 0x20001000u,
     .stack_top = 0x20005000u,
-    .checksum_address = 0u,
+    .checksum_address = 0x20002010u,
     .download_limit = 512u,
     .download_packet_size = 256u,
     .data_page_size = 1u,
@@ -58,7 +58,7 @@ static const struct rvswd_target_profile rvswd_target_profile_x035 = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_X035,
     .ch5xx_protocol = false,
     .fast_timing = false,
-    .loader = &rvswd_loader_profile_default,
+    .loader = &rvswd_loader_profile_x035,
     .memory_write_mode = RVSWD_MEMORY_WRITE_STREAMING,
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
     .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,

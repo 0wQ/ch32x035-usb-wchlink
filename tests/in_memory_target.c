@@ -149,6 +149,10 @@ void wchlink_test_target_reset(struct wchlink_target_ports *target,
     memset(target->flash, 0xff, sizeof(target->flash));
     memset(target->ram, 0xff, sizeof(target->ram));
     memset(target->system, 0xff, sizeof(target->system));
+    if (info.family == WCHLINK_TARGET_FAMILY_V30X) {
+        // V307 当前默认配置对应 256 KiB Code Flash 和 64 KiB SRAM
+        target->option_bytes[0] = 0xbfu;
+    }
     info.connected = true;
     target->connect_info = info;
     target->info = info;
@@ -588,5 +592,38 @@ struct rvswd_target_result wchlink_target_ports_flash_set_option_bytes(
     }
     memcpy(target->option_bytes, values, count);
     target->read_protected = false;
+    return rvswd_target_result_success();
+}
+
+struct rvswd_target_result wchlink_target_ports_flash_read_memory_type(
+    struct wchlink_target_ports *target, bool extended) {
+    struct rvswd_target_result result;
+
+    if (wchlink_test_target_take_failure(
+            target, WCHLINK_TEST_TARGET_FLASH_READ_MEMORY_TYPE, &result)) {
+        return result;
+    }
+    return wchlink_test_target_success(
+        extended ? (uint8_t)((target->option_bytes[0] >> 5u) & 0x07u)
+                 : (uint8_t)((target->option_bytes[0] >> 6u) & 0x03u));
+}
+
+struct rvswd_target_result wchlink_target_ports_flash_set_memory_type(
+    struct wchlink_target_ports *target, bool extended, uint8_t memory_type) {
+    struct rvswd_target_result result;
+
+    if (wchlink_test_target_take_failure(
+            target, WCHLINK_TEST_TARGET_FLASH_SET_MEMORY_TYPE, &result)) {
+        return result;
+    }
+    if ((!extended && memory_type > 3u) ||
+        (extended && memory_type != 1u && memory_type != 3u &&
+         memory_type != 5u && memory_type != 6u && memory_type != 7u)) {
+        return rvswd_target_result_failure(
+            RVSWD_TARGET_RESULT_FLASH, 0x4bu, false);
+    }
+    target->option_bytes[0] =
+        (uint8_t)((target->option_bytes[0] & (extended ? 0x1fu : 0x3fu)) |
+                  (uint8_t)(memory_type << (extended ? 5u : 6u)));
     return rvswd_target_result_success();
 }

@@ -543,3 +543,38 @@ struct rvswd_target_result wchlink_target_ports_flash_set_option_bytes(
     return wchlink_target_ports_operation_result(
         &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, success);
 }
+
+struct rvswd_target_result wchlink_target_ports_flash_read_memory_type(
+    struct wchlink_target_ports *ports, bool extended) {
+    struct rvswd_operation operation;
+    struct rvswd_target_result result;
+    uint8_t memory_type = 0u;
+
+    if (ports == NULL) {
+        return wchlink_target_ports_invalid_result(RVSWD_TARGET_RESULT_FLASH);
+    }
+    rvswd_operation_init(&operation, &ports->transport);
+    if (!rvswd_flash_read_memory_type(&operation, ports->profile, extended,
+                                      &memory_type)) {
+        return wchlink_target_ports_operation_result(
+            &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, false);
+    }
+    result = rvswd_target_result_success();
+    result.value = memory_type;
+    return result;
+}
+
+struct rvswd_target_result wchlink_target_ports_flash_set_memory_type(
+    struct wchlink_target_ports *ports, bool extended, uint8_t memory_type) {
+    struct rvswd_operation operation;
+    bool success;
+
+    if (ports == NULL) {
+        return wchlink_target_ports_invalid_result(RVSWD_TARGET_RESULT_FLASH);
+    }
+    rvswd_operation_init(&operation, &ports->transport);
+    success = rvswd_flash_set_memory_type(&operation, ports->profile, extended,
+                                          memory_type);
+    return wchlink_target_ports_operation_result(
+        &operation, RVSWD_TARGET_RESULT_FLASH, operation.flash_code, success);
+}

@@ -556,6 +556,10 @@ static void wchlink_test_command_control_and_device_mode(void) {
     const uint8_t power_5v_off[] = {
         0x81u, WCHLINK_FAMILY_CONTROL, 0x01u,
         WCHLINK_CONTROL_POWER_5V_OFF};
+    const uint8_t check_qe[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u, WCHLINK_CONTROL_CHECK_QE};
+    const uint8_t enable_qe[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u, WCHLINK_CONTROL_ENABLE_QE};
     const uint8_t identify_request[] = {
         0x81u, WCHLINK_FAMILY_CONTROL, 0x01u, WCHLINK_CONTROL_IDENTIFY};
     const uint8_t mode_query[] = {
@@ -571,8 +575,13 @@ static void wchlink_test_command_control_and_device_mode(void) {
     const uint8_t erase_reply[] = {
         0x82u, WCHLINK_FAMILY_CONTROL, 0x01u,
         WCHLINK_CONTROL_CLEAR_CODE_FLASH};
-    const uint8_t control_ack[] = {
+    const uint8_t control_unsupported[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u, 0x02u};
+    const uint8_t qe_enabled_reply[] = {
         0x82u, WCHLINK_FAMILY_CONTROL, 0x01u, 0x00u};
+    const uint8_t qe_enable_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_ENABLE_QE};
     const uint8_t identity_reply[] = {
         0x82u, WCHLINK_FAMILY_CONTROL, 0x04u, 0x03u,
         0x03u, 0x12u, 0x00u};
@@ -616,11 +625,19 @@ static void wchlink_test_command_control_and_device_mode(void) {
     result = wchlink_command_process(&fixture.command, power_3v3_on,
                                      sizeof(power_3v3_on), response,
                                      sizeof(response));
-    assert(wchlink_test_dp_pullup_enabled);
-    wchlink_test_expect_bytes(response, result.response_length, control_ack,
-                              sizeof(control_ack));
-    wchlink_command_process(&fixture.command, power_3v3_off,
-                            sizeof(power_3v3_off), response, sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_TARGET_FAILED);
+    assert(!wchlink_test_dp_pullup_enabled);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              control_unsupported,
+                              sizeof(control_unsupported));
+    result = wchlink_command_process(&fixture.command, power_3v3_off,
+                                     sizeof(power_3v3_off), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_TARGET_FAILED);
+    assert(!wchlink_test_dp_pullup_enabled);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              control_unsupported,
+                              sizeof(control_unsupported));
     assert(!wchlink_test_dp_pullup_enabled);
     wchlink_command_process(&fixture.command, power_5v_on, sizeof(power_5v_on),
                             response, sizeof(response));
@@ -628,6 +645,20 @@ static void wchlink_test_command_control_and_device_mode(void) {
     wchlink_command_process(&fixture.command, power_5v_off,
                             sizeof(power_5v_off), response, sizeof(response));
     assert(!wchlink_test_power_switch_enabled);
+
+    // 内置存储的 QE 查询和启用是 Link 层幂等操作，不依赖目标连接状态
+    result = wchlink_command_process(&fixture.command, check_qe,
+                                     sizeof(check_qe), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              qe_enabled_reply, sizeof(qe_enabled_reply));
+    result = wchlink_command_process(&fixture.command, enable_qe,
+                                     sizeof(enable_qe), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    wchlink_test_expect_bytes(response, result.response_length, qe_enable_reply,
+                              sizeof(qe_enable_reply));
 
     wchlink_test_fixture_init(&fixture, info, true);
     result = wchlink_command_process(&fixture.command, identify_request,
@@ -648,6 +679,82 @@ static void wchlink_test_command_control_and_device_mode(void) {
     assert(result.status == WCHLINK_SESSION_COMMAND_NO_RESPONSE);
     assert(result.action == WCHLINK_SESSION_ACTION_ENTER_ISP);
     assert(result.response_length == 0u);
+}
+
+static void wchlink_test_command_memory_type(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x30700528u, WCHLINK_TARGET_FAMILY_V30X,
+        RVSWD_TARGET_LOADER_DEFAULT, true);
+    struct wchlink_test_fixture fixture;
+    uint8_t response[8];
+    const uint8_t old_query[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_GET_ROMRAM_OLD};
+    const uint8_t old_set[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x02u,
+        WCHLINK_CONTROL_SET_ROMRAM_OLD, 0x01u};
+    const uint8_t new_query[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_GET_ROMRAM_NEW};
+    const uint8_t new_set[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x02u,
+        WCHLINK_CONTROL_SET_ROMRAM_NEW, 0x07u};
+    const uint8_t invalid_new_set[] = {
+        0x81u, WCHLINK_FAMILY_CONTROL, 0x02u,
+        WCHLINK_CONTROL_SET_ROMRAM_NEW, 0x02u};
+    const uint8_t old_query_initial_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u, 0x02u};
+    const uint8_t old_set_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_SET_ROMRAM_OLD};
+    const uint8_t new_query_after_old_set_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u, 0x03u};
+    const uint8_t new_set_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_SET_ROMRAM_NEW};
+    const uint8_t new_query_final_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u, 0x07u};
+    const uint8_t invalid_reply[] = {0x81u, 0x55u, 0x01u, 0x4bu};
+    struct wchlink_session_command_result result;
+
+    // 旧查询读取 USER[7:6]，新查询读取 USER[7:5]
+    wchlink_test_fixture_init(&fixture, info, true);
+    result = wchlink_command_process(&fixture.command, old_query,
+                                     sizeof(old_query), response,
+                                     sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              old_query_initial_reply,
+                              sizeof(old_query_initial_reply));
+    result = wchlink_command_process(&fixture.command, old_set, sizeof(old_set),
+                                     response, sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length, old_set_reply,
+                              sizeof(old_set_reply));
+    assert(fixture.target.option_bytes[0] == 0x7fu);
+    result = wchlink_command_process(&fixture.command, new_query,
+                                     sizeof(new_query), response,
+                                     sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              new_query_after_old_set_reply,
+                              sizeof(new_query_after_old_set_reply));
+
+    result = wchlink_command_process(&fixture.command, new_set, sizeof(new_set),
+                                     response, sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length, new_set_reply,
+                              sizeof(new_set_reply));
+    assert(fixture.target.option_bytes[0] == 0xffu);
+    result = wchlink_command_process(&fixture.command, new_query,
+                                     sizeof(new_query), response,
+                                     sizeof(response));
+    wchlink_test_expect_bytes(response, result.response_length,
+                              new_query_final_reply,
+                              sizeof(new_query_final_reply));
+
+    result = wchlink_command_process(&fixture.command, invalid_new_set,
+                                     sizeof(invalid_new_set), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_TARGET_FAILED);
+    wchlink_test_expect_bytes(response, result.response_length, invalid_reply,
+                              sizeof(invalid_reply));
 }
 
 static void wchlink_test_command_ch5xx_info_stop(void) {
@@ -1203,6 +1310,7 @@ int main(void) {
     wchlink_test_command_connect_failure();
     wchlink_test_command_config_and_reset();
     wchlink_test_command_control_and_device_mode();
+    wchlink_test_command_memory_type();
     wchlink_test_command_ch5xx_info_stop();
     wchlink_test_command_repeat_and_abort();
     wchlink_test_command_program_end_resets_and_halts();

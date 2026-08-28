@@ -22,3 +22,7 @@ struct rvswd_target_result wchlink_target_ports_flash_set_read_protected(
     struct wchlink_target_ports *ports, bool protected);
 struct rvswd_target_result wchlink_target_ports_flash_set_option_bytes(
     struct wchlink_target_ports *ports, const uint8_t *values, size_t count);
+struct rvswd_target_result wchlink_target_ports_flash_read_memory_type(
+    struct wchlink_target_ports *ports, bool extended);
+struct rvswd_target_result wchlink_target_ports_flash_set_memory_type(
+    struct wchlink_target_ports *ports, bool extended, uint8_t memory_type);

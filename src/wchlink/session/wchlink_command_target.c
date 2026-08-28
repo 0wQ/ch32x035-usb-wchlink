@@ -1,6 +1,5 @@
 // Target command cluster 负责目标访问、连接控制和供电命令，不持有 USB buffer
 #include "bsp/bsp_delay.h"
-#include "drv/drv_dp_pullup.h"
 #include "drv/drv_power_switch.h"
 #include "wchlink/protocol/wchlink_family.h"
 #include "wchlink/protocol/wchlink_wire.h"
@@ -56,6 +55,75 @@ static struct wchlink_session_command_result wchlink_handle_chip_info(
     return wchlink_command_result(
         WCHLINK_SESSION_COMMAND_COMPLETED,
         wchlink_wire_chip_info(response, capacity, &wire_info));
+}
+
+static struct wchlink_session_command_result wchlink_handle_memory_type(
+    struct wchlink_command_context *context, bool extended, bool write,
+    const uint8_t *request, size_t request_length, uint8_t *response,
+    size_t capacity) {
+    struct rvswd_target_result target_result;
+
+    if (write) {
+        if (request_length != 5u) {
+            return wchlink_command_result(
+                WCHLINK_SESSION_COMMAND_MALFORMED,
+                wchlink_wire_unsupported(response, capacity,
+                                         WCHLINK_FAMILY_CONTROL));
+        }
+        target_result = wchlink_target_ports_flash_set_memory_type(
+            context->target, extended, request[4]);
+        if (!target_result.ok) {
+            return wchlink_command_result(
+                WCHLINK_SESSION_COMMAND_TARGET_FAILED,
+                wchlink_wire_target_error(response, capacity,
+                                          target_result.code));
+        }
+        return wchlink_command_result(
+            WCHLINK_SESSION_COMMAND_COMPLETED,
+            wchlink_wire_command_reply(response, capacity,
+                                       WCHLINK_FAMILY_CONTROL, request[3]));
+    }
+
+    if (request_length != 4u) {
+        return wchlink_command_result(
+            WCHLINK_SESSION_COMMAND_MALFORMED,
+            wchlink_wire_unsupported(response, capacity,
+                                     WCHLINK_FAMILY_CONTROL));
+    }
+    target_result = wchlink_target_ports_flash_read_memory_type(
+        context->target, extended);
+    if (!target_result.ok) {
+        return wchlink_command_result(
+            WCHLINK_SESSION_COMMAND_TARGET_FAILED,
+            wchlink_wire_target_error(response, capacity, target_result.code));
+    }
+    // 查询回复的第四字节是目标分配编码，不是查询命令编号
+    return wchlink_command_result(
+        WCHLINK_SESSION_COMMAND_COMPLETED,
+        wchlink_wire_command_reply(response, capacity, WCHLINK_FAMILY_CONTROL,
+                                   (uint8_t)target_result.value));
+}
+
+static struct wchlink_session_command_result wchlink_handle_qe(
+    const uint8_t *request, size_t request_length, uint8_t *response,
+    size_t capacity) {
+    if (request_length != 4u) {
+        return wchlink_command_result(
+            WCHLINK_SESSION_COMMAND_MALFORMED,
+            wchlink_wire_unsupported(response, capacity,
+                                     WCHLINK_FAMILY_CONTROL));
+    }
+    if (request[3] == WCHLINK_CONTROL_CHECK_QE) {
+        // 内置 Code Flash 不需要外部 QE 配置，向主机报告已处于可用状态
+        return wchlink_command_result(
+            WCHLINK_SESSION_COMMAND_COMPLETED,
+            wchlink_wire_ack(response, capacity, WCHLINK_FAMILY_CONTROL));
+    }
+    // 内置存储没有独立 QE 寄存器，启用请求保持幂等并回显成功子命令
+    return wchlink_command_result(
+        WCHLINK_SESSION_COMMAND_COMPLETED,
+        wchlink_wire_command_reply(response, capacity, WCHLINK_FAMILY_CONTROL,
+                                   request[3]));
 }
 
 static struct wchlink_session_command_result wchlink_handle_dmi(
@@ -373,11 +441,10 @@ static struct wchlink_session_command_result wchlink_handle_control(
         case WCHLINK_CONTROL_SET_CHIP_TYPE:
             // MRS 将设置目标型号命令作为首次目标连接入口
             if (wchlink_target_ports_info(context->target).connected) {
-                // wlink 在已连接会话中使用同一子命令查询 ROM/RAM 分割
-                return wchlink_command_result(
-                    WCHLINK_SESSION_COMMAND_COMPLETED,
-                    wchlink_wire_ack(response, response_capacity,
-                                     WCHLINK_FAMILY_CONTROL));
+                // 旧版 ROM/RAM 查询与设置芯片型号使用同一个子命令
+                return wchlink_handle_memory_type(
+                    context, false, false, request, request_length, response,
+                    response_capacity);
             }
             // MRS 在设置两线速度后立即发起连接，目标调试模块需要短暂稳定时间
             bsp_delay_ms(20u);
@@ -386,6 +453,22 @@ static struct wchlink_session_command_result wchlink_handle_control(
                 wchlink_target_ports_connect(context->target);
             return wchlink_connect_result(context, target_result, response,
                                           response_capacity);
+        case WCHLINK_CONTROL_SET_ROMRAM_OLD:
+            return wchlink_handle_memory_type(
+                context, false, true, request, request_length, response,
+                response_capacity);
+        case WCHLINK_CONTROL_GET_ROMRAM_NEW:
+            return wchlink_handle_memory_type(
+                context, true, false, request, request_length, response,
+                response_capacity);
+        case WCHLINK_CONTROL_SET_ROMRAM_NEW:
+            return wchlink_handle_memory_type(
+                context, true, true, request, request_length, response,
+                response_capacity);
+        case WCHLINK_CONTROL_CHECK_QE:
+        case WCHLINK_CONTROL_ENABLE_QE:
+            return wchlink_handle_qe(request, request_length, response,
+                                     response_capacity);
         case WCHLINK_CONTROL_CLEAR_CODE_FLASH:
         case WCHLINK_CONTROL_CLEAR_CODE_FLASH_B:
             if (request_length < 5u) {
@@ -423,17 +506,16 @@ static struct wchlink_session_command_result wchlink_handle_control(
                     response, response_capacity, WCHLINK_FAMILY_CONTROL,
                     request[3]));
         case WCHLINK_CONTROL_POWER_3V3_ON:
-            drv_dp_pullup_set_enabled(true);
+            // 当前 PCB 的 PB11 仅是目标 USB D+ 预偏置，不能冒充目标 3.3 V 电源
             return wchlink_command_result(
-                WCHLINK_SESSION_COMMAND_COMPLETED,
-                wchlink_wire_ack(response, response_capacity,
-                                 WCHLINK_FAMILY_CONTROL));
+                WCHLINK_SESSION_COMMAND_TARGET_FAILED,
+                wchlink_wire_unsupported(response, response_capacity,
+                                         WCHLINK_FAMILY_CONTROL));
         case WCHLINK_CONTROL_POWER_3V3_OFF:
-            drv_dp_pullup_set_enabled(false);
             return wchlink_command_result(
-                WCHLINK_SESSION_COMMAND_COMPLETED,
-                wchlink_wire_ack(response, response_capacity,
-                                 WCHLINK_FAMILY_CONTROL));
+                WCHLINK_SESSION_COMMAND_TARGET_FAILED,
+                wchlink_wire_unsupported(response, response_capacity,
+                                         WCHLINK_FAMILY_CONTROL));
         case WCHLINK_CONTROL_POWER_5V_ON:
             drv_power_switch_set_enabled(true);
             return wchlink_command_result(

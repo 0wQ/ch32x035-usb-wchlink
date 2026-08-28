@@ -98,6 +98,9 @@ enum rvswd_flash_option_error {
     RVSWD_FLASH_OPTION_ERROR_UNPROTECT_ENTER_PROGRAM = 0x71u,
     RVSWD_FLASH_OPTION_ERROR_UNPROTECT_WRITE_RDP = 0x72u,
     RVSWD_FLASH_OPTION_ERROR_UNPROTECT_WAIT = 0x73u,
+    RVSWD_FLASH_OPTION_ERROR_MEMORY_TYPE_READ = 0x49u,
+    RVSWD_FLASH_OPTION_ERROR_MEMORY_TYPE_WRITE = 0x4au,
+    RVSWD_FLASH_OPTION_ERROR_MEMORY_TYPE_VALUE = 0x4bu,
     RVSWD_FLASH_OPTION_ERROR_UNLOCK_KEY1 = 0xa1u,
     RVSWD_FLASH_OPTION_ERROR_UNLOCK_KEY2 = 0xa2u,
     RVSWD_FLASH_OPTION_ERROR_UNLOCK_FAST_KEY1 = 0xa3u,
@@ -131,6 +134,24 @@ static bool rvswd_flash_option_write16(struct rvswd_operation *operation,
 
 static uint16_t rvswd_flash_option_encode_byte(uint8_t value) {
     return (uint16_t)value | (uint16_t)((uint16_t)(~value) << 8u);
+}
+
+static bool rvswd_flash_option_read_words(
+    struct rvswd_operation *operation,
+    const struct rvswd_target_profile *profile, uint32_t *option_words) {
+    if (profile == NULL || profile->ch5xx_protocol || option_words == NULL) {
+        operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
+        return false;
+    }
+    for (uint32_t index = 0u; index < RVSWD_FLASH_OPTION_WORD_COUNT; ++index) {
+        if (!rvswd_memory_read32(operation, profile, true,
+                                 profile->option_base + index * 4u,
+                                 &option_words[index])) {
+            operation->flash_code = RVSWD_FLASH_OPTION_ERROR_READ_IMAGE;
+            return false;
+        }
+    }
+    return true;
 }
 
 bool rvswd_flash_read_protected(struct rvswd_operation *operation,
@@ -532,6 +553,47 @@ cleanup:
     return success;
 }
 
+static bool rvswd_flash_option_write_words(
+    struct rvswd_operation *operation,
+    const struct rvswd_target_profile *profile, const uint32_t *option_words) {
+    switch (profile->option_write) {
+        case RVSWD_OPTION_WRITE_FAST_BUFFER:
+            return rvswd_flash_option_write_fast_buffer(operation, profile,
+                                                        option_words);
+        case RVSWD_OPTION_WRITE_HALFWORD:
+            return rvswd_flash_option_write_halfword(operation, profile,
+                                                     option_words);
+        default:
+            operation->flash_code = RVSWD_FLASH_OPTION_ERROR_WRITE_MODE;
+            return false;
+    }
+}
+
+static bool rvswd_flash_option_write_words_and_verify(
+    struct rvswd_operation *operation,
+    const struct rvswd_target_profile *profile, const uint32_t *option_words) {
+    uint32_t actual;
+
+    if (!rvswd_flash_option_write_words(operation, profile, option_words)) {
+        return false;
+    }
+    // 复位使 OBR 和 WRPR 装载新值，再逐字验证完整 Option Bytes 镜像
+    if (!rvswd_reset_and_halt(operation)) {
+        operation->flash_code = RVSWD_FLASH_OPTION_ERROR_RESET_AND_HALT;
+        return false;
+    }
+    for (uint32_t index = 0u; index < RVSWD_FLASH_OPTION_WORD_COUNT; ++index) {
+        if (!rvswd_memory_read32(operation, profile, true,
+                                 profile->option_base + index * 4u,
+                                 &actual) ||
+            actual != option_words[index]) {
+            operation->flash_code = RVSWD_FLASH_OPTION_ERROR_VERIFY;
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool rvswd_flash_option_unprotect(
     struct rvswd_operation *operation,
     const struct rvswd_target_profile *profile) {
@@ -792,6 +854,89 @@ bool rvswd_flash_set_option_bytes(struct rvswd_operation *operation,
             operation->flash_code = RVSWD_FLASH_OPTION_ERROR_VERIFY;
             return false;
         }
+    }
+    return true;
+}
+
+static bool rvswd_flash_memory_type_is_valid(bool extended,
+                                             uint8_t memory_type) {
+    if (!extended) {
+        return memory_type <= 3u;
+    }
+    // V30X 新路径使用 Option Bytes 的真实三位编码，空洞编码不能写入目标
+    return memory_type == 1u || memory_type == 3u || memory_type == 5u ||
+           memory_type == 6u || memory_type == 7u;
+}
+
+bool rvswd_flash_read_memory_type(struct rvswd_operation *operation,
+                                  const struct rvswd_target_profile *profile,
+                                  bool extended, uint8_t *memory_type) {
+    uint32_t option_word;
+    uint8_t user;
+
+    operation->flash_code = 0u;
+    if (memory_type == NULL) {
+        operation->flash_code = RVSWD_FLASH_OPTION_ERROR_MEMORY_TYPE_READ;
+        return false;
+    }
+    if (profile == NULL || profile->ch5xx_protocol ||
+        profile->wchlink_family != WCHLINK_TARGET_FAMILY_V30X ||
+        profile->option_base == 0u) {
+        operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
+        return false;
+    }
+    if (!rvswd_memory_read32(operation, profile, true, profile->option_base,
+                             &option_word)) {
+        operation->flash_code = RVSWD_FLASH_OPTION_ERROR_MEMORY_TYPE_READ;
+        return false;
+    }
+
+    // Option Bytes 以低字节存储有效值，高字节保存互补值
+    user = (uint8_t)(option_word >> 16u);
+    *memory_type = extended ? (uint8_t)((user >> 5u) & 0x07u)
+                            : (uint8_t)((user >> 6u) & 0x03u);
+    return true;
+}
+
+bool rvswd_flash_set_memory_type(struct rvswd_operation *operation,
+                                 const struct rvswd_target_profile *profile,
+                                 bool extended, uint8_t memory_type) {
+    uint32_t option_words[RVSWD_FLASH_OPTION_WORD_COUNT];
+    uint8_t user;
+    uint16_t encoded_user;
+
+    operation->flash_code = 0u;
+    if (profile == NULL || profile->ch5xx_protocol ||
+        profile->wchlink_family != WCHLINK_TARGET_FAMILY_V30X ||
+        profile->option_base == 0u) {
+        operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
+        return false;
+    }
+    if (!rvswd_flash_memory_type_is_valid(extended, memory_type)) {
+        operation->flash_code = RVSWD_FLASH_OPTION_ERROR_MEMORY_TYPE_VALUE;
+        return false;
+    }
+    if (!rvswd_flash_option_read_words(operation, profile, option_words)) {
+        if (operation->flash_code == 0u) {
+            operation->flash_code = RVSWD_FLASH_OPTION_ERROR_MEMORY_TYPE_READ;
+        }
+        return false;
+    }
+
+    user = (uint8_t)(option_words[0] >> 16u);
+    user = (uint8_t)(user & (extended ? 0x1fu : 0x3fu));
+    user = (uint8_t)(user | (uint8_t)(memory_type << (extended ? 5u : 6u)));
+    encoded_user = rvswd_flash_option_encode_byte(user);
+    // 仅替换 USER 及其互补字节，RDP、DATA 和 WRP 保持原镜像
+    option_words[0] = (option_words[0] & 0x0000ffffu) |
+                      ((uint32_t)encoded_user << 16u);
+
+    if (!rvswd_flash_option_write_words_and_verify(operation, profile,
+                                                   option_words)) {
+        if (operation->flash_code == 0u) {
+            operation->flash_code = RVSWD_FLASH_OPTION_ERROR_MEMORY_TYPE_WRITE;
+        }
+        return false;
     }
     return true;
 }

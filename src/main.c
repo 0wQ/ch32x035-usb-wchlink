@@ -1,7 +1,8 @@
 #include "bsp/bsp_delay.h"
+#include "drv/drv_button.h"
 #include "drv/drv_dp_pullup.h"
 #include "drv/drv_power_switch.h"
-#include "drv/drv_uart_mux.h"
+#include "drv/drv_sbu_mux.h"
 #include "drv/drv_ws2816c.h"
 #include "wchlink/status/wchlink_status_led.h"
 #include "wchlink/usb/wchlink_usb.h"
@@ -11,6 +12,7 @@
 
 #define WS2816C_GLOBAL_BRIGHTNESS 0x0300u
 #define WS2816C_EFFECT_STEP_MS    100u
+#define BUTTON_DEBOUNCE_MS        20u
 
 static void ws2816c_show_startup_effect(void) {
     static const drv_ws2816c_pixel_t colors[] = {
@@ -31,12 +33,37 @@ static void ws2816c_show_startup_effect(void) {
     }
 }
 
+static void process_button(void) {
+    static bool stable_pressed;
+    static bool sampled_pressed;
+    static uint64_t sample_changed_at;
+    bool pressed = drv_button_is_pressed();
+    uint64_t now_ms = bsp_time_ms();
+
+    if (pressed != sampled_pressed) {
+        sampled_pressed = pressed;
+        sample_changed_at = now_ms;
+        return;
+    }
+
+    if (pressed == stable_pressed || now_ms - sample_changed_at < BUTTON_DEBOUNCE_MS) {
+        return;
+    }
+
+    stable_pressed = pressed;
+    // 仅在确认按下时切换，保持按住按钮期间只产生一次操作
+    if (stable_pressed) {
+        drv_sbu_mux_set_reversed(!drv_sbu_mux_is_reversed());
+    }
+}
+
 int main(void) {
     SystemInit();
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_1);
     drv_dp_pullup_init();
     drv_power_switch_init();
-    drv_uart_mux_init();
+    drv_sbu_mux_init();
+    drv_button_init();
     bsp_delay_init();
     bsp_delay_ms(10u);
     drv_power_switch_set_enabled(true);
@@ -48,5 +75,6 @@ int main(void) {
     wchlink_status_led_set_state(WCHLINK_STATUS_LED_IDLE);
     for (;;) {
         wchlink_usb_process();
+        process_button();
     }
 }

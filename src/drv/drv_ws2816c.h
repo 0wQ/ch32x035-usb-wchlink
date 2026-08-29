@@ -22,6 +22,3 @@ bool drv_ws2816c_write_async(const drv_ws2816c_pixel_t *pixels,
 
 // 轮询并回收已完成的 DMA 发送
 void drv_ws2816c_process(void);
-
-// 设置所有像素的统一亮度缩放，0 为关闭，UINT16_MAX 为不缩放
-void drv_ws2816c_set_brightness(uint16_t brightness);

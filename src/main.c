@@ -4,21 +4,20 @@
 #include "drv/drv_power_switch.h"
 #include "drv/drv_sbu_mux.h"
 #include "drv/drv_ws2816c.h"
-#include "wchlink/status/wchlink_status_led.h"
+#include "status/status_led.h"
 #include "wchlink/usb/wchlink_usb.h"
 
 #include <ch32x035_misc.h>
 #include <system_ch32x035.h>
 
-#define WS2816C_GLOBAL_BRIGHTNESS 0x0300u
-#define WS2816C_EFFECT_STEP_MS    100u
-#define BUTTON_DEBOUNCE_MS        20u
+#define WS2816C_EFFECT_STEP_MS 100u
+#define BUTTON_DEBOUNCE_MS     20u
 
 static void ws2816c_show_startup_effect(void) {
-    static const drv_ws2816c_pixel_t colors[] = {
-        {.red = UINT16_MAX, .green = 0u, .blue = 0u},
-        {.red = 0u, .green = UINT16_MAX, .blue = 0u},
-        {.red = 0u, .green = 0u, .blue = UINT16_MAX},
+    const drv_ws2816c_pixel_t colors[] = {
+        status_led_color_error,
+        status_led_color_success,
+        status_led_color_idle,
     };
 
     for (size_t index = 0u; index < sizeof(colors) / sizeof(colors[0]); ++index) {
@@ -53,7 +52,10 @@ static void process_button(void) {
     stable_pressed = pressed;
     // 仅在确认按下时切换，保持按住按钮期间只产生一次操作
     if (stable_pressed) {
-        drv_sbu_mux_set_reversed(!drv_sbu_mux_is_reversed());
+        bool reversed = !drv_sbu_mux_is_reversed();
+
+        drv_sbu_mux_set_reversed(reversed);
+        status_led_show_mux_status(reversed);
     }
 }
 
@@ -69,10 +71,9 @@ int main(void) {
     drv_power_switch_set_enabled(true);
     wchlink_usb_init();
     drv_ws2816c_init();
-    drv_ws2816c_set_brightness(WS2816C_GLOBAL_BRIGHTNESS);
     ws2816c_show_startup_effect();
-    wchlink_status_led_init();
-    wchlink_status_led_set_state(WCHLINK_STATUS_LED_IDLE);
+    status_led_init();
+    status_led_set_state(STATUS_LED_IDLE);
     for (;;) {
         wchlink_usb_process();
         process_button();

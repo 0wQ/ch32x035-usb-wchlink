@@ -506,30 +506,23 @@ static struct wchlink_session_command_result wchlink_handle_control(
                     response, response_capacity, WCHLINK_FAMILY_CONTROL,
                     request[3]));
         case WCHLINK_CONTROL_POWER_3V3_ON:
-            // 当前 PCB 的 PB11 仅是目标 USB D+ 预偏置，不能冒充目标 3.3 V 电源
-            return wchlink_command_result(
-                WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-                wchlink_wire_unsupported(response, response_capacity,
-                                         WCHLINK_FAMILY_CONTROL));
-        case WCHLINK_CONTROL_POWER_3V3_OFF:
-            return wchlink_command_result(
-                WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-                wchlink_wire_unsupported(response, response_capacity,
-                                         WCHLINK_FAMILY_CONTROL));
         case WCHLINK_CONTROL_POWER_5V_ON:
             drv_power_switch_set_enabled(true);
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_COMPLETED,
-                wchlink_wire_ack(response, response_capacity,
-                                 WCHLINK_FAMILY_CONTROL));
+                wchlink_wire_command_reply(
+                    response, response_capacity, WCHLINK_FAMILY_CONTROL,
+                    request[3]));
+        case WCHLINK_CONTROL_POWER_3V3_OFF:
         case WCHLINK_CONTROL_POWER_5V_OFF:
             wchlink_transfer_invalidate_cache(context->transfer);
             wchlink_command_reset(context);
             drv_power_switch_set_enabled(false);
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_COMPLETED,
-                wchlink_wire_ack(response, response_capacity,
-                                 WCHLINK_FAMILY_CONTROL));
+                wchlink_wire_command_reply(
+                    response, response_capacity, WCHLINK_FAMILY_CONTROL,
+                    request[3]));
         case WCHLINK_CONTROL_HOLD:
         case WCHLINK_CONTROL_RESET_LOW:
         default:

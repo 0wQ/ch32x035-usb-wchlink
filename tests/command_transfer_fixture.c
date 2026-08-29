@@ -575,8 +575,18 @@ static void wchlink_test_command_control_and_device_mode(void) {
     const uint8_t erase_reply[] = {
         0x82u, WCHLINK_FAMILY_CONTROL, 0x01u,
         WCHLINK_CONTROL_CLEAR_CODE_FLASH};
-    const uint8_t control_unsupported[] = {
-        0x81u, WCHLINK_FAMILY_CONTROL, 0x01u, 0x02u};
+    const uint8_t power_3v3_on_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_POWER_3V3_ON};
+    const uint8_t power_3v3_off_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_POWER_3V3_OFF};
+    const uint8_t power_5v_on_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_POWER_5V_ON};
+    const uint8_t power_5v_off_reply[] = {
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x01u,
+        WCHLINK_CONTROL_POWER_5V_OFF};
     const uint8_t qe_enabled_reply[] = {
         0x82u, WCHLINK_FAMILY_CONTROL, 0x01u, 0x00u};
     const uint8_t qe_enable_reply[] = {
@@ -625,26 +635,37 @@ static void wchlink_test_command_control_and_device_mode(void) {
     result = wchlink_command_process(&fixture.command, power_3v3_on,
                                      sizeof(power_3v3_on), response,
                                      sizeof(response));
-    assert(result.status == WCHLINK_SESSION_COMMAND_TARGET_FAILED);
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
     assert(!wchlink_test_dp_pullup_enabled);
+    assert(wchlink_test_power_switch_enabled);
     wchlink_test_expect_bytes(response, result.response_length,
-                              control_unsupported,
-                              sizeof(control_unsupported));
+                              power_3v3_on_reply,
+                              sizeof(power_3v3_on_reply));
     result = wchlink_command_process(&fixture.command, power_3v3_off,
                                      sizeof(power_3v3_off), response,
                                      sizeof(response));
-    assert(result.status == WCHLINK_SESSION_COMMAND_TARGET_FAILED);
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
     assert(!wchlink_test_dp_pullup_enabled);
-    wchlink_test_expect_bytes(response, result.response_length,
-                              control_unsupported,
-                              sizeof(control_unsupported));
-    assert(!wchlink_test_dp_pullup_enabled);
-    wchlink_command_process(&fixture.command, power_5v_on, sizeof(power_5v_on),
-                            response, sizeof(response));
-    assert(wchlink_test_power_switch_enabled);
-    wchlink_command_process(&fixture.command, power_5v_off,
-                            sizeof(power_5v_off), response, sizeof(response));
     assert(!wchlink_test_power_switch_enabled);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              power_3v3_off_reply,
+                              sizeof(power_3v3_off_reply));
+    assert(!wchlink_target_ports_info(&fixture.target).connected);
+    result = wchlink_command_process(&fixture.command, power_5v_on,
+                                     sizeof(power_5v_on), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    assert(wchlink_test_power_switch_enabled);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              power_5v_on_reply, sizeof(power_5v_on_reply));
+    result = wchlink_command_process(&fixture.command, power_5v_off,
+                                     sizeof(power_5v_off), response,
+                                     sizeof(response));
+    assert(result.status == WCHLINK_SESSION_COMMAND_COMPLETED);
+    assert(!wchlink_test_power_switch_enabled);
+    wchlink_test_expect_bytes(response, result.response_length,
+                              power_5v_off_reply,
+                              sizeof(power_5v_off_reply));
 
     // 内置存储的 QE 查询和启用是 Link 层幂等操作，不依赖目标连接状态
     result = wchlink_command_process(&fixture.command, check_qe,

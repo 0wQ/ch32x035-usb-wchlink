@@ -16,33 +16,18 @@ static const uint32_t rvswd_debug_unlock = 0x5aa50400u;
 static const uint8_t rvswd_long_status_ok = 0u;
 
 static const uint32_t rvswd_ch5xx_chip_id_address = 0x40001041u;
-static const uint8_t rvswd_ch5xx_chip_id_ch591 = 0x91u;
-static const uint8_t rvswd_ch5xx_chip_id_ch592 = 0x92u;
-static const uint8_t rvswd_ch5xx_chip_id_ch582 = 0x82u;
-static const uint8_t rvswd_ch5xx_chip_id_ch583 = 0x83u;
 
 static const uint32_t rvswd_ch5xx_debug_data_address = 0xe0000380u;
 static const uint32_t rvswd_flash_obr_address = 0x4002201cu;
 static const uint32_t rvswd_flash_obr_read_protected = 1u << 1u;
 
-static const struct rvswd_target_profile *rvswd_target_connect_memory_profile(
-    const struct wchlink_target_ports *ports) {
-    const struct rvswd_target_profile *profile = rvswd_target_profile_resolve(
-        ports->info.chip_id, ports->family_hint,
-        ports->family_hint_active);
-
-    if (profile != NULL) {
-        return profile;
-    }
-    return rvswd_target_profile_from_family(ports->family_hint);
-}
-
 static bool rvswd_target_connect_read_memory32(
     struct wchlink_target_ports *ports, struct rvswd_operation *operation,
     uint32_t address, uint32_t *value) {
+    // 身份探测前 ChipID 已清零，只能用主机 family hint 选择候选内存访问方式
     return rvswd_memory_read32(
-        operation, rvswd_target_connect_memory_profile(ports),
-        ports->info.chip_id != 0u, address, value);
+        operation, rvswd_target_profile_from_family(ports->family_hint), false,
+        address, value);
 }
 
 static void rvswd_target_connect_reset_identity(
@@ -121,8 +106,8 @@ static bool rvswd_target_connect_identify(
     struct wchlink_target_ports *ports, struct rvswd_operation *operation) {
     const struct rvswd_target_profile *expected_profile =
         rvswd_target_profile_from_family(ports->family_hint);
-    const struct rvswd_target_profile *direct_profile;
-    uint32_t direct_chip_id;
+    const struct rvswd_target_profile *candidate_profile;
+    uint32_t candidate_chip_id;
     uint32_t memory_chip_id = 0u;
     uint32_t option_status;
     uint8_t ch5xx_chip_id;
@@ -131,35 +116,38 @@ static bool rvswd_target_connect_identify(
 
     // V30X 的官方 LinkE 直接从 DMI 0x7f 返回 ChipID，避免先执行抽象内存命令
     read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_WCH_CHIP_ID);
-    direct_chip_id = read_result.value;
-    if (read_result.ok && direct_chip_id != 0u) {
-        direct_profile = rvswd_target_profile_from_chip_id(direct_chip_id);
-        if (direct_profile != NULL && !direct_profile->ch5xx_protocol) {
-            ports->info.chip_id = direct_chip_id;
+    candidate_chip_id = read_result.value;
+    if (read_result.ok && candidate_chip_id != 0u) {
+        candidate_profile = rvswd_target_profile_from_chip_id(candidate_chip_id);
+        if (candidate_profile != NULL && !candidate_profile->ch5xx_protocol) {
+            ports->info.chip_id = candidate_chip_id;
             rvswd_transport_set_fast_timing(transport,
-                                            direct_profile->fast_timing);
+                                            candidate_profile->fast_timing);
             return true;
         }
     }
 
     // CH5xx 通过专用 8 位寄存器报告型号，失败后才进入通用内存 ChipID 路径
     if (rvswd_target_connect_read_memory8_ch5xx(
-            operation, rvswd_ch5xx_chip_id_address, &ch5xx_chip_id) &&
-        (ch5xx_chip_id == rvswd_ch5xx_chip_id_ch582 ||
-         ch5xx_chip_id == rvswd_ch5xx_chip_id_ch583 ||
-         ch5xx_chip_id == rvswd_ch5xx_chip_id_ch591 ||
-         ch5xx_chip_id == rvswd_ch5xx_chip_id_ch592)) {
+            operation, rvswd_ch5xx_chip_id_address, &ch5xx_chip_id)) {
+        candidate_chip_id = (uint32_t)ch5xx_chip_id << 24u;
+        candidate_profile = rvswd_target_profile_from_chip_id(candidate_chip_id);
+    } else {
+        candidate_profile = NULL;
+    }
+    if (candidate_profile != NULL && candidate_profile->ch5xx_protocol) {
         // 协议层使用 family 高字节形式，Flash 命令口在实际擦除流程中单独解锁
-        ports->info.chip_id = (uint32_t)ch5xx_chip_id << 24u;
+        ports->info.chip_id = candidate_chip_id;
         return true;
     }
     if (rvswd_target_connect_read_memory32(ports, operation, 0x1ffff704u,
                                            &memory_chip_id) &&
         memory_chip_id != 0u) {
         ports->info.chip_id = memory_chip_id;
-        direct_profile = rvswd_target_profile_from_chip_id(memory_chip_id);
+        candidate_profile = rvswd_target_profile_from_chip_id(memory_chip_id);
         rvswd_transport_set_fast_timing(
-            transport, direct_profile != NULL && direct_profile->fast_timing);
+            transport,
+            candidate_profile != NULL && candidate_profile->fast_timing);
         return true;
     }
     if (expected_profile != NULL &&

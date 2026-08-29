@@ -1,5 +1,6 @@
 #include <ch32x035.h>
 
+// 配置 USB 外设底层时钟，引脚和中断
 void usb_dc_low_level_init(void) {
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO | RCC_APB2Periph_GPIOC, ENABLE);
     RCC_AHBPeriphClockCmd(RCC_AHBPeriph_USBFS, ENABLE);

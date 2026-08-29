@@ -1,5 +1,6 @@
 #pragma once
 
+// CherryUSB 全局配置
 // 关闭 USB 调试日志
 #define CONFIG_USB_PRINTF(...) \
     do {                       \

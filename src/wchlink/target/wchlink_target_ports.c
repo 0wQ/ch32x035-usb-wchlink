@@ -1,6 +1,7 @@
 #include "wchlink/flash/rvswd_flash.h"
 #include "wchlink/protocol/wchlink_family.h"
 #include "wchlink/rvswd/rvswd_debug.h"
+#include "wchlink/rvswd/rvswd_execute_prepare.h"
 #include "wchlink/rvswd/rvswd_memory.h"
 #include "wchlink/rvswd/rvswd_operation.h"
 #include "wchlink/rvswd/rvswd_reset.h"
@@ -55,6 +56,8 @@ void wchlink_target_ports_refresh_info(struct wchlink_target_ports *ports) {
         loader == NULL ? 0u : loader->data_page_size;
     ports->info.loader_variable_length =
         loader != NULL && loader->variable_length;
+    ports->info.code_flash_size =
+        profile == NULL ? 0u : profile->code_flash_size;
     ports->info.memory_streaming =
         profile != NULL &&
         profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING;
@@ -127,6 +130,15 @@ void wchlink_target_ports_disconnect(struct wchlink_target_ports *ports) {
     }
     rvswd_transport_disconnect(&ports->transport);
     ports->info.connected = false;
+}
+
+void wchlink_target_ports_set_speed(struct wchlink_target_ports *ports,
+                                    uint8_t speed) {
+    if (ports == NULL) {
+        return;
+    }
+    ports->requested_speed = speed;
+    rvswd_transport_set_fast_timing(&ports->transport, speed != 0x03u);
 }
 
 void wchlink_target_ports_set_family_hint(
@@ -318,6 +330,16 @@ static struct rvswd_target_result wchlink_target_ports_execute(
     }
     rvswd_operation_init(&operation, &ports->transport);
     operation.address = address;
+    if (!rvswd_execute_prepare(&operation,
+                               wchlink_target_ports_current_profile(ports))) {
+        // 环境准备失败说明 DMI 已不可用，loader 返回值无法反映真实原因
+        value = operation.memory_code == 0u ? 0x15u : operation.memory_code;
+        result = wchlink_target_ports_operation_result(
+            &operation, RVSWD_TARGET_RESULT_DEBUG, value, false);
+        result.value = value;
+        result.address = address;
+        return result;
+    }
     success = rvswd_debug_execute(&operation, entry, stack_top, mode, address,
                                   length, data_address, &value);
     result = wchlink_target_ports_operation_result(

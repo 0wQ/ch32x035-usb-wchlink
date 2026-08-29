@@ -29,6 +29,12 @@ enum rvswd_memory_write_mode {
     RVSWD_MEMORY_WRITE_STREAMING,
 };
 
+enum rvswd_execute_prepare_mode {
+    RVSWD_EXECUTE_PREPARE_NONE,
+    // X03X 族在 loader 执行前把目标切换到受控环境，与官方 LinkE 行为一致
+    RVSWD_EXECUTE_PREPARE_X03X,
+};
+
 enum rvswd_target_loader {
     RVSWD_TARGET_LOADER_DEFAULT,
     RVSWD_TARGET_LOADER_L103,
@@ -56,6 +62,9 @@ struct rvswd_target_profile {
     const struct rvswd_target_loader_profile *loader;
     enum rvswd_memory_write_mode memory_write_mode;
     enum rvswd_flash_unlock_mode erase_unlock;
+    enum rvswd_execute_prepare_mode execute_prepare;
     enum rvswd_option_write_mode option_write;
     uint32_t option_base;
+    // Code Flash 可用容量，loader 编程块越界时前置拒绝，避免目标在物理边界外挂死
+    uint32_t code_flash_size;
 };

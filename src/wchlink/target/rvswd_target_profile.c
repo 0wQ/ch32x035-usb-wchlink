@@ -61,8 +61,10 @@ static const struct rvswd_target_profile rvswd_target_profile_x035 = {
     .loader = &rvswd_loader_profile_x035,
     .memory_write_mode = RVSWD_MEMORY_WRITE_STREAMING,
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
+    .execute_prepare = RVSWD_EXECUTE_PREPARE_X03X,
     .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,
     .option_base = 0x1ffff800u,
+    .code_flash_size = 0xf800u,
 };
 
 static const struct rvswd_target_profile rvswd_target_profile_l103 = {

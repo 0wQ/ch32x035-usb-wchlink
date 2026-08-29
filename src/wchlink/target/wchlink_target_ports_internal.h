@@ -12,6 +12,8 @@ struct wchlink_target_ports {
     const struct rvswd_target_profile *profile;
     uint8_t family_hint;
     uint8_t connect_error;
+    // 主机 SetSpeed 请求值，0 表示尚未请求，connect 重新配置时序后需要恢复
+    uint8_t requested_speed;
     bool family_hint_active;
 };
 

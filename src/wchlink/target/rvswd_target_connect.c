@@ -376,6 +376,11 @@ struct rvswd_target_result wchlink_target_ports_connect(
             ports->family_hint_active);
         ports->info.connected = ports->profile != NULL;
         wchlink_target_ports_refresh_info(ports);
+        // 主机 SetSpeed 请求优先于 profile 默认时序，连接探测后恢复请求速度
+        if (ports->requested_speed != 0u) {
+            rvswd_transport_set_fast_timing(
+                &ports->transport, ports->requested_speed != 0x03u);
+        }
         return rvswd_target_result_success();
     }
 

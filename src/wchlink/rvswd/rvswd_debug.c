@@ -216,10 +216,30 @@ bool rvswd_debug_resume(struct rvswd_operation *operation,
     return false;
 }
 
+static bool rvswd_debug_restore_unlock(struct rvswd_operation *operation) {
+    // QingKe 调试模块在 loader 运行后会丢失解锁写入，每次执行前重新恢复
+    return rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_SHADOW,
+                                     0x5aa50400u)
+               .ok &&
+           rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_CONFIG,
+                                     0x5aa50400u)
+               .ok &&
+           rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_SHADOW,
+                                     0x5aa50400u)
+               .ok &&
+           rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_CONFIG,
+                                     0x5aa50400u)
+               .ok;
+}
+
 bool rvswd_debug_execute(struct rvswd_operation *operation, uint32_t entry,
                          uint32_t stack_top, uint32_t mode, uint32_t address,
                          uint32_t length, uint32_t data_address,
                          uint32_t *result) {
+    if (!rvswd_debug_restore_unlock(operation)) {
+        if (result != NULL) *result = 0xe00au;
+        return false;
+    }
     if (!rvswd_debug_write_raw_gpr(operation, 10u, mode)) {
         if (result != NULL) *result = 0xe001u;
         return false;

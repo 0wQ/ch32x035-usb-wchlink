@@ -12,6 +12,7 @@ struct rvswd_target_info {
     enum rvswd_target_loader loader;
     uint32_t loader_download_limit;
     uint32_t loader_data_page_size;
+    uint32_t code_flash_size;
     bool connected;
     bool memory_streaming;
     bool loader_variable_length;

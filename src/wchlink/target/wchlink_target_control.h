@@ -30,6 +30,9 @@ struct rvswd_target_result wchlink_target_ports_connect(
     struct wchlink_target_ports *ports);
 void wchlink_target_ports_set_family_hint(
     struct wchlink_target_ports *ports, uint8_t family);
+// 主机 SetSpeed 速度码：Low=0x03 使用慢时序，其余使用快时序
+void wchlink_target_ports_set_speed(struct wchlink_target_ports *ports,
+                                    uint8_t speed);
 // context 在调用期间必须有效，info 以单次只读快照返回
 struct rvswd_target_info wchlink_target_ports_info(
     const struct wchlink_target_ports *ports);

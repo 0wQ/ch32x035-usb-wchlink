@@ -325,6 +325,7 @@ static struct wchlink_session_command_result wchlink_handle_speed(
     }
     wchlink_target_ports_set_family_hint(context->target,
                                          request[3]);
+    wchlink_target_ports_set_speed(context->target, request[4]);
     return wchlink_command_result(
         WCHLINK_SESSION_COMMAND_COMPLETED,
         wchlink_wire_command_reply(response, response_capacity,

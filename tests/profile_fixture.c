@@ -47,19 +47,19 @@ int main(void) {
     const struct rvswd_target_profile *v30x_profile;
     const struct rvswd_target_profile *ch58x_profile;
 
-    assert_profile(0x03510611u, WCHLINK_TARGET_FAMILY_X035, false,
+    assert_profile(0x03510611u, WCHLINK_TARGET_FAMILY_X03X, false,
                    RVSWD_TARGET_LOADER_DEFAULT,
                    RVSWD_MEMORY_WRITE_STREAMING);
-    assert_profile(0x10300500u, WCHLINK_TARGET_FAMILY_L103, false,
+    assert_profile(0x10300500u, WCHLINK_TARGET_FAMILY_CH32L10X, false,
                    RVSWD_TARGET_LOADER_L103,
                    RVSWD_MEMORY_WRITE_STREAMING);
-    assert_profile(0x30300000u, WCHLINK_TARGET_FAMILY_V30X, false,
+    assert_profile(0x30300000u, WCHLINK_TARGET_FAMILY_CH32V30X, false,
                    RVSWD_TARGET_LOADER_DEFAULT,
                    RVSWD_MEMORY_WRITE_STREAMING);
-    assert_profile(0x30500000u, WCHLINK_TARGET_FAMILY_V30X, false,
+    assert_profile(0x30500000u, WCHLINK_TARGET_FAMILY_CH32V30X, false,
                    RVSWD_TARGET_LOADER_DEFAULT,
                    RVSWD_MEMORY_WRITE_STREAMING);
-    assert_profile(0x30700500u, WCHLINK_TARGET_FAMILY_V30X, false,
+    assert_profile(0x30700500u, WCHLINK_TARGET_FAMILY_CH32V30X, false,
                    RVSWD_TARGET_LOADER_DEFAULT,
                    RVSWD_MEMORY_WRITE_STREAMING);
     assert_profile(0x82000000u, WCHLINK_TARGET_FAMILY_CH58X, true,
@@ -79,9 +79,9 @@ int main(void) {
     assert(rvswd_target_profile_from_chip_id(0x12345678u) == NULL);
     assert(rvswd_target_profile_from_family(0u) == NULL);
 
-    x035_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_X035);
-    l103_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_L103);
-    v30x_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_V30X);
+    x035_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_X03X);
+    l103_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_CH32L10X);
+    v30x_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_CH32V30X);
     ch58x_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_CH58X);
     assert_loader(x035_profile, 0x20000000u, 0x20001000u, 0x20005000u,
                   0x20002010u,

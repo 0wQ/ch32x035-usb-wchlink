@@ -880,7 +880,7 @@ bool rvswd_flash_read_memory_type(struct rvswd_operation *operation,
         return false;
     }
     if (profile == NULL || profile->ch5xx_protocol ||
-        profile->wchlink_family != WCHLINK_TARGET_FAMILY_V30X ||
+        profile->wchlink_family != WCHLINK_TARGET_FAMILY_CH32V30X ||
         profile->option_base == 0u) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
         return false;
@@ -907,7 +907,7 @@ bool rvswd_flash_set_memory_type(struct rvswd_operation *operation,
 
     operation->flash_code = 0u;
     if (profile == NULL || profile->ch5xx_protocol ||
-        profile->wchlink_family != WCHLINK_TARGET_FAMILY_V30X ||
+        profile->wchlink_family != WCHLINK_TARGET_FAMILY_CH32V30X ||
         profile->option_base == 0u) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
         return false;

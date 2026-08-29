@@ -55,7 +55,7 @@ static const struct rvswd_target_loader_profile rvswd_loader_profile_ch5xx = {
 };
 
 static const struct rvswd_target_profile rvswd_target_profile_x035 = {
-    .wchlink_family = WCHLINK_TARGET_FAMILY_X035,
+    .wchlink_family = WCHLINK_TARGET_FAMILY_X03X,
     .ch5xx_protocol = false,
     .fast_timing = false,
     .loader = &rvswd_loader_profile_x035,
@@ -66,7 +66,7 @@ static const struct rvswd_target_profile rvswd_target_profile_x035 = {
 };
 
 static const struct rvswd_target_profile rvswd_target_profile_l103 = {
-    .wchlink_family = WCHLINK_TARGET_FAMILY_L103,
+    .wchlink_family = WCHLINK_TARGET_FAMILY_CH32L10X,
     .ch5xx_protocol = false,
     .fast_timing = false,
     .loader = &rvswd_loader_profile_l103,
@@ -77,7 +77,7 @@ static const struct rvswd_target_profile rvswd_target_profile_l103 = {
 };
 
 static const struct rvswd_target_profile rvswd_target_profile_v30x = {
-    .wchlink_family = WCHLINK_TARGET_FAMILY_V30X,
+    .wchlink_family = WCHLINK_TARGET_FAMILY_CH32V30X,
     .ch5xx_protocol = false,
     .fast_timing = false,
     .loader = &rvswd_loader_profile_v30x,
@@ -147,11 +147,11 @@ const struct rvswd_target_profile *rvswd_target_profile_from_chip_id(
 const struct rvswd_target_profile *rvswd_target_profile_from_family(
     uint8_t family) {
     switch (family) {
-        case WCHLINK_TARGET_FAMILY_X035:
+        case WCHLINK_TARGET_FAMILY_X03X:
             return &rvswd_target_profile_x035;
-        case WCHLINK_TARGET_FAMILY_L103:
+        case WCHLINK_TARGET_FAMILY_CH32L10X:
             return &rvswd_target_profile_l103;
-        case WCHLINK_TARGET_FAMILY_V30X:
+        case WCHLINK_TARGET_FAMILY_CH32V30X:
             return &rvswd_target_profile_v30x;
         case WCHLINK_TARGET_FAMILY_CH59X:
             return &rvswd_target_profile_ch59x;

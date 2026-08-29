@@ -104,7 +104,7 @@ bool rvswd_memory_read32(struct rvswd_operation *operation,
         return false;
     }
     if (profile != NULL &&
-        (profile->wchlink_family == WCHLINK_TARGET_FAMILY_L103 ||
+        (profile->wchlink_family == WCHLINK_TARGET_FAMILY_CH32L10X ||
          profile->wchlink_family == WCHLINK_TARGET_FAMILY_CH58X ||
          profile->wchlink_family == WCHLINK_TARGET_FAMILY_CH59X)) {
         return rvswd_memory_read32_synchronized(operation, address, value);

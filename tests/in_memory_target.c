@@ -57,10 +57,10 @@ static const struct wchlink_test_loader_layout *wchlink_test_loader_layout(
     if (target->info.loader == RVSWD_TARGET_LOADER_L103) {
         return &wchlink_test_loader_l103;
     }
-    if (target->info.family == WCHLINK_TARGET_FAMILY_X035) {
+    if (target->info.family == WCHLINK_TARGET_FAMILY_X03X) {
         return &wchlink_test_loader_x035;
     }
-    if (target->info.family == WCHLINK_TARGET_FAMILY_V30X) {
+    if (target->info.family == WCHLINK_TARGET_FAMILY_CH32V30X) {
         return &wchlink_test_loader_v30x;
     }
     return &wchlink_test_loader_default;
@@ -159,7 +159,7 @@ void wchlink_test_target_reset(struct wchlink_target_ports *target,
     memset(target->flash, 0xff, sizeof(target->flash));
     memset(target->ram, 0xff, sizeof(target->ram));
     memset(target->system, 0xff, sizeof(target->system));
-    if (info.family == WCHLINK_TARGET_FAMILY_V30X) {
+    if (info.family == WCHLINK_TARGET_FAMILY_CH32V30X) {
         // V307 当前默认配置对应 256 KiB Code Flash 和 64 KiB SRAM
         target->option_bytes[0] = 0xbfu;
     }

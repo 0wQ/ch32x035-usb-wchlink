@@ -78,7 +78,7 @@ static uint8_t wchlink_test_take_status(
 
 static void wchlink_test_command_connect_and_dmi(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x10320710u, WCHLINK_TARGET_FAMILY_L103,
+        0x10320710u, WCHLINK_TARGET_FAMILY_CH32L10X,
         RVSWD_TARGET_LOADER_L103, true);
     struct wchlink_test_fixture fixture;
     uint8_t response[32];
@@ -230,7 +230,7 @@ static void wchlink_test_command_connect_and_dmi(void) {
 
 static void wchlink_test_command_direct_dmi_resume_completion(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x30520528u, WCHLINK_TARGET_FAMILY_V30X,
+        0x30520528u, WCHLINK_TARGET_FAMILY_CH32V30X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     struct wchlink_test_fixture fixture;
     uint8_t response[9];
@@ -355,7 +355,7 @@ static void wchlink_test_command_direct_dmi_resume_completion(void) {
 
 static void wchlink_test_command_connect_failure(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        0x03510611u, WCHLINK_TARGET_FAMILY_X03X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     struct wchlink_test_fixture fixture;
     uint8_t response[8];
@@ -378,7 +378,7 @@ static void wchlink_test_command_connect_failure(void) {
 
 static void wchlink_test_command_config_and_reset(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        0x03510611u, WCHLINK_TARGET_FAMILY_X03X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     struct wchlink_test_fixture fixture;
     uint8_t response[8];
@@ -530,20 +530,20 @@ static void wchlink_test_command_config_and_reset(void) {
 
 static void wchlink_test_command_control_and_device_mode(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        0x03510611u, WCHLINK_TARGET_FAMILY_X03X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     struct wchlink_test_fixture fixture;
     uint8_t response[16];
     uint8_t programmed[] = {0x00u, 0x11u, 0x22u, 0x33u};
     uint8_t erased[sizeof(programmed)];
     const uint8_t speed_request[] = {
-        0x81u, WCHLINK_FAMILY_SPEED, 0x02u, WCHLINK_TARGET_FAMILY_X035, 0x01u};
+        0x81u, WCHLINK_FAMILY_SPEED, 0x02u, WCHLINK_TARGET_FAMILY_X03X, 0x01u};
     const uint8_t set_chip_type[] = {
         0x81u, WCHLINK_FAMILY_CONTROL, 0x01u,
         WCHLINK_CONTROL_SET_CHIP_TYPE};
     const uint8_t erase_request[] = {
         0x81u, WCHLINK_FAMILY_CONTROL, 0x02u,
-        WCHLINK_CONTROL_CLEAR_CODE_FLASH, WCHLINK_TARGET_FAMILY_X035};
+        WCHLINK_CONTROL_CLEAR_CODE_FLASH, WCHLINK_TARGET_FAMILY_X03X};
     const uint8_t power_3v3_on[] = {
         0x81u, WCHLINK_FAMILY_CONTROL, 0x01u,
         WCHLINK_CONTROL_POWER_3V3_ON};
@@ -570,7 +570,7 @@ static void wchlink_test_command_control_and_device_mode(void) {
     const uint8_t speed_reply[] = {
         0x82u, WCHLINK_FAMILY_SPEED, 0x01u, 0x01u};
     const uint8_t connect_reply[] = {
-        0x82u, WCHLINK_FAMILY_CONTROL, 0x05u, WCHLINK_TARGET_FAMILY_X035,
+        0x82u, WCHLINK_FAMILY_CONTROL, 0x05u, WCHLINK_TARGET_FAMILY_X03X,
         0x03u, 0x51u, 0x06u, 0x11u};
     const uint8_t erase_reply[] = {
         0x82u, WCHLINK_FAMILY_CONTROL, 0x01u,
@@ -596,7 +596,7 @@ static void wchlink_test_command_control_and_device_mode(void) {
                                      sizeof(speed_request), response,
                                      sizeof(response));
     assert(wchlink_test_target_has_family_hint(
-        &fixture.target, WCHLINK_TARGET_FAMILY_X035));
+        &fixture.target, WCHLINK_TARGET_FAMILY_X03X));
     wchlink_test_expect_bytes(response, result.response_length, speed_reply,
                               sizeof(speed_reply));
     result = wchlink_command_process(&fixture.command, set_chip_type,
@@ -683,7 +683,7 @@ static void wchlink_test_command_control_and_device_mode(void) {
 
 static void wchlink_test_command_memory_type(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x30700528u, WCHLINK_TARGET_FAMILY_V30X,
+        0x30700528u, WCHLINK_TARGET_FAMILY_CH32V30X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     struct wchlink_test_fixture fixture;
     uint8_t response[8];
@@ -792,7 +792,7 @@ static void wchlink_test_command_ch5xx_info_stop(void) {
 
 static void wchlink_test_command_repeat_and_abort(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        0x03510611u, WCHLINK_TARGET_FAMILY_X03X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     struct wchlink_test_fixture fixture;
     uint8_t response[8];
@@ -843,7 +843,7 @@ static void wchlink_test_command_repeat_and_abort(void) {
 
 static void wchlink_test_command_program_end_resets_and_halts(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        0x03510611u, WCHLINK_TARGET_FAMILY_X03X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     struct wchlink_test_fixture fixture;
     uint8_t response[8];
@@ -868,7 +868,7 @@ static void wchlink_test_command_program_end_resets_and_halts(void) {
 
 static void wchlink_test_transfer_read(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        0x03510611u, WCHLINK_TARGET_FAMILY_X03X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     struct wchlink_test_fixture fixture;
     const uint8_t memory[] = {
@@ -927,7 +927,7 @@ static void wchlink_test_transfer_read(void) {
 
 static void wchlink_test_command_official_memory_reads(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x30700528u, WCHLINK_TARGET_FAMILY_V30X,
+        0x30700528u, WCHLINK_TARGET_FAMILY_CH32V30X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     const uint8_t memory[] = {
         0x10u,
@@ -1011,7 +1011,7 @@ wchlink_test_finish_default_loader(struct wchlink_test_fixture *fixture,
 
 static void wchlink_test_transfer_chunk_boundary(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        0x03510611u, WCHLINK_TARGET_FAMILY_X03X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     struct wchlink_test_fixture fixture;
     struct wchlink_transfer_finish_result finish;
@@ -1105,7 +1105,7 @@ static void wchlink_test_transfer_ch5xx_padding(void) {
 
 static void wchlink_test_transfer_l103_checksum(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x10300500u, WCHLINK_TARGET_FAMILY_L103,
+        0x10300500u, WCHLINK_TARGET_FAMILY_CH32L10X,
         RVSWD_TARGET_LOADER_L103, true);
     const uint8_t packet[] = {0x01u, 0x02u, 0x03u, 0x04u};
     struct wchlink_test_fixture fixture;
@@ -1126,7 +1126,7 @@ static void wchlink_test_transfer_l103_checksum(void) {
 
 static void wchlink_test_transfer_v30x_checksum(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x30700528u, WCHLINK_TARGET_FAMILY_V30X,
+        0x30700528u, WCHLINK_TARGET_FAMILY_CH32V30X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     const uint8_t packet[] = {0x01u, 0x02u, 0x03u, 0x04u};
     struct wchlink_test_fixture fixture;
@@ -1148,7 +1148,7 @@ static void wchlink_test_transfer_v30x_checksum(void) {
 
 static void wchlink_test_transfer_x035_checksum(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        0x03510611u, WCHLINK_TARGET_FAMILY_X03X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     const uint8_t packet[] = {0x01u, 0x02u, 0x03u, 0x04u};
     struct wchlink_test_fixture fixture;
@@ -1237,7 +1237,7 @@ static void wchlink_test_transfer_bidirectional_activity(void) {
 
 static void wchlink_test_transfer_error_repeat_and_abort(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        0x03510611u, WCHLINK_TARGET_FAMILY_X03X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     struct wchlink_test_fixture fixture;
     struct wchlink_transfer_finish_result finish;
@@ -1297,7 +1297,7 @@ static void wchlink_test_transfer_error_repeat_and_abort(void) {
 
 static void wchlink_test_transfer_abort_pending_data_in(void) {
     const struct rvswd_target_info info = wchlink_test_info(
-        0x03510611u, WCHLINK_TARGET_FAMILY_X035,
+        0x03510611u, WCHLINK_TARGET_FAMILY_X03X,
         RVSWD_TARGET_LOADER_DEFAULT, true);
     struct wchlink_test_fixture fixture;
     uint8_t patch[] = {0x12u, 0x34u, 0x56u, 0x78u};

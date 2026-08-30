@@ -1,5 +1,5 @@
 #include "wchlink/rvswd/rvswd_debug.h"
-#include "wchlink/target/rvswd_target_loader.h"
+#include "wchlink/target/rvswd_target_x03x.h"
 
 #include <assert.h>
 #include <stddef.h>
@@ -242,9 +242,9 @@ static void test_x03x_loader_execution_context(void) {
         test_push_write(test_success(0u));
     }
 
-    assert(rvswd_target_loader_execute_x03x(
+    assert(rvswd_target_x03x_loader_execute(
         &operation, 0x20000000u, 0x20002800u, 1u, 0x08000000u, 0u,
-        &result));
+        0x20001000u, 0x20002800u, &result));
     assert(result == 0u);
     assert(test_event_count == 30u);
     test_expect_event(0u, TEST_EVENT_WRITE, RVSWD_DMI_DATA0, 0x000090c3u);

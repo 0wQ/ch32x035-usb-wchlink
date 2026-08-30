@@ -6,8 +6,3 @@ WCHLINK_SERIAL_LEN 文件作用域序列号缓冲区要求 integer constant expr
 WCHLINK_CONFIG_DESC_SIZE CherryUSB 静态 descriptor 初始化需要编译期长度
 WCHLINK_VID CherryUSB 静态 device descriptor 初始化不能引用 static const
 WCHLINK_PID CherryUSB 静态 device descriptor 初始化不能引用 static const
-WCHLINK_STATUS_LED_BLINK_INTERVAL_MS 状态灯闪烁间隔需要编译期常量
-WCHLINK_STATUS_LED_SUCCESS_HOLD_MS 状态灯成功状态保持时间配置
-WCHLINK_STATUS_LED_ERROR_HOLD_MS 状态灯错误状态保持时间配置
-WCHLINK_STATUS_LED_TIMER_TICK_HZ 状态灯定时器计数频率需要编译期常量
-WCHLINK_STATUS_LED_TIMER_RATE_HZ 状态灯定时器更新频率需要编译期常量

@@ -30,12 +30,6 @@ enum rvswd_memory_write_mode {
     RVSWD_MEMORY_WRITE_STREAMING,
 };
 
-enum rvswd_execute_prepare_mode {
-    RVSWD_EXECUTE_PREPARE_NONE,
-    // X03X 族在 loader 执行前把目标切换到受控环境，与官方 LinkE 行为一致
-    RVSWD_EXECUTE_PREPARE_X03X,
-};
-
 // 目标身份读取所需的地址和状态位，连接流程不再持有芯片地址常量
 struct rvswd_target_identity_profile {
     uint32_t chip_id_address;
@@ -46,23 +40,6 @@ struct rvswd_target_identity_profile {
     uint32_t esig_uid_high_address;
     uint32_t esig_uid_tail_address;
     uint32_t ch5xx_debug_data_address;
-};
-
-// loader 执行前的寄存器准备属于目标适配数据，执行模块只负责按布局访问
-struct rvswd_target_prepare_profile {
-    uint32_t rcc_cr_address;
-    uint32_t rcc_cfgr_address;
-    uint32_t rcc_cfgr_value;
-    uint32_t apb2_enable_address;
-    uint32_t apb1_enable_address;
-    uint32_t ahb_enable_address;
-    uint32_t flash_mode_address;
-    uint32_t flash_mode_value;
-    uint32_t flash_control_address;
-    uint32_t flash_control_value;
-    uint32_t flash_status_address;
-    uint32_t flash_address_address;
-    uint32_t watchdog_address;
 };
 
 // Option Bytes 的控制地址由目标 profile 提供，Flash 流程不重复定义
@@ -108,13 +85,11 @@ struct rvswd_target_profile {
     bool ch5xx_protocol;
     bool fast_timing;
     const struct rvswd_target_identity_profile *identity;
-    const struct rvswd_target_prepare_profile *prepare;
     const struct rvswd_target_option_profile *option;
     const struct rvswd_target_loader_profile *loader;
     bool loader_clears_debug_unlock;
     enum rvswd_memory_write_mode memory_write_mode;
     enum rvswd_flash_unlock_mode erase_unlock;
-    enum rvswd_execute_prepare_mode execute_prepare;
     enum rvswd_option_write_mode option_write;
     uint32_t option_base;
     // Code Flash 起始地址和可用容量，loader 编程块越界时前置拒绝

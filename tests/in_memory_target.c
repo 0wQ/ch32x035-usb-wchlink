@@ -282,6 +282,68 @@ struct rvswd_target_info wchlink_target_ports_info(
     return target->info;
 }
 
+bool wchlink_target_ports_is_connected(
+    const struct wchlink_target_ports *target) {
+    return target != NULL && target->info.connected;
+}
+
+bool wchlink_target_ports_uses_ch5xx_loader(
+    const struct wchlink_target_ports *target) {
+    return target != NULL &&
+           target->info.loader == RVSWD_TARGET_LOADER_CH5XX;
+}
+
+bool wchlink_target_ports_loader_start(
+    struct wchlink_target_ports *target,
+    struct wchlink_target_loader_start *start) {
+    if (target == NULL || start == NULL || !target->info.connected) {
+        return false;
+    }
+    start->download_limit = target->info.loader_download_limit;
+    start->variable_length = target->info.loader_variable_length;
+    return start->download_limit != 0u;
+}
+
+bool wchlink_target_ports_loader_supports_partial_write(
+    const struct wchlink_target_ports *target) {
+    return target != NULL && target->info.partial_write_supported;
+}
+
+bool wchlink_target_ports_loader_uses_streaming(
+    const struct wchlink_target_ports *target) {
+    return target != NULL && target->info.memory_streaming;
+}
+
+bool wchlink_target_ports_loader_repeats_initialize(
+    const struct wchlink_target_ports *target) {
+    return target != NULL && target->info.loader_repeat_initialize;
+}
+
+uint32_t wchlink_target_ports_loader_data_length(
+    const struct wchlink_target_ports *target, uint32_t length) {
+    uint32_t page_size = target == NULL ? 0u : target->info.loader_data_page_size;
+
+    if (page_size > 1u) {
+        length = (length + page_size - 1u) & ~(page_size - 1u);
+    }
+    return length;
+}
+
+bool wchlink_target_ports_loader_flash_range_valid(
+    const struct wchlink_target_ports *target, uint32_t address,
+    uint32_t length) {
+    uint32_t base;
+    uint32_t size;
+
+    if (target == NULL || target->info.code_flash_size == 0u) {
+        return true;
+    }
+    base = target->info.code_flash_base;
+    size = target->info.code_flash_size;
+    return base != 0u && address >= base && address - base < size &&
+           length <= size && address - base <= size - length;
+}
+
 struct rvswd_target_chip_info_result wchlink_target_ports_read_chip_info(
     struct wchlink_target_ports *target) {
     struct rvswd_target_chip_info_result chip_info = {
@@ -485,12 +547,34 @@ struct rvswd_target_result wchlink_target_ports_execute_loader(
     const struct rvswd_target_loader_execute *request) {
     const struct wchlink_test_loader_layout *loader =
         wchlink_test_loader_layout(target);
+    uint32_t mode;
+    bool write_checksum;
     struct rvswd_target_result result;
 
     if (request == NULL) {
         return wchlink_test_target_memory_failure(0u);
     }
-    if (request->write_checksum && loader->checksum_address != 0u) {
+    switch (request->operation) {
+        case WCHLINK_TARGET_LOADER_INITIALIZE:
+            mode = target->info.loader_initialize_mode;
+            break;
+        case WCHLINK_TARGET_LOADER_INITIALIZE_PREPARED:
+            mode = target->info.loader_prepared_mode;
+            break;
+        case WCHLINK_TARGET_LOADER_PROGRAM:
+            mode = target->info.loader_program_mode;
+            break;
+        case WCHLINK_TARGET_LOADER_VERIFY:
+            mode = target->info.loader_verify_mode;
+            break;
+        case WCHLINK_TARGET_LOADER_PROGRAM_VERIFY:
+            mode = target->info.loader_program_verify_mode;
+            break;
+        default:
+            return wchlink_test_target_memory_failure(0u);
+    }
+    write_checksum = (mode & target->info.loader_checksum_mode_mask) != 0u;
+    if (write_checksum && loader->checksum_address != 0u) {
         result = wchlink_target_ports_write_memory32(
             target, loader->checksum_address, request->checksum);
         if (!result.ok) {
@@ -499,7 +583,7 @@ struct rvswd_target_result wchlink_target_ports_execute_loader(
         }
     }
     return wchlink_target_ports_execute(
-        target, loader->code_address, loader->stack_top, request->mode,
+        target, loader->code_address, loader->stack_top, mode,
         request->address, request->length, loader->data_address);
 }
 

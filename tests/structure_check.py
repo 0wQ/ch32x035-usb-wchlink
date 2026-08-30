@@ -43,10 +43,6 @@ REMOVED_TARGET_SYMBOLS = {
     "rvswd_target_session",
     "wchlink_target_ports_chip_id",
     "wchlink_target_ports_family",
-    "wchlink_target_ports_is_connected",
-    "wchlink_target_ports_supports_memory_streaming",
-    "wchlink_target_ports_uses_ch5xx_loader",
-    "wchlink_target_ports_uses_l103_loader",
 }
 
 FLASH_BACKEND_HEADER_CONSUMERS = {

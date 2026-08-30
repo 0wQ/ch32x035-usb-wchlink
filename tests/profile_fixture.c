@@ -1,5 +1,6 @@
 #include "wchlink/protocol/wchlink_family.h"
 #include "wchlink/target/rvswd_target_profile.h"
+#include "wchlink/target/rvswd_target_x03x.h"
 
 #include <assert.h>
 #include <stddef.h>
@@ -9,9 +10,13 @@ static void assert_profile(uint32_t chip_id, uint8_t family,
                            enum rvswd_target_loader loader,
                            enum rvswd_memory_write_mode memory_write_mode) {
     const struct rvswd_target_profile *from_chip =
-        rvswd_target_profile_from_chip_id(chip_id);
+        family == WCHLINK_TARGET_FAMILY_X03X
+            ? rvswd_target_x03x_profile()
+            : rvswd_target_profile_from_chip_id(chip_id);
     const struct rvswd_target_profile *from_family =
-        rvswd_target_profile_from_family(family);
+        family == WCHLINK_TARGET_FAMILY_X03X
+            ? rvswd_target_x03x_profile()
+            : rvswd_target_profile_from_family(family);
 
     assert(from_chip != NULL);
     assert(from_chip == from_family);
@@ -90,8 +95,8 @@ int main(void) {
     assert(rvswd_target_profile_from_chip_id(0u) == NULL);
     assert(rvswd_target_profile_from_chip_id(0x12345678u) == NULL);
     assert(rvswd_target_profile_from_family(0u) == NULL);
+    x035_profile = rvswd_target_x03x_profile();
 
-    x035_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_X03X);
     l103_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_CH32L10X);
     v30x_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_CH32V30X);
     ch58x_profile = rvswd_target_profile_from_family(WCHLINK_TARGET_FAMILY_CH58X);
@@ -109,14 +114,10 @@ int main(void) {
     assert_identity(l103_profile, 0x1ffff704u, 0x4002201cu, 0x1ffff7e0u);
     assert_identity(v30x_profile, 0x1ffff704u, 0x4002201cu, 0x1ffff7e0u);
     assert_identity(ch58x_profile, 0x40001041u, 0u, 0u);
-    assert(x035_profile->prepare != NULL);
-    assert(x035_profile->prepare->flash_control_address == 0x40022010u);
-    assert(x035_profile->prepare->flash_control_value == 0x8080u);
     assert(x035_profile->option != NULL);
     assert(x035_profile->option->address_register == 0x40022014u);
     assert(x035_profile->option->status_register == 0x4002201cu);
     assert(x035_profile->option->write_protection_register == 0x40022020u);
-    assert(l103_profile->prepare == NULL);
     assert(ch58x_profile->option == NULL);
     assert(x035_profile->code_flash_base == 0x08000000u);
     assert(x035_profile->loader->initialize_mode == 0x01u);
@@ -135,8 +136,8 @@ int main(void) {
                                         false) == NULL);
     assert(rvswd_target_profile_resolve(0u, WCHLINK_TARGET_FAMILY_CH58X,
                                         true) == ch58x_profile);
-    assert(rvswd_target_profile_resolve(0x12345678u,
-                                        WCHLINK_TARGET_FAMILY_CH58X, true) ==
+    assert(rvswd_target_profile_resolve(
+               0x12345678u, WCHLINK_TARGET_FAMILY_CH58X, true) ==
            ch58x_profile);
     return 0;
 }

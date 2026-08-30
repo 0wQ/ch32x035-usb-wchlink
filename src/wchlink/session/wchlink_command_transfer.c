@@ -57,18 +57,18 @@ struct wchlink_session_command_result wchlink_command_handle_flash(
         case 0x01u:
             wchlink_transfer_clear_operation(context->transfer);
             target_result = rvswd_target_result_success();
-            if (!wchlink_target_ports_info(context->target).connected) {
+            if (!wchlink_target_ports_is_connected(context->target)) {
                 // MRS 版本预检会先发送 STOP，基础全擦必须重新建立目标会话
                 wchlink_command_target_init(context);
                 target_result = wchlink_target_ports_connect(context->target);
             }
             if (target_result.ok &&
-                wchlink_target_ports_info(context->target).connected) {
+                wchlink_target_ports_is_connected(context->target)) {
                 target_result = wchlink_target_ports_flash_erase_all(
                     context->target);
             }
             if (!target_result.ok ||
-                !wchlink_target_ports_info(context->target).connected) {
+                !wchlink_target_ports_is_connected(context->target)) {
                 size_t response_length =
                     response_capacity >= 4u
                         ? wchlink_wire_family_error(

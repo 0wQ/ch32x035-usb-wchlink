@@ -26,6 +26,10 @@ struct rvswd_target_chip_info_result {
 // control port 只提供目标身份和连接生命周期操作，不保存独立状态
 void wchlink_target_ports_init(struct wchlink_target_ports *ports);
 void wchlink_target_ports_disconnect(struct wchlink_target_ports *ports);
+bool wchlink_target_ports_is_connected(
+    const struct wchlink_target_ports *ports);
+bool wchlink_target_ports_uses_ch5xx_loader(
+    const struct wchlink_target_ports *ports);
 struct rvswd_target_result wchlink_target_ports_connect(
     struct wchlink_target_ports *ports);
 void wchlink_target_ports_set_family_hint(

@@ -1,13 +1,13 @@
 #include "wchlink/flash/rvswd_flash.h"
 #include "wchlink/protocol/wchlink_family.h"
 #include "wchlink/rvswd/rvswd_debug.h"
-#include "wchlink/rvswd/rvswd_execute_prepare.h"
 #include "wchlink/rvswd/rvswd_memory.h"
 #include "wchlink/rvswd/rvswd_operation.h"
 #include "wchlink/rvswd/rvswd_reset.h"
 #include "wchlink/rvswd/rvswd_types.h"
-#include "wchlink/target/rvswd_target_loader.h"
+#include "wchlink/target/rvswd_target_module.h"
 #include "wchlink/target/rvswd_target_profile.h"
+#include "wchlink/target/rvswd_target_registry.h"
 #include "wchlink/target/wchlink_target_control.h"
 #include "wchlink/target/wchlink_target_dmi.h"
 #include "wchlink/target/wchlink_target_flash.h"
@@ -20,9 +20,18 @@
 
 static const struct rvswd_target_profile *wchlink_target_ports_current_profile(
     const struct wchlink_target_ports *ports) {
+    const struct rvswd_target_module *module;
+
     // 连接成功后只使用已锁定 profile，hint 只参与连接前候选解析
     if (ports->profile != NULL) {
         return ports->profile;
+    }
+    module = rvswd_target_registry_module_from_chip_id(ports->info.chip_id);
+    if (module == NULL) {
+        module = rvswd_target_registry_module_from_family(ports->family_hint);
+    }
+    if (module != NULL) {
+        return module->profile;
     }
     return rvswd_target_profile_resolve(ports->info.chip_id,
                                         ports->family_hint,
@@ -35,6 +44,33 @@ wchlink_target_ports_current_loader(const struct wchlink_target_ports *ports) {
         wchlink_target_ports_current_profile(ports);
 
     return profile == NULL ? NULL : profile->loader;
+}
+
+static bool wchlink_target_ports_loader_mode(
+    const struct rvswd_target_loader_profile *loader,
+    enum wchlink_target_loader_operation operation, uint32_t *mode) {
+    if (loader == NULL || mode == NULL) {
+        return false;
+    }
+    switch (operation) {
+        case WCHLINK_TARGET_LOADER_INITIALIZE:
+            *mode = loader->initialize_mode;
+            return true;
+        case WCHLINK_TARGET_LOADER_INITIALIZE_PREPARED:
+            *mode = loader->prepared_mode;
+            return true;
+        case WCHLINK_TARGET_LOADER_PROGRAM:
+            *mode = loader->program_mode;
+            return true;
+        case WCHLINK_TARGET_LOADER_VERIFY:
+            *mode = loader->verify_mode;
+            return true;
+        case WCHLINK_TARGET_LOADER_PROGRAM_VERIFY:
+            *mode = loader->program_verify_mode;
+            return true;
+        default:
+            return false;
+    }
 }
 
 void wchlink_target_ports_refresh_info(struct wchlink_target_ports *ports) {
@@ -92,6 +128,13 @@ wchlink_target_ports_memory_profile(
 
     if (profile != NULL) {
         return profile;
+    }
+    {
+        const struct rvswd_target_module *module =
+            rvswd_target_registry_module_from_family(ports->family_hint);
+        if (module != NULL) {
+            return module->profile;
+        }
     }
     return rvswd_target_profile_from_family(ports->family_hint);
 }
@@ -190,6 +233,93 @@ void wchlink_target_ports_set_family_hint(
 struct rvswd_target_info wchlink_target_ports_info(
     const struct wchlink_target_ports *ports) {
     return ports->info;
+}
+
+bool wchlink_target_ports_is_connected(
+    const struct wchlink_target_ports *ports) {
+    return ports != NULL && ports->info.connected;
+}
+
+bool wchlink_target_ports_uses_ch5xx_loader(
+    const struct wchlink_target_ports *ports) {
+    const struct rvswd_target_loader_profile *loader;
+
+    if (ports == NULL) {
+        return false;
+    }
+    loader = wchlink_target_ports_current_loader(ports);
+    return loader != NULL && loader->kind == RVSWD_TARGET_LOADER_CH5XX;
+}
+
+bool wchlink_target_ports_loader_start(
+    struct wchlink_target_ports *ports,
+    struct wchlink_target_loader_start *start) {
+    const struct rvswd_target_loader_profile *loader;
+
+    if (ports == NULL || start == NULL || !ports->info.connected) {
+        return false;
+    }
+    loader = wchlink_target_ports_current_loader(ports);
+    if (loader == NULL || loader->download_limit == 0u) {
+        return false;
+    }
+    start->download_limit = loader->download_limit;
+    start->variable_length = loader->variable_length;
+    return true;
+}
+
+bool wchlink_target_ports_loader_supports_partial_write(
+    const struct wchlink_target_ports *ports) {
+    const struct rvswd_target_loader_profile *loader =
+        wchlink_target_ports_current_loader(ports);
+
+    return loader != NULL && loader->partial_write_supported;
+}
+
+bool wchlink_target_ports_loader_uses_streaming(
+    const struct wchlink_target_ports *ports) {
+    const struct rvswd_target_profile *profile =
+        wchlink_target_ports_current_profile(ports);
+
+    return profile != NULL &&
+           profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING;
+}
+
+bool wchlink_target_ports_loader_repeats_initialize(
+    const struct wchlink_target_ports *ports) {
+    const struct rvswd_target_loader_profile *loader =
+        wchlink_target_ports_current_loader(ports);
+
+    return loader != NULL && loader->repeat_initialize;
+}
+
+uint32_t wchlink_target_ports_loader_data_length(
+    const struct wchlink_target_ports *ports, uint32_t length) {
+    const struct rvswd_target_loader_profile *loader =
+        wchlink_target_ports_current_loader(ports);
+    uint32_t page_size = loader == NULL ? 0u : loader->data_page_size;
+
+    if (page_size > 1u) {
+        length = (length + (page_size - 1u)) & ~(page_size - 1u);
+    }
+    return length;
+}
+
+bool wchlink_target_ports_loader_flash_range_valid(
+    const struct wchlink_target_ports *ports, uint32_t address,
+    uint32_t length) {
+    const struct rvswd_target_profile *profile =
+        wchlink_target_ports_current_profile(ports);
+
+    if (profile == NULL || profile->code_flash_size == 0u) {
+        return true;
+    }
+    return profile->code_flash_base != 0u &&
+           address >= profile->code_flash_base &&
+           address - profile->code_flash_base < profile->code_flash_size &&
+           length <= profile->code_flash_size &&
+           address - profile->code_flash_base <=
+               profile->code_flash_size - length;
 }
 
 struct rvswd_target_chip_info_result wchlink_target_ports_read_chip_info(
@@ -387,6 +517,7 @@ static struct rvswd_target_result wchlink_target_ports_execute(
     struct rvswd_target_result result;
     struct rvswd_operation operation;
     const struct rvswd_target_profile *profile;
+    const struct rvswd_target_module *module;
     bool success;
 
     if (ports == NULL) {
@@ -395,6 +526,10 @@ static struct rvswd_target_result wchlink_target_ports_execute(
     rvswd_operation_init(&operation, &ports->transport);
     operation.address = address;
     profile = wchlink_target_ports_current_profile(ports);
+    module = profile == NULL
+                 ? NULL
+                 : rvswd_target_registry_module_from_family(
+                       profile->wchlink_family);
     // 每次 loader 执行前都重新写入解锁值，确保 prepare 的目标内存访问有效
     if (!rvswd_debug_restore_unlock(&operation)) {
         value = 0xe00au;
@@ -404,10 +539,9 @@ static struct rvswd_target_result wchlink_target_ports_execute(
         result.address = address;
         return result;
     }
-    // X03X 只在 mode 1 初始化 loader 时准备 Flash 环境，编程阶段复用该状态
-    if ((profile == NULL || profile->execute_prepare != RVSWD_EXECUTE_PREPARE_X03X ||
-         (mode & 1u) != 0u) &&
-        !rvswd_execute_prepare(&operation, profile)) {
+    // 族模块在 loader 首次启动前建立目标环境，未迁移族保持旧的空前置路径
+    if (module != NULL && module->loader_prepare != NULL &&
+        !module->loader_prepare(&operation, profile, mode)) {
         // 环境准备失败说明 DMI 已不可用，loader 返回值无法反映真实原因
         value = operation.memory_code == 0u ? 0x15u : operation.memory_code;
         result = wchlink_target_ports_operation_result(
@@ -416,9 +550,10 @@ static struct rvswd_target_result wchlink_target_ports_execute(
         result.address = address;
         return result;
     }
-    if (profile != NULL && profile->execute_prepare == RVSWD_EXECUTE_PREPARE_X03X) {
-        success = rvswd_target_loader_execute_x03x(
-            &operation, entry, stack_top, mode, address, length, &value);
+    if (module != NULL && module->loader_execute != NULL) {
+        success = module->loader_execute(
+            &operation, entry, stack_top, mode, address, length, data_address,
+            dpc_value, &value);
     } else {
         success = rvswd_debug_execute(&operation, entry, stack_top, mode,
                                       address, length, data_address, dpc_value,
@@ -480,6 +615,8 @@ struct rvswd_target_result wchlink_target_ports_execute_loader(
     struct wchlink_target_ports *ports,
     const struct rvswd_target_loader_execute *request) {
     const struct rvswd_target_loader_profile *loader;
+    uint32_t mode;
+    bool write_checksum;
     struct rvswd_target_result result;
 
     if (ports == NULL || request == NULL) {
@@ -489,7 +626,11 @@ struct rvswd_target_result wchlink_target_ports_execute_loader(
     if (loader == NULL) {
         return wchlink_target_ports_invalid_result(RVSWD_TARGET_RESULT_DEBUG);
     }
-    if (request->write_checksum && loader->checksum_address != 0u) {
+    if (!wchlink_target_ports_loader_mode(loader, request->operation, &mode)) {
+        return wchlink_target_ports_invalid_result(RVSWD_TARGET_RESULT_DEBUG);
+    }
+    write_checksum = (mode & loader->checksum_mode_mask) != 0u;
+    if (write_checksum && loader->checksum_address != 0u) {
         result = wchlink_target_ports_write_memory32(
             ports, loader->checksum_address, request->checksum);
         if (!result.ok) {
@@ -498,8 +639,8 @@ struct rvswd_target_result wchlink_target_ports_execute_loader(
             return result;
         }
     }
-    if (!request->write_checksum &&
-        (request->mode & loader->length_mode_mask) != 0u &&
+    if (!write_checksum &&
+        (mode & loader->length_mode_mask) != 0u &&
         loader->length_address != 0u) {
         result = wchlink_target_ports_write_memory32(
             ports, loader->length_address, request->length);
@@ -510,7 +651,7 @@ struct rvswd_target_result wchlink_target_ports_execute_loader(
         }
     }
     return wchlink_target_ports_execute(
-        ports, loader->code_address, loader->stack_top, request->mode,
+        ports, loader->code_address, loader->stack_top, mode,
         request->address, request->length, loader->data_address,
         loader->dpc_value);
 }

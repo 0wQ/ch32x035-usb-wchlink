@@ -36,7 +36,7 @@ struct wchlink_transfer {
     uint32_t flash_transfer_received;
     uint32_t flash_transfer_length;
     uint32_t flash_chunk_length;
-    uint32_t flash_loader_mode;
+    uint8_t flash_loader_operation;
     uint32_t flash_checksum;
     bool loader_ready;
     bool flash_openocd_mode;

@@ -4,6 +4,7 @@
 #include "wchlink/rvswd/rvswd_operation.h"
 #include "wchlink/rvswd/rvswd_types.h"
 #include "wchlink/target/rvswd_target_profile.h"
+#include "wchlink/target/rvswd_target_registry.h"
 #include "wchlink/target/wchlink_target_control.h"
 #include "wchlink/target/wchlink_target_ports_internal.h"
 #include "wchlink/transport/rvswd_transport.h"
@@ -15,12 +16,43 @@
 static const uint32_t rvswd_debug_unlock = 0x5aa50400u;
 static const uint8_t rvswd_long_status_ok = 0u;
 
+static const struct rvswd_target_profile *
+rvswd_target_connect_profile_from_chip_id(uint32_t chip_id) {
+    const struct rvswd_target_module *module =
+        rvswd_target_registry_module_from_chip_id(chip_id);
+
+    return module == NULL ? rvswd_target_profile_from_chip_id(chip_id)
+                          : module->profile;
+}
+
+static const struct rvswd_target_profile *
+rvswd_target_connect_profile_from_family(uint8_t family) {
+    const struct rvswd_target_module *module =
+        rvswd_target_registry_module_from_family(family);
+
+    return module == NULL ? rvswd_target_profile_from_family(family)
+                          : module->profile;
+}
+
+static const struct rvswd_target_profile *
+rvswd_target_connect_profile_resolve(uint32_t chip_id, uint8_t family_hint,
+                                     bool family_hint_active) {
+    const struct rvswd_target_profile *profile =
+        rvswd_target_connect_profile_from_chip_id(chip_id);
+
+    if (profile != NULL || !family_hint_active) {
+        return profile;
+    }
+    return rvswd_target_connect_profile_from_family(family_hint);
+}
+
 static bool rvswd_target_connect_read_memory32(
     struct wchlink_target_ports *ports, struct rvswd_operation *operation,
     uint32_t address, uint32_t *value) {
     // 身份探测前 ChipID 已清零，只能用主机 family hint 选择候选内存访问方式
     return rvswd_memory_read32(
-        operation, rvswd_target_profile_from_family(ports->family_hint), false,
+        operation,
+        rvswd_target_connect_profile_from_family(ports->family_hint), false,
         address, value);
 }
 
@@ -63,10 +95,14 @@ static bool rvswd_target_connect_read_memory8_ch5xx(
 
 static bool rvswd_target_connect_identify(
     struct wchlink_target_ports *ports, struct rvswd_operation *operation) {
-    const struct rvswd_target_profile *expected_profile = rvswd_target_profile_from_family(ports->family_hint);
+    const struct rvswd_target_profile *expected_profile =
+        rvswd_target_connect_profile_from_family(ports->family_hint);
     const struct rvswd_target_profile *candidate_profile;
     const struct rvswd_target_identity_profile *ch5xx_identity = rvswd_target_probe_identity_ch5xx();
-    const struct rvswd_target_identity_profile *ch32_identity = rvswd_target_probe_identity_ch32();
+    const struct rvswd_target_identity_profile *ch32_identity =
+        expected_profile != NULL && !expected_profile->ch5xx_protocol
+            ? expected_profile->identity
+            : rvswd_target_probe_identity_ch32();
     uint32_t candidate_chip_id;
     uint32_t memory_chip_id = 0u;
     uint32_t option_status;
@@ -78,7 +114,8 @@ static bool rvswd_target_connect_identify(
     read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_WCH_CHIP_ID);
     candidate_chip_id = read_result.value;
     if (read_result.ok && candidate_chip_id != 0u) {
-        candidate_profile = rvswd_target_profile_from_chip_id(candidate_chip_id);
+        candidate_profile =
+            rvswd_target_connect_profile_from_chip_id(candidate_chip_id);
         if (candidate_profile != NULL && !candidate_profile->ch5xx_protocol) {
             ports->info.chip_id = candidate_chip_id;
             rvswd_transport_set_fast_timing(transport, candidate_profile->fast_timing);
@@ -89,7 +126,8 @@ static bool rvswd_target_connect_identify(
     // CH5xx 通过专用 8 位寄存器报告型号，失败后才进入通用内存 ChipID 路径
     if (ch5xx_identity != NULL && rvswd_target_connect_read_memory8_ch5xx(operation, ch5xx_identity, ch5xx_identity->chip_id_address, &ch5xx_chip_id)) {
         candidate_chip_id = (uint32_t)ch5xx_chip_id << 24u;
-        candidate_profile = rvswd_target_profile_from_chip_id(candidate_chip_id);
+        candidate_profile =
+            rvswd_target_connect_profile_from_chip_id(candidate_chip_id);
     } else {
         candidate_profile = NULL;
     }
@@ -102,7 +140,8 @@ static bool rvswd_target_connect_identify(
         if (ch32_identity != NULL &&
             rvswd_target_connect_read_memory32(ports, operation, ch32_identity->chip_id_address, &memory_chip_id) && memory_chip_id != 0u) {
             ports->info.chip_id = memory_chip_id;
-            candidate_profile = rvswd_target_profile_from_chip_id(memory_chip_id);
+            candidate_profile =
+                rvswd_target_connect_profile_from_chip_id(memory_chip_id);
             rvswd_transport_set_fast_timing(transport, candidate_profile != NULL && candidate_profile->fast_timing);
             return true;
         }
@@ -261,7 +300,7 @@ static bool rvswd_target_connect_transport(
     struct rvswd_transport *transport = &ports->transport;
 
     rvswd_transport_set_fast_timing(transport, false);
-    if (rvswd_target_profile_from_family(ports->family_hint) == NULL) {
+    if (rvswd_target_connect_profile_from_family(ports->family_hint) == NULL) {
         struct rvswd_transport_probe_result probe_result;
         uint16_t long_signature_count = 0u;
 
@@ -298,14 +337,13 @@ static bool rvswd_target_connect_transport(
 
 static uint8_t rvswd_target_connect_family(
     const struct wchlink_target_ports *ports) {
-    const struct rvswd_target_profile *profile = rvswd_target_profile_resolve(
-        ports->info.chip_id, ports->family_hint,
-        ports->family_hint_active);
+    const struct rvswd_target_profile *profile =
+        rvswd_target_connect_profile_from_chip_id(ports->info.chip_id);
 
     if (profile != NULL) {
         return profile->wchlink_family;
     }
-    profile = rvswd_target_profile_from_family(ports->family_hint);
+    profile = rvswd_target_connect_profile_from_family(ports->family_hint);
     return profile == NULL ? 0u : profile->wchlink_family;
 }
 
@@ -320,7 +358,7 @@ struct rvswd_target_result wchlink_target_ports_connect(
     if (rvswd_target_connect_transport(ports, &operation)) {
         ports->connect_error = 0u;
         ports->info.family = rvswd_target_connect_family(ports);
-        ports->profile = rvswd_target_profile_resolve(
+        ports->profile = rvswd_target_connect_profile_resolve(
             ports->info.chip_id, ports->family_hint,
             ports->family_hint_active);
         ports->info.connected = ports->profile != NULL;

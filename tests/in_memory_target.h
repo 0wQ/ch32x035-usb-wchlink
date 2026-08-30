@@ -56,6 +56,7 @@ struct wchlink_target_ports {
     uint8_t system[WCHLINK_TEST_SYSTEM_SIZE];
     uint8_t option_bytes[RVSWD_OPTION_CONFIG_BYTE_COUNT];
     uint8_t family_hint;
+    uint8_t requested_speed;
     bool read_protected;
     uint32_t execute_value;
     struct wchlink_test_execute last_execute;

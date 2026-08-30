@@ -6,15 +6,81 @@
 
 static const uint32_t rvswd_chip_family_mask = 0xfff00000u;
 
+static const struct rvswd_target_identity_profile rvswd_identity_ch32 = {
+    .chip_id_address = 0x1ffff704u,
+    .option_status_address = 0x4002201cu,
+    .option_status_read_protected_mask = 1u << 1u,
+    .esig_flash_size_address = 0x1ffff7e0u,
+    .esig_uid_low_address = 0x1ffff7e8u,
+    .esig_uid_high_address = 0x1ffff7ecu,
+    .esig_uid_tail_address = 0x1ffff7f0u,
+    .ch5xx_debug_data_address = 0u,
+};
+
+static const struct rvswd_target_identity_profile rvswd_identity_ch5xx = {
+    .chip_id_address = 0x40001041u,
+    .option_status_address = 0u,
+    .option_status_read_protected_mask = 0u,
+    .esig_flash_size_address = 0u,
+    .esig_uid_low_address = 0u,
+    .esig_uid_high_address = 0u,
+    .esig_uid_tail_address = 0u,
+    .ch5xx_debug_data_address = 0xe0000380u,
+};
+
+const struct rvswd_target_identity_profile *rvswd_target_probe_identity_ch32(
+    void) {
+    return &rvswd_identity_ch32;
+}
+
+const struct rvswd_target_identity_profile *rvswd_target_probe_identity_ch5xx(
+    void) {
+    return &rvswd_identity_ch5xx;
+}
+
+// 这些寄存器访问顺序和数值来自官方 LinkE 对 CH32X035 的 MRS 抓包
+static const struct rvswd_target_prepare_profile rvswd_prepare_x03x = {
+    .rcc_cr_address = 0x40021000u,
+    .rcc_cfgr_address = 0x40021004u,
+    .rcc_cfgr_value = 0x50u,
+    .apb2_enable_address = 0x40021014u,
+    .apb1_enable_address = 0x40021018u,
+    .ahb_enable_address = 0x40021020u,
+    .flash_mode_address = 0x40022000u,
+    .flash_mode_value = 0x12u,
+    .flash_control_address = 0x40022010u,
+    .flash_control_value = 0x8080u,
+    .flash_status_address = 0x4002201cu,
+    .flash_address_address = 0x40022020u,
+    .watchdog_address = 0xe000f000u,
+};
+
+static const struct rvswd_target_option_profile rvswd_option_ch32 = {
+    .address_register = 0x40022014u,
+    .status_register = 0x4002201cu,
+    .write_protection_register = 0x40022020u,
+};
+
 static const struct rvswd_target_loader_profile rvswd_loader_profile_x035 = {
     .kind = RVSWD_TARGET_LOADER_DEFAULT,
     .code_address = 0x20000000u,
     .data_address = 0x20001000u,
-    .stack_top = 0x20005000u,
+    .stack_top = 0x20002800u,
     .checksum_address = 0x20002010u,
+    .length_address = 0x20002010u,
+    .dpc_value = 0x20002800u,
     .download_limit = 512u,
     .download_packet_size = 256u,
     .data_page_size = 1u,
+    .initialize_mode = 0x01u,
+    .prepared_mode = 0x01u,
+    .program_mode = 0x0cu,
+    .verify_mode = 0x10u,
+    .program_verify_mode = 0x1cu,
+    .checksum_mode_mask = 0x10u,
+    .length_mode_mask = 0x08u,
+    .repeat_initialize = false,
+    .partial_write_supported = false,
     .variable_length = false,
 };
 
@@ -24,9 +90,20 @@ static const struct rvswd_target_loader_profile rvswd_loader_profile_l103 = {
     .data_address = 0x20001000u,
     .stack_top = 0x20005000u,
     .checksum_address = 0x20002010u,
+    .length_address = 0u,
+    .dpc_value = 0u,
     .download_limit = 512u,
     .download_packet_size = 256u,
     .data_page_size = 1u,
+    .initialize_mode = 0x01u,
+    .prepared_mode = 0x03u,
+    .program_mode = 0x08u,
+    .verify_mode = 0x10u,
+    .program_verify_mode = 0x18u,
+    .checksum_mode_mask = 0x10u,
+    .length_mode_mask = 0u,
+    .repeat_initialize = true,
+    .partial_write_supported = false,
     .variable_length = false,
 };
 
@@ -36,9 +113,20 @@ static const struct rvswd_target_loader_profile rvswd_loader_profile_v30x = {
     .data_address = 0x20001000u,
     .stack_top = 0x20005000u,
     .checksum_address = 0x20002010u,
+    .length_address = 0u,
+    .dpc_value = 0u,
     .download_limit = 512u,
     .download_packet_size = 256u,
     .data_page_size = 1u,
+    .initialize_mode = 0x01u,
+    .prepared_mode = 0x03u,
+    .program_mode = 0x08u,
+    .verify_mode = 0x10u,
+    .program_verify_mode = 0x18u,
+    .checksum_mode_mask = 0x10u,
+    .length_mode_mask = 0u,
+    .repeat_initialize = true,
+    .partial_write_supported = false,
     .variable_length = false,
 };
 
@@ -48,9 +136,20 @@ static const struct rvswd_target_loader_profile rvswd_loader_profile_ch5xx = {
     .data_address = 0x20005000u,
     .stack_top = 0x20007000u,
     .checksum_address = 0x20006010u,
+    .length_address = 0u,
+    .dpc_value = 0u,
     .download_limit = 2048u,
     .download_packet_size = 256u,
     .data_page_size = 256u,
+    .initialize_mode = 0x01u,
+    .prepared_mode = 0x01u,
+    .program_mode = 0x08u,
+    .verify_mode = 0x10u,
+    .program_verify_mode = 0x08u,
+    .checksum_mode_mask = 0x10u,
+    .length_mode_mask = 0u,
+    .repeat_initialize = true,
+    .partial_write_supported = true,
     .variable_length = true,
 };
 
@@ -58,12 +157,17 @@ static const struct rvswd_target_profile rvswd_target_profile_x035 = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_X03X,
     .ch5xx_protocol = false,
     .fast_timing = false,
+    .identity = &rvswd_identity_ch32,
+    .prepare = &rvswd_prepare_x03x,
+    .option = &rvswd_option_ch32,
     .loader = &rvswd_loader_profile_x035,
-    .memory_write_mode = RVSWD_MEMORY_WRITE_STREAMING,
+    .loader_clears_debug_unlock = true,
+    .memory_write_mode = RVSWD_MEMORY_WRITE_DIRECT,
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
     .execute_prepare = RVSWD_EXECUTE_PREPARE_X03X,
     .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,
     .option_base = 0x1ffff800u,
+    .code_flash_base = 0x08000000u,
     .code_flash_size = 0xf800u,
 };
 
@@ -71,46 +175,66 @@ static const struct rvswd_target_profile rvswd_target_profile_l103 = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_CH32L10X,
     .ch5xx_protocol = false,
     .fast_timing = false,
+    .identity = &rvswd_identity_ch32,
+    .prepare = NULL,
+    .option = &rvswd_option_ch32,
     .loader = &rvswd_loader_profile_l103,
+    .loader_clears_debug_unlock = false,
     .memory_write_mode = RVSWD_MEMORY_WRITE_STREAMING,
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_OPTION_AND_FAST,
     .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,
     .option_base = 0x1ffff800u,
+    .code_flash_base = 0x08000000u,
 };
 
 static const struct rvswd_target_profile rvswd_target_profile_v30x = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_CH32V30X,
     .ch5xx_protocol = false,
     .fast_timing = false,
+    .identity = &rvswd_identity_ch32,
+    .prepare = NULL,
+    .option = &rvswd_option_ch32,
     .loader = &rvswd_loader_profile_v30x,
+    .loader_clears_debug_unlock = false,
     .memory_write_mode = RVSWD_MEMORY_WRITE_STREAMING,
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
     .option_write = RVSWD_OPTION_WRITE_HALFWORD,
     .option_base = 0x1ffff800u,
+    .code_flash_base = 0x08000000u,
 };
 
 static const struct rvswd_target_profile rvswd_target_profile_ch59x = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_CH59X,
     .ch5xx_protocol = true,
     .fast_timing = false,
+    .identity = &rvswd_identity_ch5xx,
+    .prepare = NULL,
+    .option = NULL,
     .loader = &rvswd_loader_profile_ch5xx,
+    .loader_clears_debug_unlock = false,
     .memory_write_mode = RVSWD_MEMORY_WRITE_WORD,
     // CH5xx 使用专用 Flash 命令和 loader，这两个字段只为保持 profile 接口完整
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
     .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,
     .option_base = 0u,
+    .code_flash_base = 0x08000000u,
 };
 
 static const struct rvswd_target_profile rvswd_target_profile_ch58x = {
     .wchlink_family = WCHLINK_TARGET_FAMILY_CH58X,
     .ch5xx_protocol = true,
     .fast_timing = false,
+    .identity = &rvswd_identity_ch5xx,
+    .prepare = NULL,
+    .option = NULL,
     .loader = &rvswd_loader_profile_ch5xx,
+    .loader_clears_debug_unlock = false,
     .memory_write_mode = RVSWD_MEMORY_WRITE_WORD,
     // CH5xx 使用专用 Flash 命令和 loader，这两个字段只为保持 profile 接口完整
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
     .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,
     .option_base = 0u,
+    .code_flash_base = 0x08000000u,
 };
 
 struct rvswd_chip_profile_match {

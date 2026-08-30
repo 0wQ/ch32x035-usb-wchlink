@@ -13,6 +13,8 @@ bool rvswd_memory_read32(struct rvswd_operation *operation,
                          uint32_t *value);
 bool rvswd_memory_write32(struct rvswd_operation *operation, uint32_t address,
                           uint32_t value);
+bool rvswd_memory_write32_direct(struct rvswd_operation *operation,
+                                 uint32_t address, uint32_t value);
 bool rvswd_memory_write(struct rvswd_operation *operation,
                         const struct rvswd_target_profile *profile,
                         uint32_t address, const uint8_t *data,

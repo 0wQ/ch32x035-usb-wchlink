@@ -15,12 +15,6 @@
 static const uint32_t rvswd_debug_unlock = 0x5aa50400u;
 static const uint8_t rvswd_long_status_ok = 0u;
 
-static const uint32_t rvswd_ch5xx_chip_id_address = 0x40001041u;
-
-static const uint32_t rvswd_ch5xx_debug_data_address = 0xe0000380u;
-static const uint32_t rvswd_flash_obr_address = 0x4002201cu;
-static const uint32_t rvswd_flash_obr_read_protected = 1u << 1u;
-
 static bool rvswd_target_connect_read_memory32(
     struct wchlink_target_ports *ports, struct rvswd_operation *operation,
     uint32_t address, uint32_t *value) {
@@ -37,52 +31,17 @@ static void rvswd_target_connect_reset_identity(
     ports->family_hint_active = false;
 }
 
-static bool rvswd_target_connect_restore_debug_module(
-    struct rvswd_operation *operation) {
-    bool success = true;
-
-    // QingKe 调试模块启动和异常恢复时会丢失关键写入，重复配置确保命令生效
-    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_SHADOW,
-                                        rvswd_debug_unlock)
-                  .ok &&
-              success;
-    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_CONFIG,
-                                        rvswd_debug_unlock)
-                  .ok &&
-              success;
-    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_SHADOW,
-                                        rvswd_debug_unlock)
-                  .ok &&
-              success;
-    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_CONFIG,
-                                        rvswd_debug_unlock)
-                  .ok &&
-              success;
-    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL,
-                                        0x80000001u)
-                  .ok &&
-              success;
-    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL,
-                                        0x80000001u)
-                  .ok &&
-              success;
-    success = rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL,
-                                        0x80000001u)
-                  .ok &&
-              success;
-    return success;
-}
-
 static bool rvswd_target_connect_read_memory8_ch5xx(
-    struct rvswd_operation *operation, uint32_t address,
+    struct rvswd_operation *operation,
+    const struct rvswd_target_identity_profile *identity, uint32_t address,
     uint8_t *value) {
     uint32_t abstractcs;
     struct rvswd_transport_result read_result;
 
     // LinkE 通过 data0 传入地址，Program Buffer 将目标字节写回 data1
-    if (value == NULL ||
-        !rvswd_debug_write_raw_gpr(operation, 13u,
-                                   rvswd_ch5xx_debug_data_address) ||
+    if (identity == NULL || identity->ch5xx_debug_data_address == 0u ||
+        value == NULL ||
+        !rvswd_debug_write_raw_gpr(operation, 13u, identity->ch5xx_debug_data_address) ||
         !rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u).ok ||
         !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF0, 0x00058483u).ok ||
         !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF1, 0x00968223u).ok ||
@@ -104,9 +63,10 @@ static bool rvswd_target_connect_read_memory8_ch5xx(
 
 static bool rvswd_target_connect_identify(
     struct wchlink_target_ports *ports, struct rvswd_operation *operation) {
-    const struct rvswd_target_profile *expected_profile =
-        rvswd_target_profile_from_family(ports->family_hint);
+    const struct rvswd_target_profile *expected_profile = rvswd_target_profile_from_family(ports->family_hint);
     const struct rvswd_target_profile *candidate_profile;
+    const struct rvswd_target_identity_profile *ch5xx_identity = rvswd_target_probe_identity_ch5xx();
+    const struct rvswd_target_identity_profile *ch32_identity = rvswd_target_probe_identity_ch32();
     uint32_t candidate_chip_id;
     uint32_t memory_chip_id = 0u;
     uint32_t option_status;
@@ -121,15 +81,13 @@ static bool rvswd_target_connect_identify(
         candidate_profile = rvswd_target_profile_from_chip_id(candidate_chip_id);
         if (candidate_profile != NULL && !candidate_profile->ch5xx_protocol) {
             ports->info.chip_id = candidate_chip_id;
-            rvswd_transport_set_fast_timing(transport,
-                                            candidate_profile->fast_timing);
+            rvswd_transport_set_fast_timing(transport, candidate_profile->fast_timing);
             return true;
         }
     }
 
     // CH5xx 通过专用 8 位寄存器报告型号，失败后才进入通用内存 ChipID 路径
-    if (rvswd_target_connect_read_memory8_ch5xx(
-            operation, rvswd_ch5xx_chip_id_address, &ch5xx_chip_id)) {
+    if (ch5xx_identity != NULL && rvswd_target_connect_read_memory8_ch5xx(operation, ch5xx_identity, ch5xx_identity->chip_id_address, &ch5xx_chip_id)) {
         candidate_chip_id = (uint32_t)ch5xx_chip_id << 24u;
         candidate_profile = rvswd_target_profile_from_chip_id(candidate_chip_id);
     } else {
@@ -140,20 +98,23 @@ static bool rvswd_target_connect_identify(
         ports->info.chip_id = candidate_chip_id;
         return true;
     }
-    if (rvswd_target_connect_read_memory32(ports, operation, 0x1ffff704u,
-                                           &memory_chip_id) &&
-        memory_chip_id != 0u) {
-        ports->info.chip_id = memory_chip_id;
-        candidate_profile = rvswd_target_profile_from_chip_id(memory_chip_id);
-        rvswd_transport_set_fast_timing(
-            transport,
-            candidate_profile != NULL && candidate_profile->fast_timing);
-        return true;
+    {
+        if (ch32_identity != NULL &&
+            rvswd_target_connect_read_memory32(ports, operation, ch32_identity->chip_id_address, &memory_chip_id) && memory_chip_id != 0u) {
+            ports->info.chip_id = memory_chip_id;
+            candidate_profile = rvswd_target_profile_from_chip_id(memory_chip_id);
+            rvswd_transport_set_fast_timing(transport, candidate_profile != NULL && candidate_profile->fast_timing);
+            return true;
+        }
     }
-    if (expected_profile != NULL &&
+    if (expected_profile != NULL && expected_profile->identity != NULL &&
+        expected_profile->identity->option_status_address != 0u &&
         rvswd_target_connect_read_memory32(
-            ports, operation, rvswd_flash_obr_address, &option_status) &&
-        (option_status & rvswd_flash_obr_read_protected) != 0u) {
+            ports, operation,
+            expected_profile->identity->option_status_address,
+            &option_status) &&
+        (option_status &
+         expected_profile->identity->option_status_read_protected_mask) != 0u) {
         // ChipID 读取失败时，受限会话才使用主机 SetSpeed 提示的 profile
         ports->family_hint_active = true;
         return true;
@@ -183,7 +144,7 @@ static bool rvswd_target_connect_known_mode(
         bsp_delay_ms(16u);
 
         // 初始化阶段按 DTM 管线推进请求，单次 BUSY 不重复占用同一请求
-        if (!rvswd_target_connect_restore_debug_module(operation)) {
+        if (!rvswd_debug_restore_unlock(operation)) {
             ports->connect_error = 0x12u;
             continue;
         }
@@ -243,15 +204,11 @@ static bool rvswd_target_connect_short_autodetect(
         // 官方 V307 抓包中最后一个 long STOP 到首个 short START 约为 212 us
         bsp_delay_us(200u);
         // 初始化帧的即时状态属于 DMI 管线，继续发送官方序列并以最终 halt 状态验收
-        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_SHADOW,
-                                       rvswd_debug_unlock)
-                 .ok) {
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_SHADOW, rvswd_debug_unlock).ok) {
             ports->connect_error = 0xa1u;
             continue;
         }
-        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_CONFIG,
-                                       rvswd_debug_unlock)
-                 .ok) {
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_CONFIG, rvswd_debug_unlock).ok) {
             ports->connect_error = 0xa2u;
             continue;
         }
@@ -263,15 +220,11 @@ static bool rvswd_target_connect_short_autodetect(
         dmstatus = read_result.value;
 
         // 官方 LinkE 连续写入两次 haltreq，随后轮询 allhalted 再访问 ChipID 和目标内存
-        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL,
-                                       0x80000001u)
-                 .ok) {
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL, 0x80000001u).ok) {
             ports->connect_error = 0xa4u;
             continue;
         }
-        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL,
-                                       0x80000001u)
-                 .ok) {
+        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL, 0x80000001u).ok) {
             ports->connect_error = 0xa5u;
             continue;
         }
@@ -316,12 +269,9 @@ static bool rvswd_target_connect_transport(
         // 自动识别先发送一个探测帧和 201 个轮询帧，再回到 short frame 连接 CH32
         rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
         // V30X 的长帧把 host parity 设为 operation 的奇偶校验位，CH5xx 长帧则固定为 0
-        (void)rvswd_transport_probe_long(transport, 0u, RVSWD_DMI_STATUS, 0x19u,
-                                         0u);
+        (void)rvswd_transport_probe_long(transport, 0u, RVSWD_DMI_STATUS, 0x19u, 0u);
         for (uint16_t probe = 0u; probe < 201u; ++probe) {
-            probe_result =
-                rvswd_transport_probe_long(transport, 1u, RVSWD_DMI_STATUS, 0u,
-                                           1u);
+            probe_result = rvswd_transport_probe_long(transport, 1u, RVSWD_DMI_STATUS, 0u, 1u);
             if (probe_result.address == RVSWD_DMI_STATUS &&
                 probe_result.status == rvswd_long_status_ok &&
                 (probe_result.value & 0x0fu) == 2u) {
@@ -364,8 +314,7 @@ struct rvswd_target_result wchlink_target_ports_connect(
     struct rvswd_operation operation;
 
     if (ports == NULL) {
-        return rvswd_target_result_failure(RVSWD_TARGET_RESULT_CONNECT, 0x01u,
-                                           false);
+        return rvswd_target_result_failure(RVSWD_TARGET_RESULT_CONNECT, 0x01u, false);
     }
     rvswd_operation_init(&operation, &ports->transport);
     if (rvswd_target_connect_transport(ports, &operation)) {
@@ -378,14 +327,12 @@ struct rvswd_target_result wchlink_target_ports_connect(
         wchlink_target_ports_refresh_info(ports);
         // 主机 SetSpeed 请求优先于 profile 默认时序，连接探测后恢复请求速度
         if (ports->requested_speed != 0u) {
-            rvswd_transport_set_fast_timing(
-                &ports->transport, ports->requested_speed != 0x03u);
+            rvswd_transport_set_fast_timing(&ports->transport, ports->requested_speed != 0x03u);
         }
         return rvswd_target_result_success();
     }
 
     ports->info.connected = false;
     wchlink_target_ports_refresh_info(ports);
-    return rvswd_target_result_failure(RVSWD_TARGET_RESULT_CONNECT,
-                                       ports->connect_error, true);
+    return rvswd_target_result_failure(RVSWD_TARGET_RESULT_CONNECT, ports->connect_error, true);
 }

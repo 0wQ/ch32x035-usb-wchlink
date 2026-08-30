@@ -79,8 +79,7 @@ static bool wchlink_transfer_rewrite_partial_page(
     uint32_t page_offset = transfer->partial_write_address &
                            (WCHLINK_TRANSFER_PACKET_CAPACITY - 1u);
 
-    if (wchlink_target_ports_info(transfer->target).loader !=
-            RVSWD_TARGET_LOADER_CH5XX ||
+    if (!wchlink_target_ports_info(transfer->target).partial_write_supported ||
         page_offset + transfer->partial_write_length >
             WCHLINK_TRANSFER_PACKET_CAPACITY) {
         return false;
@@ -290,7 +289,7 @@ struct wchlink_transfer_finish_result wchlink_transfer_finish_loader(
         .status = WCHLINK_TRANSFER_FINISH_INCOMPLETE,
         .target_value = 0xffffffffu,
     };
-    struct rvswd_target_loader_execute execute = {.mode = 0x01u};
+    struct rvswd_target_loader_execute execute = {0};
     struct rvswd_target_info target_info;
     struct rvswd_target_result result;
     bool success;
@@ -299,6 +298,7 @@ struct wchlink_transfer_finish_result wchlink_transfer_finish_loader(
         return finish;
     }
     target_info = wchlink_target_ports_info(transfer->target);
+    execute.mode = target_info.loader_initialize_mode;
 
     // loader 数据到此结束，后续数据只能在初始化成功后进入 Flash 状态
     transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
@@ -315,16 +315,14 @@ struct wchlink_transfer_finish_result wchlink_transfer_finish_loader(
         return finish;
     }
 
-    // LinkE 固件连续两次以 mode 1 初始化 loader
+    // 目标 profile 决定是否需要第二次初始化以及 Prepare 后的执行 mode
     result = wchlink_target_ports_execute_loader(transfer->target, &execute);
     finish.target_value = result.value;
     success = result.ok && result.value == 0u;
-    if (success) {
-        execute.mode =
-            (transfer->flash_prepare_seen &&
-             target_info.loader != RVSWD_TARGET_LOADER_CH5XX)
-                ? 0x03u
-                : 0x01u;
+    if (success && target_info.loader_repeat_initialize) {
+        execute.mode = transfer->flash_prepare_seen
+                           ? target_info.loader_prepared_mode
+                           : target_info.loader_initialize_mode;
         result =
             wchlink_target_ports_execute_loader(transfer->target, &execute);
         finish.target_value = result.value;
@@ -337,13 +335,13 @@ struct wchlink_transfer_finish_result wchlink_transfer_finish_loader(
     }
 
     transfer->loader_ready = true;
-    // CH5xx 的 OpenOCD 路径只执行编程，V30x Prepare 路径附带校验
+    // OpenOCD 路径和 Prepare 路径的 mode 由目标 loader profile 提供
     transfer->flash_loader_mode =
         command == 0x0bu
-            ? 0x10u
-        : target_info.loader == RVSWD_TARGET_LOADER_CH5XX
-            ? 0x08u
-            : (transfer->flash_prepare_seen ? 0x18u : 0x08u);
+            ? target_info.loader_verify_mode
+        : transfer->flash_prepare_seen
+            ? target_info.loader_program_verify_mode
+            : target_info.loader_program_mode;
     transfer->out_state = WCHLINK_TRANSFER_OUT_FLASH;
     transfer->flash_openocd_mode = true;
     transfer->flash_data_received = 0u;
@@ -357,21 +355,26 @@ struct wchlink_transfer_finish_result wchlink_transfer_finish_loader(
 
 bool wchlink_transfer_start_flash(struct wchlink_transfer *transfer,
                                   uint8_t command) {
+    struct rvswd_target_info target_info;
+
     if (transfer == NULL || !transfer->loader_ready ||
         transfer->write_remaining == 0u ||
         (command != 0x02u && command != 0x03u && command != 0x04u)) {
         return false;
     }
+    target_info = wchlink_target_ports_info(transfer->target);
     transfer->out_state = WCHLINK_TRANSFER_OUT_FLASH;
     transfer->flash_data_received = 0u;
     transfer->flash_transfer_received = 0u;
     transfer->flash_transfer_length = 0u;
     transfer->flash_checksum = 0u;
     transfer->flash_openocd_mode = false;
-    // LinkE 用命令位组合选择 loader 的编程、校验和组合模式
     transfer->flash_loader_mode =
-        command == 0x02u ? 0x08u : command == 0x03u ? 0x10u
-                                                    : 0x18u;
+        command == 0x02u
+            ? target_info.loader_program_mode
+        : command == 0x03u
+            ? target_info.loader_verify_mode
+            : target_info.loader_program_verify_mode;
     return true;
 }
 
@@ -585,7 +588,8 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
                 .length = transfer->flash_chunk_length,
                 .checksum = transfer->flash_checksum,
                 .write_checksum =
-                    (transfer->flash_loader_mode & 0x10u) != 0u,
+                    (transfer->flash_loader_mode &
+                     target_info.loader_checksum_mode_mask) != 0u,
             };
             uint32_t target_value = 0xffffffffu;
             bool success;
@@ -593,8 +597,13 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
 
             // 编程块越过 Code Flash 边界时前置拒绝，loader 在物理边界外会挂死
             if (target_info.code_flash_size != 0u &&
-                execute.address + execute.length >
-                    0x08000000u + target_info.code_flash_size) {
+                (target_info.code_flash_base == 0u ||
+                 execute.address < target_info.code_flash_base ||
+                 execute.address >= target_info.code_flash_base +
+                                        target_info.code_flash_size ||
+                 execute.length > target_info.code_flash_size ||
+                 execute.address - target_info.code_flash_base >
+                     target_info.code_flash_size - execute.length)) {
                 wchlink_transfer_set_reply(transfer, 0x03u);
                 transfer->write_address = 0u;
                 transfer->write_remaining = 0u;

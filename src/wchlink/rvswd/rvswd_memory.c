@@ -86,6 +86,56 @@ static bool rvswd_memory_read32_v30x_once(
     return true;
 }
 
+bool rvswd_memory_write32_direct(
+    struct rvswd_operation *operation, uint32_t address, uint32_t value) {
+    uint32_t abstractcs;
+
+    operation->memory_code = 0u;
+    operation->address = address;
+    // X03X 官方 LinkE 使用 Data1、Data0 和 Access Memory 写命令
+    // 每次新 abstract 操作先清除上一次可能残留的 cmderr
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS,
+                                   0x00000700u)
+             .ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA1, address).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, value).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND,
+                                   0x02210000u)
+             .ok) {
+        operation->memory_code = 0xc1u;
+        return false;
+    }
+    if (!rvswd_debug_wait_abstract_idle(operation, &abstractcs)) {
+        operation->memory_code = 0xc2u;
+        return false;
+    }
+    if (((abstractcs >> 8u) & 0x07u) != 0u) {
+        operation->memory_code =
+            0xc0u | (uint8_t)((abstractcs >> 8u) & 0x07u);
+        // 清除 cmderr，避免失败状态污染后续 abstract 操作
+        rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTCS,
+                                           0x00000700u);
+        return false;
+    }
+    return true;
+}
+
+static bool rvswd_memory_write_direct(
+    struct rvswd_operation *operation, uint32_t address,
+    const uint8_t *data, uint32_t length) {
+    for (uint32_t offset = 0u; offset < length; offset += 4u) {
+        uint32_t value = ((uint32_t)data[offset + 0u]) |
+                         ((uint32_t)data[offset + 1u] << 8u) |
+                         ((uint32_t)data[offset + 2u] << 16u) |
+                         ((uint32_t)data[offset + 3u] << 24u);
+
+        if (!rvswd_memory_write32_direct(operation, address + offset, value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool rvswd_memory_read32_v30x(struct rvswd_operation *operation,
                                      uint32_t address, uint32_t *value) {
     for (uint8_t retry = 0u; retry < rvswd_memory_read_retry_count; ++retry) {
@@ -322,6 +372,9 @@ bool rvswd_memory_write(struct rvswd_operation *operation,
     }
 
     if (profile != NULL &&
+        profile->memory_write_mode == RVSWD_MEMORY_WRITE_DIRECT) {
+        success = rvswd_memory_write_direct(operation, address, data, length);
+    } else if (profile != NULL &&
         profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING) {
         // 目标 profile 支持 autoexec 数据流，先尝试单字 DMI 写入的快速路径
         success =

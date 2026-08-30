@@ -24,7 +24,7 @@ static const struct wchlink_test_loader_layout wchlink_test_loader_default = {
 static const struct wchlink_test_loader_layout wchlink_test_loader_x035 = {
     .code_address = 0x20000000u,
     .data_address = 0x20001000u,
-    .stack_top = 0x20005000u,
+    .stack_top = 0x20002800u,
     .checksum_address = 0x20002010u,
 };
 
@@ -237,10 +237,12 @@ uint32_t wchlink_test_target_operation_count(
 
 void wchlink_target_ports_init(struct wchlink_target_ports *target) {
     uint8_t family_hint = target->family_hint;
+    uint8_t requested_speed = target->requested_speed;
 
     // transport 重建只清除连接快照，目标内存和预设连接身份保持不变
     target->info = (struct rvswd_target_info){0};
     target->family_hint = family_hint;
+    target->requested_speed = requested_speed;
     target->execute_seen = false;
 }
 
@@ -268,6 +270,11 @@ void wchlink_target_ports_set_family_hint(
     if (!target->info.connected) {
         target->info.family = family;
     }
+}
+
+void wchlink_target_ports_set_speed(struct wchlink_target_ports *target,
+                                    uint8_t speed) {
+    target->requested_speed = speed;
 }
 
 struct rvswd_target_info wchlink_target_ports_info(
@@ -424,6 +431,7 @@ static struct rvswd_target_result wchlink_target_ports_execute(
     uint32_t data_address) {
     struct rvswd_target_result result;
 
+    ++target->operation_count[WCHLINK_TEST_TARGET_EXECUTE];
     if (wchlink_test_target_take_failure(
             target, WCHLINK_TEST_TARGET_EXECUTE, &result)) {
         return result;

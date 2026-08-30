@@ -444,9 +444,14 @@ bool rvswd_flash_ch5xx_erase_all(
         operation->flash_code = RVSWD_CH5XX_FLASH_ERROR_ERASE_CODE_MODE;
         return false;
     }
+    if (!rvswd_debug_restore_unlock(operation)) {
+        operation->flash_code = RVSWD_CH5XX_FLASH_ERROR_ERASE_EXECUTE;
+        return false;
+    }
     if (!rvswd_debug_execute(operation, rvswd_ch5xx_erase_stub_address,
                              rvswd_ch5xx_erase_stub_stack_top, 0u, 0u,
-                             rvswd_ch5xx_flash_end, 0u, &result)) {
+                             rvswd_ch5xx_flash_end, 0u,
+                             rvswd_ch5xx_erase_stub_address, &result)) {
         operation->flash_code = RVSWD_CH5XX_FLASH_ERROR_ERASE_EXECUTE;
         return false;
     }

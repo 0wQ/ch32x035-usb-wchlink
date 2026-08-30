@@ -1,4 +1,5 @@
 #include "wchlink/rvswd/rvswd_debug.h"
+#include "wchlink/target/rvswd_target_loader.h"
 
 #include <assert.h>
 #include <stddef.h>
@@ -226,6 +227,52 @@ static void test_resume_rejects_invalid_control(void) {
     assert(test_event_count == 0u);
 }
 
+static void test_x03x_loader_execution_context(void) {
+    struct rvswd_operation operation = {0};
+    uint32_t result = 0xffffffffu;
+
+    test_reset();
+    for (size_t index = 0u; index < 6u; ++index) {
+        test_push_read(test_success(0u));
+    }
+    test_push_read(test_success(0x00000382u));
+    test_push_read(test_success(0u));
+    test_push_read(test_success(0u));
+    for (size_t index = 0u; index < 22u; ++index) {
+        test_push_write(test_success(0u));
+    }
+
+    assert(rvswd_target_loader_execute_x03x(
+        &operation, 0x20000000u, 0x20002800u, 1u, 0x08000000u, 0u,
+        &result));
+    assert(result == 0u);
+    assert(test_event_count == 30u);
+    test_expect_event(0u, TEST_EVENT_WRITE, RVSWD_DMI_DATA0, 0x000090c3u);
+    test_expect_event(2u, TEST_EVENT_WRITE, RVSWD_DMI_COMMAND,
+                      0x002307b0u);
+    test_expect_event(4u, TEST_EVENT_WRITE, RVSWD_DMI_DATA0, 1u);
+    test_expect_event(6u, TEST_EVENT_WRITE, RVSWD_DMI_COMMAND,
+                      0x0023100au);
+    test_expect_event(8u, TEST_EVENT_WRITE, RVSWD_DMI_DATA0, 0x08000000u);
+    test_expect_event(10u, TEST_EVENT_WRITE, RVSWD_DMI_COMMAND,
+                      0x0023100bu);
+    test_expect_event(12u, TEST_EVENT_WRITE, RVSWD_DMI_DATA0, 0u);
+    test_expect_event(14u, TEST_EVENT_WRITE, RVSWD_DMI_COMMAND,
+                      0x0023100cu);
+    test_expect_event(16u, TEST_EVENT_WRITE, RVSWD_DMI_DATA0, 0x20002800u);
+    test_expect_event(18u, TEST_EVENT_WRITE, RVSWD_DMI_COMMAND,
+                      0x00231002u);
+    test_expect_event(20u, TEST_EVENT_WRITE, RVSWD_DMI_DATA0, 0x20000000u);
+    test_expect_event(22u, TEST_EVENT_WRITE, RVSWD_DMI_COMMAND,
+                      0x002307b1u);
+    test_expect_event(24u, TEST_EVENT_WRITE, RVSWD_DMI_CONTROL,
+                      0x40000001u);
+    test_expect_event(25u, TEST_EVENT_READ, RVSWD_DMI_STATUS, 0u);
+    test_expect_event(27u, TEST_EVENT_WRITE, RVSWD_DMI_COMMAND,
+                      0x0022100au);
+    test_expect_event(29u, TEST_EVENT_READ, RVSWD_DMI_DATA0, 0u);
+}
+
 int main(void) {
     test_resume_success_after_busy();
     test_resume_write_failure_cleans_request();
@@ -233,5 +280,6 @@ int main(void) {
     test_resume_timeout_cleans_request();
     test_resume_clear_failure_retries_cleanup();
     test_resume_rejects_invalid_control();
+    test_x03x_loader_execution_context();
     return 0;
 }

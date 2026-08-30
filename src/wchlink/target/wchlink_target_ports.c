@@ -6,6 +6,7 @@
 #include "wchlink/rvswd/rvswd_operation.h"
 #include "wchlink/rvswd/rvswd_reset.h"
 #include "wchlink/rvswd/rvswd_types.h"
+#include "wchlink/target/rvswd_target_loader.h"
 #include "wchlink/target/rvswd_target_profile.h"
 #include "wchlink/target/wchlink_target_control.h"
 #include "wchlink/target/wchlink_target_dmi.h"
@@ -54,10 +55,30 @@ void wchlink_target_ports_refresh_info(struct wchlink_target_ports *ports) {
         loader == NULL ? 0u : loader->download_limit;
     ports->info.loader_data_page_size =
         loader == NULL ? 0u : loader->data_page_size;
+    ports->info.loader_initialize_mode =
+        loader == NULL ? 0u : loader->initialize_mode;
+    ports->info.loader_prepared_mode =
+        loader == NULL ? 0u : loader->prepared_mode;
+    ports->info.loader_program_mode =
+        loader == NULL ? 0u : loader->program_mode;
+    ports->info.loader_verify_mode =
+        loader == NULL ? 0u : loader->verify_mode;
+    ports->info.loader_program_verify_mode =
+        loader == NULL ? 0u : loader->program_verify_mode;
+    ports->info.loader_checksum_mode_mask =
+        loader == NULL ? 0u : loader->checksum_mode_mask;
+    ports->info.loader_length_mode_mask =
+        loader == NULL ? 0u : loader->length_mode_mask;
+    ports->info.loader_repeat_initialize =
+        loader != NULL && loader->repeat_initialize;
+    ports->info.partial_write_supported =
+        loader != NULL && loader->partial_write_supported;
     ports->info.loader_variable_length =
         loader != NULL && loader->variable_length;
     ports->info.code_flash_size =
         profile == NULL ? 0u : profile->code_flash_size;
+    ports->info.code_flash_base =
+        profile == NULL ? 0u : profile->code_flash_base;
     ports->info.memory_streaming =
         profile != NULL &&
         profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING;
@@ -113,15 +134,22 @@ static struct rvswd_target_result wchlink_target_ports_operation_result(
 
 void wchlink_target_ports_init(struct wchlink_target_ports *ports) {
     uint8_t family_hint;
+    uint8_t requested_speed;
 
     if (ports == NULL) {
         return;
     }
     // MRS 在重建 transport 前发送 family hint，初始化只能清除探测结果
     family_hint = ports->family_hint;
+    requested_speed = ports->requested_speed;
     memset(ports, 0, sizeof(*ports));
     ports->family_hint = family_hint;
+    ports->requested_speed = requested_speed;
     rvswd_transport_init(&ports->transport);
+    if (requested_speed != 0u) {
+        rvswd_transport_set_fast_timing(&ports->transport,
+                                        requested_speed != 0x03u);
+    }
 }
 
 void wchlink_target_ports_disconnect(struct wchlink_target_ports *ports) {
@@ -168,6 +196,7 @@ struct rvswd_target_chip_info_result wchlink_target_ports_read_chip_info(
     struct wchlink_target_ports *ports) {
     struct rvswd_target_chip_info_result chip_info = {0};
     struct rvswd_target_result read_result;
+    const struct rvswd_target_profile *profile;
 
     if (ports == NULL) {
         chip_info.result = wchlink_target_ports_invalid_result(
@@ -182,26 +211,38 @@ struct rvswd_target_chip_info_result wchlink_target_ports_read_chip_info(
         return chip_info;
     }
 
+    profile = wchlink_target_ports_current_profile(ports);
+    if (profile == NULL || profile->identity == NULL ||
+        profile->identity->esig_flash_size_address == 0u) {
+        chip_info.result = wchlink_target_ports_invalid_result(
+            RVSWD_TARGET_RESULT_MEMORY);
+        return chip_info;
+    }
+
     // 非 CH5xx 目标通过 ESIG 提供 Flash 容量和 96 位 UID
-    read_result = wchlink_target_ports_read_memory32(ports, 0x1ffff7e0u);
+    read_result = wchlink_target_ports_read_memory32(
+        ports, profile->identity->esig_flash_size_address);
     if (!read_result.ok) {
         chip_info.result = read_result;
         return chip_info;
     }
     chip_info.info.flash_size = read_result.value;
-    read_result = wchlink_target_ports_read_memory32(ports, 0x1ffff7e8u);
+    read_result = wchlink_target_ports_read_memory32(
+        ports, profile->identity->esig_uid_low_address);
     if (!read_result.ok) {
         chip_info.result = read_result;
         return chip_info;
     }
     chip_info.info.uid_low = read_result.value;
-    read_result = wchlink_target_ports_read_memory32(ports, 0x1ffff7ecu);
+    read_result = wchlink_target_ports_read_memory32(
+        ports, profile->identity->esig_uid_high_address);
     if (!read_result.ok) {
         chip_info.result = read_result;
         return chip_info;
     }
     chip_info.info.uid_high = read_result.value;
-    read_result = wchlink_target_ports_read_memory32(ports, 0x1ffff7f0u);
+    read_result = wchlink_target_ports_read_memory32(
+        ports, profile->identity->esig_uid_tail_address);
     if (!read_result.ok) {
         chip_info.result = read_result;
         return chip_info;
@@ -282,6 +323,7 @@ struct rvswd_target_result wchlink_target_ports_read_memory32(
 
 static struct rvswd_target_result wchlink_target_ports_write_memory32(
     struct wchlink_target_ports *ports, uint32_t address, uint32_t value) {
+    const struct rvswd_target_profile *profile;
     struct rvswd_operation operation;
     bool success;
 
@@ -290,7 +332,18 @@ static struct rvswd_target_result wchlink_target_ports_write_memory32(
     }
     rvswd_operation_init(&operation, &ports->transport);
     operation.address = address;
-    success = rvswd_memory_write32(&operation, address, value);
+    profile = wchlink_target_ports_current_profile(ports);
+    // loader 运行后会清除调试解锁，checksum mailbox 写入也必须重新解锁
+    if (profile != NULL && profile->loader_clears_debug_unlock &&
+        !rvswd_debug_restore_unlock(&operation)) {
+        operation.memory_code = 0xd1u;
+        return wchlink_target_ports_operation_result(
+            &operation, RVSWD_TARGET_RESULT_MEMORY, operation.memory_code, false);
+    }
+    success = profile != NULL &&
+                      profile->memory_write_mode == RVSWD_MEMORY_WRITE_DIRECT
+                  ? rvswd_memory_write32_direct(&operation, address, value)
+                  : rvswd_memory_write32(&operation, address, value);
     return wchlink_target_ports_operation_result(
         &operation, RVSWD_TARGET_RESULT_MEMORY,
         operation.memory_code == 0u ? 0x15u : operation.memory_code, success);
@@ -299,6 +352,7 @@ static struct rvswd_target_result wchlink_target_ports_write_memory32(
 static struct rvswd_target_result wchlink_target_ports_write_memory(
     struct wchlink_target_ports *ports, uint32_t address,
     const uint8_t *data, uint32_t length) {
+    const struct rvswd_target_profile *profile;
     struct rvswd_operation operation;
     bool success;
 
@@ -309,9 +363,17 @@ static struct rvswd_target_result wchlink_target_ports_write_memory(
         return wchlink_target_ports_invalid_result(RVSWD_TARGET_RESULT_CONNECT);
     }
     rvswd_operation_init(&operation, &ports->transport);
+    profile = wchlink_target_ports_current_profile(ports);
+    // loader 运行后会清除调试解锁，后续 SRAM 和 mailbox 写入必须重新解锁
+    if (profile != NULL && profile->loader_clears_debug_unlock &&
+        !rvswd_debug_restore_unlock(&operation)) {
+        operation.memory_code = 0xd1u;
+        operation.address = address;
+        return wchlink_target_ports_operation_result(
+            &operation, RVSWD_TARGET_RESULT_MEMORY, operation.memory_code, false);
+    }
     success = rvswd_memory_write(
-        &operation, wchlink_target_ports_current_profile(ports), address, data,
-        length);
+        &operation, profile, address, data, length);
     return wchlink_target_ports_operation_result(
         &operation, RVSWD_TARGET_RESULT_MEMORY,
         operation.memory_code == 0u ? 0x15u : operation.memory_code, success);
@@ -319,10 +381,12 @@ static struct rvswd_target_result wchlink_target_ports_write_memory(
 
 static struct rvswd_target_result wchlink_target_ports_execute(
     struct wchlink_target_ports *ports, uint32_t entry, uint32_t stack_top,
-    uint32_t mode, uint32_t address, uint32_t length, uint32_t data_address) {
+    uint32_t mode, uint32_t address, uint32_t length, uint32_t data_address,
+    uint32_t dpc_value) {
     uint32_t value = 0xffffffffu;
     struct rvswd_target_result result;
     struct rvswd_operation operation;
+    const struct rvswd_target_profile *profile;
     bool success;
 
     if (ports == NULL) {
@@ -330,8 +394,20 @@ static struct rvswd_target_result wchlink_target_ports_execute(
     }
     rvswd_operation_init(&operation, &ports->transport);
     operation.address = address;
-    if (!rvswd_execute_prepare(&operation,
-                               wchlink_target_ports_current_profile(ports))) {
+    profile = wchlink_target_ports_current_profile(ports);
+    // 每次 loader 执行前都重新写入解锁值，确保 prepare 的目标内存访问有效
+    if (!rvswd_debug_restore_unlock(&operation)) {
+        value = 0xe00au;
+        result = wchlink_target_ports_operation_result(
+            &operation, RVSWD_TARGET_RESULT_DEBUG, value, false);
+        result.value = value;
+        result.address = address;
+        return result;
+    }
+    // X03X 只在 mode 1 初始化 loader 时准备 Flash 环境，编程阶段复用该状态
+    if ((profile == NULL || profile->execute_prepare != RVSWD_EXECUTE_PREPARE_X03X ||
+         (mode & 1u) != 0u) &&
+        !rvswd_execute_prepare(&operation, profile)) {
         // 环境准备失败说明 DMI 已不可用，loader 返回值无法反映真实原因
         value = operation.memory_code == 0u ? 0x15u : operation.memory_code;
         result = wchlink_target_ports_operation_result(
@@ -340,8 +416,14 @@ static struct rvswd_target_result wchlink_target_ports_execute(
         result.address = address;
         return result;
     }
-    success = rvswd_debug_execute(&operation, entry, stack_top, mode, address,
-                                  length, data_address, &value);
+    if (profile != NULL && profile->execute_prepare == RVSWD_EXECUTE_PREPARE_X03X) {
+        success = rvswd_target_loader_execute_x03x(
+            &operation, entry, stack_top, mode, address, length, &value);
+    } else {
+        success = rvswd_debug_execute(&operation, entry, stack_top, mode,
+                                      address, length, data_address, dpc_value,
+                                      &value);
+    }
     result = wchlink_target_ports_operation_result(
         &operation, RVSWD_TARGET_RESULT_DEBUG,
         value == 0xffffffffu ? 0x15u : value, success);
@@ -416,9 +498,21 @@ struct rvswd_target_result wchlink_target_ports_execute_loader(
             return result;
         }
     }
+    if (!request->write_checksum &&
+        (request->mode & loader->length_mode_mask) != 0u &&
+        loader->length_address != 0u) {
+        result = wchlink_target_ports_write_memory32(
+            ports, loader->length_address, request->length);
+        if (!result.ok) {
+            // 长度 mailbox 写入失败时不启动目标 loader
+            result.value = 0x15u;
+            return result;
+        }
+    }
     return wchlink_target_ports_execute(
         ports, loader->code_address, loader->stack_top, request->mode,
-        request->address, request->length, loader->data_address);
+        request->address, request->length, loader->data_address,
+        loader->dpc_value);
 }
 
 struct rvswd_target_result wchlink_target_ports_reset_and_halt(

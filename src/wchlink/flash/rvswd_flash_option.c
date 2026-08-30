@@ -8,11 +8,6 @@
 
 #include <stddef.h>
 
-// Option Bytes backend 独占保护状态、完整镜像重写和复位后确认流程
-static const uint32_t rvswd_flash_option_address_register = 0x40022014u;
-static const uint32_t rvswd_flash_option_status_register = 0x4002201cu;
-static const uint32_t rvswd_flash_write_protection_register = 0x40022020u;
-
 static const uint32_t rvswd_flash_option_control_program = 1u << 4u;
 static const uint32_t rvswd_flash_option_control_erase = 1u << 5u;
 static const uint32_t rvswd_flash_option_control_write = 1u << 9u;
@@ -139,7 +134,8 @@ static uint16_t rvswd_flash_option_encode_byte(uint8_t value) {
 static bool rvswd_flash_option_read_words(
     struct rvswd_operation *operation,
     const struct rvswd_target_profile *profile, uint32_t *option_words) {
-    if (profile == NULL || profile->ch5xx_protocol || option_words == NULL) {
+    if (profile == NULL || profile->ch5xx_protocol || profile->option == NULL ||
+        option_words == NULL) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
         return false;
     }
@@ -164,12 +160,12 @@ bool rvswd_flash_read_protected(struct rvswd_operation *operation,
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_READ_OUTPUT;
         return false;
     }
-    if (profile == NULL || profile->ch5xx_protocol) {
+    if (profile == NULL || profile->ch5xx_protocol || profile->option == NULL) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
         return false;
     }
     if (!rvswd_memory_read32(operation, profile, true,
-                             rvswd_flash_option_status_register,
+                             profile->option->status_register,
                              &option_status)) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_READ_STATUS;
         return false;
@@ -190,12 +186,12 @@ bool rvswd_flash_write_protected(struct rvswd_operation *operation,
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_WRITE_OUTPUT;
         return false;
     }
-    if (profile == NULL || profile->ch5xx_protocol) {
+    if (profile == NULL || profile->ch5xx_protocol || profile->option == NULL) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_WRITE_TARGET;
         return false;
     }
     if (!rvswd_memory_read32(operation, profile, true,
-                             rvswd_flash_write_protection_register,
+                             profile->option->write_protection_register,
                              &write_protection)) {
         operation->flash_code =
             RVSWD_FLASH_OPTION_ERROR_READ_WRITE_PROTECTION;
@@ -390,7 +386,7 @@ static bool rvswd_flash_option_write_fast_buffer(
             operation, rvswd_flash_ch32_control_register,
             idle_control | rvswd_flash_option_control_fast_program) ||
         !rvswd_memory_write32(operation,
-                              rvswd_flash_option_address_register,
+                              profile->option->address_register,
                               profile->option_base) ||
         !rvswd_memory_write32(
             operation, rvswd_flash_ch32_control_register,
@@ -879,7 +875,7 @@ bool rvswd_flash_read_memory_type(struct rvswd_operation *operation,
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_MEMORY_TYPE_READ;
         return false;
     }
-    if (profile == NULL || profile->ch5xx_protocol ||
+    if (profile == NULL || profile->ch5xx_protocol || profile->option == NULL ||
         profile->wchlink_family != WCHLINK_TARGET_FAMILY_CH32V30X ||
         profile->option_base == 0u) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
@@ -906,7 +902,7 @@ bool rvswd_flash_set_memory_type(struct rvswd_operation *operation,
     uint16_t encoded_user;
 
     operation->flash_code = 0u;
-    if (profile == NULL || profile->ch5xx_protocol ||
+    if (profile == NULL || profile->ch5xx_protocol || profile->option == NULL ||
         profile->wchlink_family != WCHLINK_TARGET_FAMILY_CH32V30X ||
         profile->option_base == 0u) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;

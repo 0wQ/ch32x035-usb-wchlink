@@ -95,6 +95,33 @@ def run_profile_fixture() -> None:
         subprocess.run([str(executable)], check=True)
 
 
+def run_execute_prepare_fixture() -> None:
+    project = Path(__file__).resolve().parents[1]
+    compiler = os.environ.get("CC", "cc")
+
+    with tempfile.TemporaryDirectory(
+        prefix="rvswd-execute-prepare-"
+    ) as temp_dir:
+        executable = Path(temp_dir) / "rvswd_execute_prepare_fixture"
+        subprocess.run(
+            [
+                compiler,
+                "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-I",
+                str(project / "src"),
+                str(project / "tests/rvswd_execute_prepare_fixture.c"),
+                str(project / "src/wchlink/rvswd/rvswd_execute_prepare.c"),
+                "-o",
+                str(executable),
+            ],
+            check=True,
+        )
+        subprocess.run([str(executable)], check=True)
+
+
 def run_rvswd_debug_resume_fixture() -> None:
     project = Path(__file__).resolve().parents[1]
     compiler = os.environ.get("CC", "cc")
@@ -112,6 +139,34 @@ def run_rvswd_debug_resume_fixture() -> None:
                 str(project / "src"),
                 str(project / "tests/rvswd_debug_resume_fixture.c"),
                 str(project / "src/wchlink/rvswd/rvswd_debug.c"),
+                str(project / "src/wchlink/target/rvswd_target_loader.c"),
+                "-o",
+                str(executable),
+            ],
+            check=True,
+        )
+        subprocess.run([str(executable)], check=True)
+
+
+def run_rvswd_memory_fixture() -> None:
+    project = Path(__file__).resolve().parents[1]
+    compiler = os.environ.get("CC", "cc")
+
+    with tempfile.TemporaryDirectory(
+        prefix="rvswd-memory-"
+    ) as temp_dir:
+        executable = Path(temp_dir) / "rvswd_memory_fixture"
+        subprocess.run(
+            [
+                compiler,
+                "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-I",
+                str(project / "src"),
+                str(project / "tests/rvswd_memory_fixture.c"),
+                str(project / "src/wchlink/rvswd/rvswd_memory.c"),
                 "-o",
                 str(executable),
             ],
@@ -124,7 +179,9 @@ def run() -> None:
     run_wire_fixture()
     run_command_transfer_fixture()
     run_profile_fixture()
+    run_execute_prepare_fixture()
     run_rvswd_debug_resume_fixture()
+    run_rvswd_memory_fixture()
     print("wire/command/transfer/profile/debug fixture: pass")
 
 

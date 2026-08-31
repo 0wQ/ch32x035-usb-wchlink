@@ -15,6 +15,17 @@ static const uint32_t rvswd_phy_clock_mode_output_50mhz = 0x03u;
 static const uint32_t rvswd_phy_pins = GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_3;
 static const uint8_t rvswd_phy_wakeup_clocks = 100u;
 
+// RVSWD 位时序相关函数统一放入 RAM，避免执行期间受到 Flash 等待周期影响
+__attribute__((section(".highcode"))) void rvswd_phy_gpio_config_data_output(void);
+__attribute__((section(".highcode"))) void rvswd_phy_gpio_config_data_input(void);
+__attribute__((section(".highcode"))) void rvswd_phy_gpio_start(bool fast_timing);
+__attribute__((section(".highcode"))) void rvswd_phy_gpio_stop(bool fast_timing);
+__attribute__((section(".highcode"))) void rvswd_phy_gpio_drive_range(bool fast_timing, const uint8_t *frame, uint8_t first_bit, uint8_t bit_count);
+__attribute__((section(".highcode"))) void rvswd_phy_gpio_sample_range(bool fast_timing, uint8_t *frame, uint8_t first_bit, uint8_t bit_count);
+__attribute__((section(".highcode"))) void rvswd_phy_gpio_drive_value(bool fast_timing, uint32_t value, uint8_t bit_count);
+__attribute__((section(".highcode"))) uint32_t rvswd_phy_gpio_sample_value(bool fast_timing, uint8_t bit_count);
+__attribute__((section(".highcode"))) void rvswd_phy_gpio_wakeup(bool fast_timing, bool stop_condition);
+
 static inline __attribute__((always_inline)) void rvswd_phy_half_period(
     bool fast_timing) {
     if (fast_timing) {
@@ -58,27 +69,31 @@ static inline __attribute__((always_inline)) void rvswd_phy_data_high(void) {
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_fast_half_period(void) {
+    // RAM 执行不再依赖 Flash 取指等待，使用固定 NOP 保持快档半周期
     __asm volatile("nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
                    "nop\n");
 }
 
-static inline __attribute__((always_inline)) void rvswd_phy_drive_bit_fast(
-    uint8_t value) {
-    GPIOA->BSHR = (rvswd_phy_clock_pin << 16u) |
-                  (value != 0u ? rvswd_phy_data_pin
-                               : (rvswd_phy_data_pin << 16u));
+static inline __attribute__((always_inline)) void rvswd_phy_drive_bit_fast(uint8_t value) {
+    GPIOA->BSHR = (rvswd_phy_clock_pin << 16u) | (value != 0u ? rvswd_phy_data_pin : (rvswd_phy_data_pin << 16u));
     rvswd_phy_fast_half_period();
     GPIOA->BSHR = rvswd_phy_clock_pin;
     rvswd_phy_fast_half_period();
 }
 
-static inline __attribute__((always_inline)) uint8_t
-rvswd_phy_sample_bit_fast(void) {
+static inline __attribute__((always_inline)) uint8_t rvswd_phy_sample_bit_fast(void) {
     uint8_t value;
 
     GPIOA->BSHR = rvswd_phy_clock_pin << 16u;
     rvswd_phy_fast_half_period();
     GPIOA->BSHR = rvswd_phy_clock_pin;
+    rvswd_phy_fast_half_period();
     value = (GPIOA->INDR & rvswd_phy_data_pin) != 0u ? 1u : 0u;
     rvswd_phy_fast_half_period();
     return value;
@@ -131,8 +146,7 @@ static inline __attribute__((always_inline)) void rvswd_phy_drive_bit(
     rvswd_phy_half_period(fast_timing);
 }
 
-static inline __attribute__((always_inline)) uint8_t rvswd_phy_sample_bit(
-    bool fast_timing) {
+static inline __attribute__((always_inline)) uint8_t rvswd_phy_sample_bit(bool fast_timing) {
     uint8_t value;
 
     rvswd_phy_clock_low();
@@ -162,9 +176,7 @@ void rvswd_phy_gpio_drive_range(bool fast_timing, const uint8_t *frame,
         return;
     }
     for (uint8_t bit = 0u; bit < bit_count; ++bit) {
-        rvswd_phy_drive_bit(
-            fast_timing,
-            rvswd_frame_get_bit(frame, (uint8_t)(first_bit + bit)));
+        rvswd_phy_drive_bit(fast_timing, rvswd_frame_get_bit(frame, (uint8_t)(first_bit + bit)));
     }
 }
 
@@ -190,16 +202,13 @@ void rvswd_phy_gpio_sample_range(bool fast_timing, uint8_t *frame,
         return;
     }
     for (uint8_t bit = 0u; bit < bit_count; ++bit) {
-        rvswd_frame_set_bit(frame, (uint8_t)(first_bit + bit),
-                            rvswd_phy_sample_bit(fast_timing));
+        rvswd_frame_set_bit(frame, (uint8_t)(first_bit + bit), rvswd_phy_sample_bit(fast_timing));
     }
 }
 
-void rvswd_phy_gpio_drive_value(bool fast_timing, uint32_t value,
-                                uint8_t bit_count) {
+void rvswd_phy_gpio_drive_value(bool fast_timing, uint32_t value, uint8_t bit_count) {
     for (uint8_t bit = bit_count; bit > 0u; --bit) {
-        rvswd_phy_drive_bit(fast_timing,
-                            (uint8_t)((value >> (bit - 1u)) & 1u));
+        rvswd_phy_drive_bit(fast_timing, (uint8_t)((value >> (bit - 1u)) & 1u));
     }
 }
 

@@ -142,6 +142,7 @@ static struct rvswd_target_result wchlink_target_ports_operation_result(
 }
 
 void wchlink_target_ports_init(struct wchlink_target_ports *ports) {
+    const struct rvswd_target_module *module;
     uint8_t family_hint;
     uint8_t requested_speed;
 
@@ -154,7 +155,14 @@ void wchlink_target_ports_init(struct wchlink_target_ports *ports) {
     memset(ports, 0, sizeof(*ports));
     ports->family_hint = family_hint;
     ports->requested_speed = requested_speed;
+    // MRS 会在 SetSpeed 后重建 target 状态，保留 module 才能继续走已知族的连接路径
+    module = rvswd_target_registry_module_from_family(family_hint);
+    ports->module = module;
     rvswd_transport_init(&ports->transport);
+    if (module != NULL && module->capabilities != NULL) {
+        rvswd_transport_set_packet_mode(
+            &ports->transport, module->capabilities->packet_mode);
+    }
     if (requested_speed != 0u) {
         rvswd_transport_set_fast_timing(&ports->transport,
                                         requested_speed != 0x03u);

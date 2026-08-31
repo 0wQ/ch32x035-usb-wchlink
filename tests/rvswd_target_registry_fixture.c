@@ -1,4 +1,4 @@
-#include "wchlink/flash/rvswd_flash_ch5xx.h"
+#include "wchlink/flash/rvswd_flash_ch58x_59x.h"
 #include "wchlink/protocol/wchlink_family.h"
 #include "wchlink/rvswd/rvswd_debug.h"
 #include "wchlink/rvswd/rvswd_memory.h"
@@ -84,10 +84,8 @@ bool rvswd_memory_write_streaming_retry(struct rvswd_operation *operation,
     return rvswd_memory_write_direct(operation, address, data, length);
 }
 
-const uint8_t rvswd_target_ch58x_flash_erase_stub_start[] = {0u};
-const uint8_t rvswd_target_ch58x_flash_erase_stub_end[] = {0u};
-const uint8_t rvswd_target_ch59x_flash_erase_stub_start[] = {0u};
-const uint8_t rvswd_target_ch59x_flash_erase_stub_end[] = {0u};
+const uint8_t ch58x_59x_flash_erase_stub_start[] = {0u};
+const uint8_t ch58x_59x_flash_erase_stub_end[] = {1u};
 
 bool rvswd_flash_erase_all(struct rvswd_operation *operation,
                            const struct rvswd_target_profile *profile) {
@@ -101,10 +99,10 @@ bool rvswd_flash_ch32_erase_all(struct rvswd_operation *operation,
     return rvswd_flash_erase_all(operation, profile);
 }
 
-bool rvswd_flash_ch5xx_erase_all(
+bool rvswd_flash_ch58x_59x_erase_all(
     struct rvswd_operation *operation,
     const struct rvswd_target_profile *profile, const uint8_t *stub_start,
-    const uint8_t *stub_end, rvswd_flash_ch5xx_execute_fn execute) {
+    const uint8_t *stub_end, rvswd_flash_ch58x_59x_execute_fn execute) {
     (void)stub_start;
     (void)stub_end;
     (void)execute;

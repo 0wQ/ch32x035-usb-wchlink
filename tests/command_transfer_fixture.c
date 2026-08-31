@@ -797,7 +797,7 @@ static void wchlink_test_command_memory_type(void) {
                               sizeof(invalid_reply));
 }
 
-static void wchlink_test_command_ch5xx_info_stop(void) {
+static void wchlink_test_command_ch58x_59x_info_stop(void) {
     const struct rvswd_target_info info = wchlink_test_info(
         0x82000000u, WCHLINK_TARGET_FAMILY_CH58X,
         WCHLINK_TEST_LOADER_LEGACY, false);
@@ -813,7 +813,7 @@ static void wchlink_test_command_ch5xx_info_stop(void) {
         0x00u, 0x00u, 0x00u, 0x00u, 0x00u};
     struct wchlink_session_command_result result;
 
-    // CH5xx 的 INFO 查询使随后 STOP 返回目标信息，同时结束 response 生命周期
+    // CH58X/CH59X 的 INFO 查询使随后 STOP 返回目标信息，同时结束 response 生命周期
     wchlink_test_fixture_init(&fixture, info, true);
     result = wchlink_command_process(&fixture.command, info_request,
                                      sizeof(info_request), response,
@@ -1091,7 +1091,7 @@ static void wchlink_test_transfer_chunk_boundary(void) {
            WCHLINK_TRANSFER_IO_NONE);
 }
 
-static void wchlink_test_transfer_ch5xx_padding(void) {
+static void wchlink_test_transfer_ch58x_59x_padding(void) {
     const struct rvswd_target_info info = wchlink_test_info(
         0x82000000u, WCHLINK_TARGET_FAMILY_CH58X,
         WCHLINK_TEST_LOADER_LEGACY, false);
@@ -1103,7 +1103,7 @@ static void wchlink_test_transfer_ch5xx_padding(void) {
     uint8_t checksum[4];
     const uint8_t loader[] = {0x13u, 0x37u, 0x42u, 0x24u};
 
-    // CH5xx OpenOCD 路径接收完整 4 KiB 窗口，loader 只消费实际数据和页尾 0xff
+    // CH58X/CH59X OpenOCD 路径接收完整 4 KiB 窗口，loader 只消费实际数据和页尾 0xff
     wchlink_test_fixture_init(&fixture, info, true);
     wchlink_transfer_prepare_write(&fixture.transfer, 0x100u, 4u);
     assert(wchlink_transfer_start_loader(&fixture.transfer));
@@ -1415,13 +1415,13 @@ int main(void) {
     wchlink_test_command_config_and_reset();
     wchlink_test_command_control_and_device_mode();
     wchlink_test_command_memory_type();
-    wchlink_test_command_ch5xx_info_stop();
+    wchlink_test_command_ch58x_59x_info_stop();
     wchlink_test_command_repeat_and_abort();
     wchlink_test_command_program_end_resets_and_halts();
     wchlink_test_transfer_read();
     wchlink_test_command_official_memory_reads();
     wchlink_test_transfer_chunk_boundary();
-    wchlink_test_transfer_ch5xx_padding();
+    wchlink_test_transfer_ch58x_59x_padding();
     wchlink_test_transfer_l103_checksum();
     wchlink_test_transfer_v30x_checksum();
     wchlink_test_transfer_x035_checksum();

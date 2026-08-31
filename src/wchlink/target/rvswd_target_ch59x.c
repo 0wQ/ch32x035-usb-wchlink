@@ -1,6 +1,6 @@
 #include "wchlink/target/rvswd_target_ch59x.h"
 
-#include "wchlink/flash/rvswd_flash_ch5xx.h"
+#include "wchlink/flash/rvswd_flash_ch58x_59x.h"
 #include "wchlink/protocol/wchlink_family.h"
 #include "wchlink/rvswd/rvswd_debug.h"
 #include "wchlink/rvswd/rvswd_memory.h"
@@ -9,8 +9,8 @@
 
 #include <stddef.h>
 
-extern const uint8_t rvswd_target_ch59x_flash_erase_stub_start[];
-extern const uint8_t rvswd_target_ch59x_flash_erase_stub_end[];
+extern const uint8_t ch58x_59x_flash_erase_stub_start[];
+extern const uint8_t ch58x_59x_flash_erase_stub_end[];
 
 static const struct rvswd_target_identity_profile rvswd_target_ch59x_identity = {
     .chip_id_address = 0x40001041u,
@@ -109,7 +109,7 @@ static const struct rvswd_target_probe_ops rvswd_target_ch59x_probe = {
     .read_chip_id = rvswd_target_ch59x_probe_chip_id,
 };
 
-// TODO: 当前复制既有 CH5XX loader ABI，待 CH59X 官方抓包冻结执行顺序
+// TODO: 当前复制既有 CH58X/CH59X loader ABI，待 CH59X 官方抓包冻结执行顺序
 bool rvswd_target_ch59x_loader_execute(
     struct rvswd_operation *operation, uint32_t entry, uint32_t stack_top,
     uint32_t mode, uint32_t address, uint32_t length, uint32_t data_address,
@@ -195,9 +195,9 @@ const struct rvswd_target_profile *rvswd_target_ch59x_profile(void) {
 bool rvswd_target_ch59x_flash_erase_all(
     struct rvswd_operation *operation,
     const struct rvswd_target_profile *profile) {
-    return rvswd_flash_ch5xx_erase_all(
-        operation, profile, rvswd_target_ch59x_flash_erase_stub_start,
-        rvswd_target_ch59x_flash_erase_stub_end,
+    return rvswd_flash_ch58x_59x_erase_all(
+        operation, profile, ch58x_59x_flash_erase_stub_start,
+        ch58x_59x_flash_erase_stub_end,
         rvswd_target_ch59x_loader_execute);
 }
 

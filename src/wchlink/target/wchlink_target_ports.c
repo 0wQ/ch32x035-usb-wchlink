@@ -311,7 +311,7 @@ struct rvswd_target_chip_info_result wchlink_target_ports_read_chip_info(
         return chip_info;
     }
 
-    // 非 CH5xx 目标通过 ESIG 提供 Flash 容量和 96 位 UID
+    // 非 CH58X/CH59X 目标通过 ESIG 提供 Flash 容量和 96 位 UID
     read_result = wchlink_target_ports_read_memory32(
         ports, profile->identity->esig_flash_size_address);
     if (!read_result.ok) {

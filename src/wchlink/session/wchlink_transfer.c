@@ -107,7 +107,7 @@ static bool wchlink_transfer_rewrite_partial_page(
     memcpy(&transfer->partial_write_page[page_offset],
            transfer->partial_write_data, transfer->partial_write_length);
 
-    // CH5xx 只能把 1 写成 0，软件断点替换指令前必须整页读改写
+    // CH58X/CH59X 只能把 1 写成 0，软件断点替换指令前必须整页读改写
     if (!wchlink_target_ports_flash_rewrite_page(
              transfer->target, page_address, transfer->partial_write_page)
              .ok) {
@@ -422,7 +422,7 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
             }
         }
 
-        // 固定长度 loader 收满后停止 OUT，CH5xx 等待后续结束命令
+        // 固定长度 loader 收满后停止 OUT，CH58X/CH59X 等待后续结束命令
         if (!transfer->loader_variable_length &&
             transfer->loader_received + length >= transfer->loader_expected) {
             transfer->loader_received = transfer->loader_expected;

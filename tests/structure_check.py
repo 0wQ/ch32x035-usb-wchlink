@@ -53,9 +53,9 @@ FLASH_BACKEND_HEADER_CONSUMERS = {
         "src/wchlink/target/rvswd_target_l103.c",
         "src/wchlink/target/rvswd_target_v30x.c",
     },
-    "wchlink/flash/rvswd_flash_ch5xx.h": {
+    "wchlink/flash/rvswd_flash_ch58x_59x.h": {
         "src/wchlink/flash/rvswd_flash.c",
-        "src/wchlink/flash/rvswd_flash_ch5xx.c",
+        "src/wchlink/flash/rvswd_flash_ch58x_59x.c",
         "src/wchlink/target/rvswd_target_ch58x.c",
         "src/wchlink/target/rvswd_target_ch59x.c",
     },
@@ -169,7 +169,7 @@ def find_violations() -> list[str]:
             ("src/wchlink/target/", "src/wchlink/protocol/")
         ):
             if re.search(
-                r"WCHLINK_TARGET_FAMILY_|ch5xx_protocol|rvswd_debug_execute",
+                r"WCHLINK_TARGET_FAMILY_|ch58x_59x_protocol|rvswd_debug_execute",
                 text,
             ):
                 violations.append(f"公共 WCH-Link 层仍解释目标族行为: {relative}")

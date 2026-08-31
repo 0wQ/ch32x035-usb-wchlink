@@ -243,7 +243,7 @@ static bool rvswd_target_connect_transport(
         // wlink status 使用通用 RISC-V 值 1，未知 family 按官方 LinkE 序列自动识别
         // 自动识别先发送一个探测帧和 201 个轮询帧，再回到 short frame 连接 CH32
         rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
-        // V30X 的长帧把 host parity 设为 operation 的奇偶校验位，CH5xx 长帧则固定为 0
+        // V30X 的长帧把 host parity 设为 operation 的奇偶校验位，CH58X/CH59X 长帧则固定为 0
         (void)rvswd_transport_probe_long(transport, 0u, RVSWD_DMI_STATUS, 0x19u, 0u);
         for (uint16_t probe = 0u; probe < 201u; ++probe) {
             probe_result = rvswd_transport_probe_long(transport, 1u, RVSWD_DMI_STATUS, 0u, 1u);

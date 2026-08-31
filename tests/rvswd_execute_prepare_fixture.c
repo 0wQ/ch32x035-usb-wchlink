@@ -15,15 +15,11 @@ struct prepare_operation {
 static struct prepare_operation operations[16];
 static size_t operation_count;
 
-bool rvswd_memory_read32(struct rvswd_operation *operation,
-                         const struct rvswd_target_profile *profile,
-                         bool target_identified, uint32_t address,
-                         uint32_t *value) {
+bool rvswd_memory_read32_v30x(struct rvswd_operation *operation,
+                              uint32_t address, uint32_t *value) {
     uint32_t read_value = address == 0x40021000u ? 0x6b83u : 0xffffffffu;
 
     (void)operation;
-    (void)profile;
-    (void)target_identified;
     assert(operation_count < sizeof(operations) / sizeof(operations[0]));
     operations[operation_count++] = (struct prepare_operation){
         .read = true,
@@ -44,6 +40,11 @@ bool rvswd_memory_write32(struct rvswd_operation *operation, uint32_t address, u
     return true;
 }
 
+bool rvswd_memory_write32_slow(struct rvswd_operation *operation,
+                               uint32_t address, uint32_t value) {
+    return rvswd_memory_write32(operation, address, value);
+}
+
 static void expect_operation(size_t index, bool read, uint32_t address,
                              uint32_t value) {
     assert(index < operation_count);
@@ -54,9 +55,7 @@ static void expect_operation(size_t index, bool read, uint32_t address,
 
 int main(void) {
     struct rvswd_operation operation = {0};
-    struct rvswd_target_profile profile = {
-        .wchlink_family = WCHLINK_TARGET_FAMILY_X03X,
-    };
+    struct rvswd_target_profile profile = {0};
 
     assert(rvswd_target_x03x_loader_prepare(&operation, &profile, 1u));
     assert(operation_count == 11u);

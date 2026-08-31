@@ -3,7 +3,7 @@
 #include "wchlink/rvswd/rvswd_memory.h"
 #include "wchlink/rvswd/rvswd_operation.h"
 #include "wchlink/rvswd/rvswd_types.h"
-#include "wchlink/target/rvswd_target_profile.h"
+#include "wchlink/target/rvswd_target_module.h"
 #include "wchlink/target/rvswd_target_registry.h"
 #include "wchlink/target/wchlink_target_control.h"
 #include "wchlink/target/wchlink_target_ports_internal.h"
@@ -16,147 +16,83 @@
 static const uint32_t rvswd_debug_unlock = 0x5aa50400u;
 static const uint8_t rvswd_long_status_ok = 0u;
 
-static const struct rvswd_target_profile *
-rvswd_target_connect_profile_from_chip_id(uint32_t chip_id) {
-    const struct rvswd_target_module *module =
-        rvswd_target_registry_module_from_chip_id(chip_id);
-
-    return module == NULL ? rvswd_target_profile_from_chip_id(chip_id)
-                          : module->profile;
-}
-
-static const struct rvswd_target_profile *
-rvswd_target_connect_profile_from_family(uint8_t family) {
-    const struct rvswd_target_module *module =
-        rvswd_target_registry_module_from_family(family);
-
-    return module == NULL ? rvswd_target_profile_from_family(family)
-                          : module->profile;
-}
-
-static const struct rvswd_target_profile *
-rvswd_target_connect_profile_resolve(uint32_t chip_id, uint8_t family_hint,
-                                     bool family_hint_active) {
-    const struct rvswd_target_profile *profile =
-        rvswd_target_connect_profile_from_chip_id(chip_id);
-
-    if (profile != NULL || !family_hint_active) {
-        return profile;
-    }
-    return rvswd_target_connect_profile_from_family(family_hint);
-}
-
-static bool rvswd_target_connect_read_memory32(
-    struct wchlink_target_ports *ports, struct rvswd_operation *operation,
-    uint32_t address, uint32_t *value) {
-    // 身份探测前 ChipID 已清零，只能用主机 family hint 选择候选内存访问方式
-    return rvswd_memory_read32(
-        operation,
-        rvswd_target_connect_profile_from_family(ports->family_hint), false,
-        address, value);
-}
-
 static void rvswd_target_connect_reset_identity(
     struct wchlink_target_ports *ports) {
     ports->info.chip_id = 0u;
-    ports->profile = NULL;
     ports->family_hint_active = false;
 }
 
-static bool rvswd_target_connect_read_memory8_ch5xx(
-    struct rvswd_operation *operation,
-    const struct rvswd_target_identity_profile *identity, uint32_t address,
-    uint8_t *value) {
-    uint32_t abstractcs;
-    struct rvswd_transport_result read_result;
+// 候选 module 自己完成身份访问，连接编排只校验 ChipID 并锁定结果
+static bool rvswd_target_connect_identify_module(
+    struct wchlink_target_ports *ports, struct rvswd_operation *operation,
+    const struct rvswd_target_module *module, bool allow_protected_hint) {
+    const struct rvswd_target_profile *profile;
+    const struct rvswd_target_identity_profile *identity;
+    uint32_t chip_id = 0u;
+    uint32_t option_status;
 
-    // LinkE 通过 data0 传入地址，Program Buffer 将目标字节写回 data1
-    if (identity == NULL || identity->ch5xx_debug_data_address == 0u ||
-        value == NULL ||
-        !rvswd_debug_write_raw_gpr(operation, 13u, identity->ch5xx_debug_data_address) ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u).ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF0, 0x00058483u).ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF1, 0x00968223u).ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF2, 0x00100073u).ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, address).ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, 0x0027100bu).ok ||
-        !rvswd_debug_wait_abstract_idle(operation, &abstractcs) ||
-        ((abstractcs >> 8u) & 0x07u) != 0u) {
+    if (module == NULL || module->probe == NULL ||
+        module->capabilities == NULL ||
+        module->capabilities->packet_mode !=
+            rvswd_transport_packet_mode(operation->transport) ||
+        module->probe->read_chip_id == NULL) {
         return false;
     }
-    read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_DATA1);
-    if (!read_result.ok) {
-        return false;
+    if (module->probe->read_chip_id(operation, &chip_id)) {
+        if (chip_id == 0u || module->matches_chip_id == NULL ||
+            !module->matches_chip_id(chip_id)) {
+            return false;
+        }
+        ports->module = module;
+        ports->info.chip_id = chip_id;
+        profile = module->profile;
+        rvswd_transport_set_fast_timing(
+            operation->transport, profile != NULL && profile->fast_timing);
+        return true;
     }
 
-    *value = (uint8_t)read_result.value;
+    if (!allow_protected_hint) {
+        return false;
+    }
+    profile = module->profile;
+    identity = profile == NULL ? NULL : profile->identity;
+    if (identity == NULL || identity->option_status_address == 0u ||
+        module->memory == NULL || module->memory->read32 == NULL ||
+        !module->memory->read32(operation, identity->option_status_address,
+                                &option_status) ||
+        (option_status & identity->option_status_read_protected_mask) == 0u) {
+        return false;
+    }
+    // 受保护目标无法读出 ChipID 时仍锁定主机指定的候选 module
+    ports->module = module;
+    ports->family_hint_active = true;
     return true;
 }
 
 static bool rvswd_target_connect_identify(
     struct wchlink_target_ports *ports, struct rvswd_operation *operation) {
-    const struct rvswd_target_profile *expected_profile =
-        rvswd_target_connect_profile_from_family(ports->family_hint);
-    const struct rvswd_target_profile *candidate_profile;
-    const struct rvswd_target_identity_profile *ch5xx_identity = rvswd_target_probe_identity_ch5xx();
-    const struct rvswd_target_identity_profile *ch32_identity =
-        expected_profile != NULL && !expected_profile->ch5xx_protocol
-            ? expected_profile->identity
-            : rvswd_target_probe_identity_ch32();
-    uint32_t candidate_chip_id;
-    uint32_t memory_chip_id = 0u;
-    uint32_t option_status;
-    uint8_t ch5xx_chip_id;
-    struct rvswd_transport *transport = operation->transport;
-    struct rvswd_transport_result read_result;
+    const struct rvswd_target_module *hint = ports->module;
+    const enum rvswd_packet_mode packet_mode =
+        rvswd_transport_packet_mode(operation->transport);
 
-    // V30X 的官方 LinkE 直接从 DMI 0x7f 返回 ChipID，避免先执行抽象内存命令
-    read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_WCH_CHIP_ID);
-    candidate_chip_id = read_result.value;
-    if (read_result.ok && candidate_chip_id != 0u) {
-        candidate_profile =
-            rvswd_target_connect_profile_from_chip_id(candidate_chip_id);
-        if (candidate_profile != NULL && !candidate_profile->ch5xx_protocol) {
-            ports->info.chip_id = candidate_chip_id;
-            rvswd_transport_set_fast_timing(transport, candidate_profile->fast_timing);
-            return true;
-        }
-    }
-
-    // CH5xx 通过专用 8 位寄存器报告型号，失败后才进入通用内存 ChipID 路径
-    if (ch5xx_identity != NULL && rvswd_target_connect_read_memory8_ch5xx(operation, ch5xx_identity, ch5xx_identity->chip_id_address, &ch5xx_chip_id)) {
-        candidate_chip_id = (uint32_t)ch5xx_chip_id << 24u;
-        candidate_profile =
-            rvswd_target_connect_profile_from_chip_id(candidate_chip_id);
-    } else {
-        candidate_profile = NULL;
-    }
-    if (candidate_profile != NULL && candidate_profile->ch5xx_protocol) {
-        // 协议层使用 family 高字节形式，Flash 命令口在实际擦除流程中单独解锁
-        ports->info.chip_id = candidate_chip_id;
+    if (hint != NULL && hint->probe != NULL && hint->capabilities != NULL &&
+        hint->capabilities->packet_mode == packet_mode &&
+        hint->probe->read_chip_id != NULL &&
+        rvswd_target_connect_identify_module(ports, operation, hint, true)) {
         return true;
     }
-    {
-        if (ch32_identity != NULL &&
-            rvswd_target_connect_read_memory32(ports, operation, ch32_identity->chip_id_address, &memory_chip_id) && memory_chip_id != 0u) {
-            ports->info.chip_id = memory_chip_id;
-            candidate_profile =
-                rvswd_target_connect_profile_from_chip_id(memory_chip_id);
-            rvswd_transport_set_fast_timing(transport, candidate_profile != NULL && candidate_profile->fast_timing);
+    for (size_t index = 0u;
+         index < rvswd_target_registry_module_count(); ++index) {
+        const struct rvswd_target_module *module =
+            rvswd_target_registry_module_at(index);
+
+        if (module != hint && module->probe != NULL &&
+            module->capabilities != NULL &&
+            module->capabilities->packet_mode == packet_mode &&
+            rvswd_target_connect_identify_module(ports, operation, module,
+                                                 false)) {
             return true;
         }
-    }
-    if (expected_profile != NULL && expected_profile->identity != NULL &&
-        expected_profile->identity->option_status_address != 0u &&
-        rvswd_target_connect_read_memory32(
-            ports, operation,
-            expected_profile->identity->option_status_address,
-            &option_status) &&
-        (option_status &
-         expected_profile->identity->option_status_read_protected_mask) != 0u) {
-        // ChipID 读取失败时，受限会话才使用主机 SetSpeed 提示的 profile
-        ports->family_hint_active = true;
-        return true;
     }
     return false;
 }
@@ -168,7 +104,7 @@ static bool rvswd_target_connect_known_mode(
     ports->connect_error = 0u;
     rvswd_target_connect_reset_identity(ports);
     if (rvswd_transport_packet_mode(transport) == RVSWD_PACKET_LONG) {
-        // CH58x 的 V4A 调试模块连接前需要先清空两线接口的唤醒状态
+        // CH58X 的 V4A 调试模块连接前需要先清空两线接口的唤醒状态
         rvswd_transport_wakeup(transport, true);
         rvswd_transport_wakeup(transport, false);
     }
@@ -222,7 +158,7 @@ static bool rvswd_target_connect_known_mode(
         }
     }
     if (rvswd_transport_packet_mode(transport) == RVSWD_PACKET_SHORT) {
-        // OpenOCD 可能未预先提供 CH58x family，补一次 long frame 探测
+        // OpenOCD 未预先提供 CH58X family 时，补一次 long frame 探测
         rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
         return rvswd_target_connect_known_mode(ports, operation);
     }
@@ -300,11 +236,11 @@ static bool rvswd_target_connect_transport(
     struct rvswd_transport *transport = &ports->transport;
 
     rvswd_transport_set_fast_timing(transport, false);
-    if (rvswd_target_connect_profile_from_family(ports->family_hint) == NULL) {
+    if (ports->module == NULL) {
         struct rvswd_transport_probe_result probe_result;
         uint16_t long_signature_count = 0u;
 
-        // wlink status 使用通用 RISC-V 值 1，未知 family 先按官方 LinkE 序列自动识别
+        // wlink status 使用通用 RISC-V 值 1，未知 family 按官方 LinkE 序列自动识别
         // 自动识别先发送一个探测帧和 201 个轮询帧，再回到 short frame 连接 CH32
         rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
         // V30X 的长帧把 host parity 设为 operation 的奇偶校验位，CH5xx 长帧则固定为 0
@@ -335,18 +271,6 @@ static bool rvswd_target_connect_transport(
     return rvswd_target_connect_known_mode(ports, operation);
 }
 
-static uint8_t rvswd_target_connect_family(
-    const struct wchlink_target_ports *ports) {
-    const struct rvswd_target_profile *profile =
-        rvswd_target_connect_profile_from_chip_id(ports->info.chip_id);
-
-    if (profile != NULL) {
-        return profile->wchlink_family;
-    }
-    profile = rvswd_target_connect_profile_from_family(ports->family_hint);
-    return profile == NULL ? 0u : profile->wchlink_family;
-}
-
 struct rvswd_target_result wchlink_target_ports_connect(
     struct wchlink_target_ports *ports) {
     struct rvswd_operation operation;
@@ -356,12 +280,10 @@ struct rvswd_target_result wchlink_target_ports_connect(
     }
     rvswd_operation_init(&operation, &ports->transport);
     if (rvswd_target_connect_transport(ports, &operation)) {
+        const struct rvswd_target_module *module = ports->module;
         ports->connect_error = 0u;
-        ports->info.family = rvswd_target_connect_family(ports);
-        ports->profile = rvswd_target_connect_profile_resolve(
-            ports->info.chip_id, ports->family_hint,
-            ports->family_hint_active);
-        ports->info.connected = ports->profile != NULL;
+        ports->info.family = module == NULL ? 0u : module->family;
+        ports->info.connected = module != NULL;
         wchlink_target_ports_refresh_info(ports);
         // 主机 SetSpeed 请求优先于 profile 默认时序，连接探测后恢复请求速度
         if (ports->requested_speed != 0u) {

@@ -24,8 +24,3 @@ bool rvswd_debug_resume(struct rvswd_operation *operation,
 bool rvswd_debug_wait_dmstatus(struct rvswd_operation *operation,
                                uint32_t mask, bool set, uint32_t timeout_ms);
 bool rvswd_debug_restore_unlock(struct rvswd_operation *operation);
-bool rvswd_debug_execute(struct rvswd_operation *operation, uint32_t entry,
-                         uint32_t stack_top, uint32_t mode, uint32_t address,
-                         uint32_t length, uint32_t data_address,
-                         uint32_t dpc_value,
-                         uint32_t *result);

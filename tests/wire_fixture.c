@@ -106,7 +106,7 @@ int main(void) {
     }
     {
         const struct wchlink_wire_chip_info info = {
-            .ch5xx = true,
+            .legacy_layout = true,
             .chip_id = 0x92000000u,
         };
         const uint8_t expected[] = {

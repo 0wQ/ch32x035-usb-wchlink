@@ -1,5 +1,7 @@
 #include "in_memory_target.h"
 
+#include "wchlink/protocol/wchlink_family.h"
+
 #include <string.h>
 
 static const uint32_t wchlink_test_ram_base = 0x20000000u;
@@ -51,10 +53,11 @@ static const struct wchlink_test_loader_layout wchlink_test_loader_ch5xx = {
 
 static const struct wchlink_test_loader_layout *wchlink_test_loader_layout(
     const struct wchlink_target_ports *target) {
-    if (target->info.loader == RVSWD_TARGET_LOADER_CH5XX) {
+    if (target->info.family == WCHLINK_TARGET_FAMILY_CH58X ||
+        target->info.family == WCHLINK_TARGET_FAMILY_CH59X) {
         return &wchlink_test_loader_ch5xx;
     }
-    if (target->info.loader == RVSWD_TARGET_LOADER_L103) {
+    if (target->info.family == WCHLINK_TARGET_FAMILY_CH32L10X) {
         return &wchlink_test_loader_l103;
     }
     if (target->info.family == WCHLINK_TARGET_FAMILY_X03X) {
@@ -287,10 +290,11 @@ bool wchlink_target_ports_is_connected(
     return target != NULL && target->info.connected;
 }
 
-bool wchlink_target_ports_uses_ch5xx_loader(
+bool wchlink_target_ports_uses_legacy_info(
     const struct wchlink_target_ports *target) {
     return target != NULL &&
-           target->info.loader == RVSWD_TARGET_LOADER_CH5XX;
+           (target->info.family == WCHLINK_TARGET_FAMILY_CH58X ||
+            target->info.family == WCHLINK_TARGET_FAMILY_CH59X);
 }
 
 bool wchlink_target_ports_loader_start(
@@ -348,13 +352,15 @@ struct rvswd_target_chip_info_result wchlink_target_ports_read_chip_info(
     struct wchlink_target_ports *target) {
     struct rvswd_target_chip_info_result chip_info = {
         .info = {
-            .ch5xx = target->info.loader == RVSWD_TARGET_LOADER_CH5XX,
+            .legacy_layout =
+                target->info.family == WCHLINK_TARGET_FAMILY_CH58X ||
+                target->info.family == WCHLINK_TARGET_FAMILY_CH59X,
             .chip_id = target->info.chip_id,
         },
     };
     struct rvswd_target_result read_result;
 
-    if (chip_info.info.ch5xx) {
+    if (chip_info.info.legacy_layout) {
         chip_info.result = rvswd_target_result_success();
         return chip_info;
     }

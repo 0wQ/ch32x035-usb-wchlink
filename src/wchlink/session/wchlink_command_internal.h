@@ -21,7 +21,7 @@ struct wchlink_command_context {
     struct wchlink_target_ports *target;
     struct wchlink_transfer *transfer;
     struct wchlink_direct_dmi_resume direct_dmi_resume;
-    bool ch5xx_info_query_seen;
+    bool legacy_info_query_seen;
 };
 
 struct wchlink_session_command_result wchlink_command_result(

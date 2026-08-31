@@ -9,7 +9,6 @@
 struct rvswd_target_info {
     uint32_t chip_id;                     // 目标芯片完整 ChipID
     uint8_t family;                       // WCH-Link 协议使用的目标族编号
-    enum rvswd_target_loader loader;      // 当前目标使用的 loader 类型
     uint32_t loader_download_limit;       // loader 代码允许下载的最大长度
     uint32_t loader_data_page_size;       // loader 数据缓冲区的页对齐粒度
     uint32_t loader_initialize_mode;      // loader 首次初始化使用的执行 mode

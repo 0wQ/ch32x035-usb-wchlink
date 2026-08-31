@@ -24,9 +24,9 @@ static void wchlink_command_target_disconnect(
     wchlink_target_ports_disconnect(context->target);
 }
 
-static bool wchlink_command_target_uses_ch5xx_loader(
+static bool wchlink_command_target_uses_legacy_info(
     const struct wchlink_command_context *context) {
-    return wchlink_target_ports_uses_ch5xx_loader(context->target);
+    return wchlink_target_ports_uses_legacy_info(context->target);
 }
 
 static struct wchlink_session_command_result wchlink_handle_chip_info(struct wchlink_command_context *context, uint8_t *response, size_t capacity) {
@@ -41,7 +41,7 @@ static struct wchlink_session_command_result wchlink_handle_chip_info(struct wch
         return wchlink_command_result(WCHLINK_SESSION_COMMAND_TARGET_FAILED, 0u);
     }
     wire_info = (struct wchlink_wire_chip_info){
-        .ch5xx = target_info.info.ch5xx,
+        .legacy_layout = target_info.info.legacy_layout,
         .flash_size = target_info.info.flash_size,
         .uid_low = target_info.info.uid_low,
         .uid_high = target_info.info.uid_high,
@@ -179,8 +179,8 @@ static struct wchlink_session_command_result wchlink_handle_config(
 
     switch (request[3]) {
         case WCHLINK_CONFIG_READ_PROTECTION:
-            if (wchlink_command_target_uses_ch5xx_loader(context)) {
-                // CH5xx 不使用 CH32 Option Byte，LinkE 将保护查询报告为未保护
+            if (wchlink_command_target_uses_legacy_info(context)) {
+                // legacy 信息布局目标没有 CH32 Option Byte，LinkE 将保护查询报告为未保护
                 result = WCHLINK_CONFIG_READ_UNPROTECTED;
                 break;
             }
@@ -266,7 +266,7 @@ static struct wchlink_session_command_result wchlink_handle_config(
 void wchlink_command_reset(struct wchlink_command_context *context) {
     // 失败连接也会配置调试引脚，所有会话复位都必须释放总线
     wchlink_command_target_disconnect(context);
-    context->ch5xx_info_query_seen = false;
+    context->legacy_info_query_seen = false;
     wchlink_direct_dmi_resume_reset(&context->direct_dmi_resume);
     wchlink_transfer_reset(context->transfer);
 }
@@ -275,8 +275,8 @@ static struct wchlink_session_command_result wchlink_handle_info(
     struct wchlink_command_context *context, uint8_t *response,
     size_t response_capacity) {
     // MRS 会在 STOP 前读取扩展信息，只有该会话出现过查询才返回 20 字节
-    if (wchlink_command_target_uses_ch5xx_loader(context)) {
-        context->ch5xx_info_query_seen = true;
+    if (wchlink_command_target_uses_legacy_info(context)) {
+        context->legacy_info_query_seen = true;
     }
     return wchlink_handle_chip_info(context, response, response_capacity);
 }
@@ -367,13 +367,13 @@ static struct wchlink_session_command_result wchlink_handle_control(
             target_result = wchlink_target_ports_connect(context->target);
             return wchlink_connect_result(context, target_result, response, response_capacity);
         case WCHLINK_CONTROL_STOP: {
-            bool return_ch5xx_info = context->ch5xx_info_query_seen &&
-                                     wchlink_command_target_uses_ch5xx_loader(context);
+            bool return_legacy_info = context->legacy_info_query_seen &&
+                                      wchlink_command_target_uses_legacy_info(context);
             struct wchlink_session_command_result result;
 
             wchlink_command_reset(context);
-            if (return_ch5xx_info) {
-                // MRS 在 CH5xx 设置芯片阶段从 STOP 命令读取 20 字节目标信息
+            if (return_legacy_info) {
+                // MRS 在 legacy 信息布局目标设置芯片阶段从 STOP 命令读取 20 字节目标信息
                 result = wchlink_handle_chip_info(context, response, response_capacity);
             } else {
                 result = wchlink_command_result(

@@ -5,10 +5,8 @@
 #include <stddef.h>
 
 static const uint32_t rvswd_debug_abstract_timeout_us = 10000u;
-static const uint32_t rvswd_debug_resume_request_delay_us = 1000u;
 static const uint32_t rvswd_debug_resume_poll_interval_us = 10u;
 static const uint32_t rvswd_debug_resume_timeout_us = 3000u;
-static const uint32_t rvswd_debug_execute_timeout_ms = 5000u;
 
 bool rvswd_debug_wait_abstract_idle_timeout(struct rvswd_operation *operation, uint32_t *abstractcs, uint32_t timeout_us) {
     uint64_t start = bsp_time_us();
@@ -181,59 +179,4 @@ bool rvswd_debug_restore_unlock(struct rvswd_operation *operation) {
            rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_CONFIG, 0x5aa50400u).ok &&
            rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_SHADOW, 0x5aa50400u).ok &&
            rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_CONFIG, 0x5aa50400u).ok;
-}
-
-bool rvswd_debug_execute(struct rvswd_operation *operation, uint32_t entry,
-                         uint32_t stack_top, uint32_t mode, uint32_t address,
-                         uint32_t length, uint32_t data_address,
-                         uint32_t dpc_value,
-                         uint32_t *result) {
-    if (!rvswd_debug_write_raw_gpr(operation, 10u, mode)) {
-        if (result != NULL) *result = 0xe001u;
-        return false;
-    }
-    if (!rvswd_debug_write_raw_gpr(operation, 11u, address)) {
-        if (result != NULL) *result = 0xe002u;
-        return false;
-    }
-    if (!rvswd_debug_write_raw_gpr(operation, 12u, length)) {
-        if (result != NULL) *result = 0xe003u;
-        return false;
-    }
-    if (!rvswd_debug_write_raw_gpr(operation, 13u, data_address)) {
-        if (result != NULL) *result = 0xe004u;
-        return false;
-    }
-    if (!rvswd_debug_write_register(operation, 0x1002u, stack_top) ||
-        !rvswd_debug_write_register(operation, 0x7b0u, 0x000090c3u) ||
-        !rvswd_debug_write_register(operation, 0x300u, dpc_value) ||
-        !rvswd_debug_write_register(operation, 0x7b1u, entry)) {
-        if (result != NULL) *result = 0xe005u;
-        return false;
-    }
-    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL, 0x80000001u).ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL, 0x80000001u).ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL, 0x00000001u).ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL, 0x40000001u).ok) {
-        if (result != NULL) *result = 0xe006u;
-        return false;
-    }
-    // V30X 的 resumeack 会跨会话保持，给 resumereq 留出处理时间后直接等待 ebreak
-    bsp_delay_us(rvswd_debug_resume_request_delay_us);
-    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_CONTROL, 0x00000001u).ok) {
-        if (result != NULL) *result = 0xe006u;
-        return false;
-    }
-    if (!rvswd_debug_wait_dmstatus(operation, 1u << 9u, true, rvswd_debug_execute_timeout_ms)) {
-        (void)rvswd_debug_halt(operation);
-        if (result != NULL) *result = 0xe007u;
-        return false;
-    }
-    if (result != NULL) {
-        if (!rvswd_debug_read_raw_gpr(operation, 10u, result)) {
-            *result = 0xe008u;
-            return false;
-        }
-    }
-    return true;
 }

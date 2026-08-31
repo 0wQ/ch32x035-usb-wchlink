@@ -71,37 +71,6 @@ def run_command_transfer_fixture() -> None:
         subprocess.run([str(executable)], check=True)
 
 
-def run_profile_fixture() -> None:
-    project = Path(__file__).resolve().parents[1]
-    compiler = os.environ.get("CC", "cc")
-    dead_strip_flags = [
-        "-ffunction-sections",
-        "-Wl,-dead_strip" if sys.platform == "darwin" else "-Wl,--gc-sections",
-    ]
-
-    with tempfile.TemporaryDirectory(prefix="wchlink-profile-") as temp_dir:
-        executable = Path(temp_dir) / "profile_fixture"
-        subprocess.run(
-            [
-                compiler,
-                "-std=c11",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
-                *dead_strip_flags,
-                "-I",
-                str(project / "src"),
-                str(project / "tests/profile_fixture.c"),
-                str(project / "src/wchlink/target/rvswd_target_x03x.c"),
-                str(project / "src/wchlink/target/rvswd_target_profile.c"),
-                "-o",
-                str(executable),
-            ],
-            check=True,
-        )
-        subprocess.run([str(executable)], check=True)
-
-
 def run_target_registry_fixture() -> None:
     project = Path(__file__).resolve().parents[1]
     compiler = os.environ.get("CC", "cc")
@@ -125,7 +94,10 @@ def run_target_registry_fixture() -> None:
                 str(project / "tests/rvswd_target_registry_fixture.c"),
                 str(project / "src/wchlink/target/rvswd_target_registry.c"),
                 str(project / "src/wchlink/target/rvswd_target_x03x.c"),
-                str(project / "src/wchlink/target/rvswd_target_profile.c"),
+                str(project / "src/wchlink/target/rvswd_target_l103.c"),
+                str(project / "src/wchlink/target/rvswd_target_v30x.c"),
+                str(project / "src/wchlink/target/rvswd_target_ch58x.c"),
+                str(project / "src/wchlink/target/rvswd_target_ch59x.c"),
                 "-o",
                 str(executable),
             ],
@@ -227,7 +199,6 @@ def run_rvswd_memory_fixture() -> None:
 def run() -> None:
     run_wire_fixture()
     run_command_transfer_fixture()
-    run_profile_fixture()
     run_target_registry_fixture()
     run_execute_prepare_fixture()
     run_rvswd_debug_resume_fixture()

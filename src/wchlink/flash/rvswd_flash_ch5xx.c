@@ -1,6 +1,5 @@
 #include "wchlink/flash/rvswd_flash_ch5xx.h"
 
-#include "wchlink/flash/rvswd_flash.h"
 #include "wchlink/rvswd/rvswd_debug.h"
 #include "wchlink/rvswd/rvswd_memory.h"
 #include "wchlink/rvswd/rvswd_operation.h"
@@ -48,9 +47,6 @@ enum rvswd_ch5xx_flash_error {
     RVSWD_CH5XX_FLASH_ERROR_PAGE_PROGRAM_WAIT = 0xd4u,
     RVSWD_CH5XX_FLASH_ERROR_PAGE_PROGRAM_STATUS = 0xd5u,
 };
-
-extern const uint8_t ch5xx_flash_erase_stub_start[];
-extern const uint8_t ch5xx_flash_erase_stub_end[];
 
 enum rvswd_ch5xx_byte_access_mode {
     RVSWD_CH5XX_BYTE_ACCESS_NONE,
@@ -373,7 +369,7 @@ bool rvswd_flash_rewrite_page(struct rvswd_operation *operation,
     };
 
     operation->flash_code = 0u;
-    if (profile == NULL || !profile->ch5xx_protocol || data == NULL) {
+    if (profile == NULL || data == NULL) {
         operation->flash_code = 0x0fu;
         return false;
     }
@@ -421,12 +417,18 @@ bool rvswd_flash_rewrite_page(struct rvswd_operation *operation,
 
 bool rvswd_flash_ch5xx_erase_all(
     struct rvswd_operation *operation,
-    const struct rvswd_target_profile *profile) {
-    size_t stub_length =
-        (size_t)(ch5xx_flash_erase_stub_end - ch5xx_flash_erase_stub_start);
+    const struct rvswd_target_profile *profile, const uint8_t *stub_start,
+    const uint8_t *stub_end, rvswd_flash_ch5xx_execute_fn execute) {
+    size_t stub_length;
     uint32_t result;
 
     // RAM stub 按 LinkE 固件的 4 KiB 扇区路径完成整片擦除
+    if (stub_start == NULL || stub_end == NULL || stub_end <= stub_start ||
+        execute == NULL) {
+        operation->flash_code = RVSWD_CH5XX_FLASH_ERROR_ERASE_STUB_SIZE;
+        return false;
+    }
+    stub_length = (size_t)(stub_end - stub_start);
     if (stub_length == 0u ||
         stub_length > rvswd_ch5xx_erase_stub_max_size ||
         (stub_length & 3u) != 0u) {
@@ -435,7 +437,7 @@ bool rvswd_flash_ch5xx_erase_all(
     }
     if (!rvswd_memory_write(operation, profile,
                             rvswd_ch5xx_erase_stub_address,
-                            ch5xx_flash_erase_stub_start,
+                            stub_start,
                             (uint32_t)stub_length)) {
         operation->flash_code = RVSWD_CH5XX_FLASH_ERROR_ERASE_STUB_WRITE;
         return false;
@@ -448,10 +450,10 @@ bool rvswd_flash_ch5xx_erase_all(
         operation->flash_code = RVSWD_CH5XX_FLASH_ERROR_ERASE_EXECUTE;
         return false;
     }
-    if (!rvswd_debug_execute(operation, rvswd_ch5xx_erase_stub_address,
-                             rvswd_ch5xx_erase_stub_stack_top, 0u, 0u,
-                             rvswd_ch5xx_flash_end, 0u,
-                             rvswd_ch5xx_erase_stub_address, &result)) {
+    if (!execute(operation, rvswd_ch5xx_erase_stub_address,
+                 rvswd_ch5xx_erase_stub_stack_top, 0u, 0u,
+                 rvswd_ch5xx_flash_end, 0u,
+                 rvswd_ch5xx_erase_stub_address, &result)) {
         operation->flash_code = RVSWD_CH5XX_FLASH_ERROR_ERASE_EXECUTE;
         return false;
     }

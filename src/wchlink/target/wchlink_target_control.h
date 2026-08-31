@@ -9,7 +9,7 @@
 struct wchlink_target_ports;
 
 struct rvswd_target_chip_info {
-    bool ch5xx;
+    bool legacy_layout;
     uint32_t flash_size;
     uint32_t uid_low;
     uint32_t uid_high;
@@ -28,7 +28,7 @@ void wchlink_target_ports_init(struct wchlink_target_ports *ports);
 void wchlink_target_ports_disconnect(struct wchlink_target_ports *ports);
 bool wchlink_target_ports_is_connected(
     const struct wchlink_target_ports *ports);
-bool wchlink_target_ports_uses_ch5xx_loader(
+bool wchlink_target_ports_uses_legacy_info(
     const struct wchlink_target_ports *ports);
 struct rvswd_target_result wchlink_target_ports_connect(
     struct wchlink_target_ports *ports);

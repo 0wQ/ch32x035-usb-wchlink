@@ -1,7 +1,5 @@
 #pragma once
 
-#include "wchlink/protocol/wchlink_family.h"
-
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -24,10 +22,9 @@ enum rvswd_packet_mode {
     RVSWD_PACKET_LONG,
 };
 
-enum rvswd_memory_write_mode {
-    RVSWD_MEMORY_WRITE_DIRECT,
-    RVSWD_MEMORY_WRITE_WORD,
-    RVSWD_MEMORY_WRITE_STREAMING,
+enum rvswd_target_chip_info_layout {
+    RVSWD_TARGET_CHIP_INFO_ESIG,
+    RVSWD_TARGET_CHIP_INFO_LEGACY,
 };
 
 // 目标身份读取所需的地址和状态位，连接流程不再持有芯片地址常量
@@ -39,7 +36,6 @@ struct rvswd_target_identity_profile {
     uint32_t esig_uid_low_address;
     uint32_t esig_uid_high_address;
     uint32_t esig_uid_tail_address;
-    uint32_t ch5xx_debug_data_address;
 };
 
 // Option Bytes 的控制地址由目标 profile 提供，Flash 流程不重复定义
@@ -49,15 +45,8 @@ struct rvswd_target_option_profile {
     uint32_t write_protection_register;
 };
 
-enum rvswd_target_loader {
-    RVSWD_TARGET_LOADER_DEFAULT,
-    RVSWD_TARGET_LOADER_L103,
-    RVSWD_TARGET_LOADER_CH5XX,
-};
-
 // Loader profile 集中目标 RAM 布局和下载策略，session 不直接持有目标地址
 struct rvswd_target_loader_profile {
-    enum rvswd_target_loader kind;
     uint32_t code_address;
     uint32_t data_address;
     uint32_t stack_top;
@@ -81,16 +70,14 @@ struct rvswd_target_loader_profile {
 
 // 目标 profile 只描述目标差异，不承载 RVSWD 操作和 Flash 流程
 struct rvswd_target_profile {
-    uint8_t wchlink_family;
-    bool ch5xx_protocol;
     bool fast_timing;
     const struct rvswd_target_identity_profile *identity;
     const struct rvswd_target_option_profile *option;
     const struct rvswd_target_loader_profile *loader;
     bool loader_clears_debug_unlock;
-    enum rvswd_memory_write_mode memory_write_mode;
     enum rvswd_flash_unlock_mode erase_unlock;
     enum rvswd_option_write_mode option_write;
+    bool memory_type_supported;
     uint32_t option_base;
     // Code Flash 起始地址和可用容量，loader 编程块越界时前置拒绝
     uint32_t code_flash_base;

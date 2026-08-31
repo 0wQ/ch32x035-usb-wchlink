@@ -13,8 +13,7 @@ size_t wchlink_wire_ack(uint8_t *response, size_t capacity, uint8_t family) {
     return 4u;
 }
 
-size_t wchlink_wire_unsupported(uint8_t *response, size_t capacity,
-                                uint8_t family) {
+size_t wchlink_wire_unsupported(uint8_t *response, size_t capacity, uint8_t family) {
     if (response == NULL || capacity < 4u) {
         return 0u;
     }
@@ -37,8 +36,7 @@ size_t wchlink_wire_family_error(uint8_t *response, size_t capacity,
     return 4u;
 }
 
-size_t wchlink_wire_target_error(uint8_t *response, size_t capacity,
-                                 uint32_t code) {
+size_t wchlink_wire_target_error(uint8_t *response, size_t capacity, uint32_t code) {
     return wchlink_wire_family_error(response, capacity, 0x55u, code);
 }
 
@@ -61,7 +59,7 @@ size_t wchlink_wire_identity(uint8_t *response, size_t capacity) {
     response[0] = WCHLINK_REPLY_PREFIX;
     response[1] = WCHLINK_FAMILY_CONTROL;
     response[2] = 4u;
-    // 官方 LinkE 与 MRS 版本检查使用 3.3 身份，CH592 不改变 Link 固件版本
+    // 官方 LinkE 与 MRS 版本检查使用 3.3 身份
     response[3] = 3u;
     response[4] = 3u;
     response[5] = 0x12u;
@@ -106,8 +104,8 @@ size_t wchlink_wire_chip_info(uint8_t *response, size_t capacity,
     if (response == NULL || info == NULL || capacity < 20u) {
         return 0u;
     }
-    if (info->ch5xx) {
-        // MRS 的 CH5xx FlashOperation 路径固定读取 20 字节，LinkE 将 ChipID 放在第 4 字节
+    if (info->legacy_layout) {
+        // legacy FlashOperation 路径固定读取 20 字节，LinkE 将 ChipID 放在第 4 字节
         memset(response, 0, 20u);
         response[0] = WCHLINK_REPLY_PREFIX;
         response[1] = WCHLINK_FAMILY_CONTROL;
@@ -142,8 +140,8 @@ size_t wchlink_wire_chip_info(uint8_t *response, size_t capacity,
 }
 
 size_t wchlink_wire_dmi_reply(uint8_t *response, size_t capacity,
-                              uint8_t address, uint32_t data, bool success,
-                              bool retryable) {
+                              uint8_t address, uint32_t data,
+                              bool success, bool retryable) {
     if (response == NULL || capacity < 9u) {
         return 0u;
     }
@@ -182,8 +180,7 @@ size_t wchlink_wire_loader_error(uint8_t *response, size_t capacity,
     return 13u;
 }
 
-size_t wchlink_wire_data_reply(uint8_t *response, size_t capacity,
-                               uint8_t status) {
+size_t wchlink_wire_data_reply(uint8_t *response, size_t capacity, uint8_t status) {
     if (response == NULL || capacity < 4u) {
         return 0u;
     }

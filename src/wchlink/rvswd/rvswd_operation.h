@@ -5,9 +5,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+struct rvswd_memory_ops;
+
 // operation 只存在于一次 target 调用栈，集中保存该次操作的失败诊断
 struct rvswd_operation {
     struct rvswd_transport *transport;
+    const struct rvswd_memory_ops *memory;
     // memory 与 Flash 分别拥有阶段码，嵌套调用不能互相覆盖
     uint32_t memory_code;
     uint32_t flash_code;

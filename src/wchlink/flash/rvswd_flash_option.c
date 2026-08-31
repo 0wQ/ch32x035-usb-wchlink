@@ -1,4 +1,5 @@
-#include "wchlink/flash/rvswd_flash.h"
+#include "wchlink/flash/rvswd_flash_option.h"
+
 #include "wchlink/flash/rvswd_flash_ch32_internal.h"
 #include "wchlink/rvswd/rvswd_debug.h"
 #include "wchlink/rvswd/rvswd_memory.h"
@@ -134,7 +135,7 @@ static uint16_t rvswd_flash_option_encode_byte(uint8_t value) {
 static bool rvswd_flash_option_read_words(
     struct rvswd_operation *operation,
     const struct rvswd_target_profile *profile, uint32_t *option_words) {
-    if (profile == NULL || profile->ch5xx_protocol || profile->option == NULL ||
+    if (profile == NULL || profile->option == NULL ||
         option_words == NULL) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
         return false;
@@ -160,7 +161,7 @@ bool rvswd_flash_read_protected(struct rvswd_operation *operation,
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_READ_OUTPUT;
         return false;
     }
-    if (profile == NULL || profile->ch5xx_protocol || profile->option == NULL) {
+    if (profile == NULL || profile->option == NULL) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
         return false;
     }
@@ -186,7 +187,7 @@ bool rvswd_flash_write_protected(struct rvswd_operation *operation,
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_WRITE_OUTPUT;
         return false;
     }
-    if (profile == NULL || profile->ch5xx_protocol || profile->option == NULL) {
+    if (profile == NULL || profile->option == NULL) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_WRITE_TARGET;
         return false;
     }
@@ -725,7 +726,7 @@ bool rvswd_flash_set_read_protected(struct rvswd_operation *operation,
     uint32_t option_words[RVSWD_FLASH_OPTION_WORD_COUNT];
     bool current;
 
-    if (profile == NULL || profile->ch5xx_protocol) {
+    if (profile == NULL || profile->option == NULL) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
         return false;
     }
@@ -796,7 +797,7 @@ bool rvswd_flash_set_option_bytes(struct rvswd_operation *operation,
     uint32_t actual;
 
     operation->flash_code = 0u;
-    if (profile == NULL || profile->ch5xx_protocol) {
+    if (profile == NULL || profile->option == NULL) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
         return false;
     }
@@ -875,9 +876,8 @@ bool rvswd_flash_read_memory_type(struct rvswd_operation *operation,
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_MEMORY_TYPE_READ;
         return false;
     }
-    if (profile == NULL || profile->ch5xx_protocol || profile->option == NULL ||
-        profile->wchlink_family != WCHLINK_TARGET_FAMILY_CH32V30X ||
-        profile->option_base == 0u) {
+    if (profile == NULL || !profile->memory_type_supported ||
+        profile->option == NULL || profile->option_base == 0u) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
         return false;
     }
@@ -902,9 +902,8 @@ bool rvswd_flash_set_memory_type(struct rvswd_operation *operation,
     uint16_t encoded_user;
 
     operation->flash_code = 0u;
-    if (profile == NULL || profile->ch5xx_protocol || profile->option == NULL ||
-        profile->wchlink_family != WCHLINK_TARGET_FAMILY_CH32V30X ||
-        profile->option_base == 0u) {
+    if (profile == NULL || !profile->memory_type_supported ||
+        profile->option == NULL || profile->option_base == 0u) {
         operation->flash_code = RVSWD_FLASH_OPTION_ERROR_UNSUPPORTED_TARGET;
         return false;
     }

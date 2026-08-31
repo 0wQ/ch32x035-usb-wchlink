@@ -1,8 +1,11 @@
 #include "wchlink/target/rvswd_target_x03x.h"
 
+#include "wchlink/flash/rvswd_flash_ch32.h"
+#include "wchlink/flash/rvswd_flash_option.h"
 #include "wchlink/protocol/wchlink_family.h"
 #include "wchlink/rvswd/rvswd_debug.h"
 #include "wchlink/rvswd/rvswd_memory.h"
+#include "wchlink/rvswd/rvswd_reset.h"
 #include "wchlink/rvswd/rvswd_types.h"
 #include "wchlink/transport/rvswd_transport.h"
 
@@ -46,7 +49,6 @@ static const struct rvswd_target_identity_profile rvswd_target_x03x_identity = {
     .esig_uid_low_address = 0x1ffff7e8u,
     .esig_uid_high_address = 0x1ffff7ecu,
     .esig_uid_tail_address = 0x1ffff7f0u,
-    .ch5xx_debug_data_address = 0u,
 };
 
 static const struct rvswd_target_option_profile rvswd_target_x03x_option = {
@@ -56,7 +58,6 @@ static const struct rvswd_target_option_profile rvswd_target_x03x_option = {
 };
 
 static const struct rvswd_target_loader_profile rvswd_target_x03x_loader = {
-    .kind = RVSWD_TARGET_LOADER_DEFAULT,
     .code_address = 0x20000000u,
     .data_address = 0x20001000u,
     .stack_top = 0x20002800u,
@@ -79,26 +80,74 @@ static const struct rvswd_target_loader_profile rvswd_target_x03x_loader = {
 };
 
 static const struct rvswd_target_profile rvswd_target_x03x_profile_data = {
-    .wchlink_family = WCHLINK_TARGET_FAMILY_X03X,
-    .ch5xx_protocol = false,
     .fast_timing = false,
     .identity = &rvswd_target_x03x_identity,
     .option = &rvswd_target_x03x_option,
     .loader = &rvswd_target_x03x_loader,
     .loader_clears_debug_unlock = true,
-    .memory_write_mode = RVSWD_MEMORY_WRITE_DIRECT,
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
     .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,
+    .memory_type_supported = false,
     .option_base = 0x1ffff800u,
     .code_flash_base = 0x08000000u,
     .code_flash_size = 0xf800u,
+};
+
+static const struct rvswd_target_capabilities rvswd_target_x03x_capabilities = {
+    .packet_mode = RVSWD_PACKET_SHORT,
+    .chip_info_layout = RVSWD_TARGET_CHIP_INFO_ESIG,
+    .memory_streaming = false,
+};
+
+// 读取 CH32X03X 的内存 ChipID，失败时由连接流程尝试其他 module
+static bool rvswd_target_x03x_probe_chip_id(
+    struct rvswd_operation *operation, uint32_t *chip_id) {
+    return chip_id != NULL &&
+           rvswd_memory_read32_v30x(operation,
+                                    rvswd_target_x03x_identity.chip_id_address,
+                                    chip_id);
+}
+
+// 提供 CH32X03X 的身份探测入口
+static const struct rvswd_target_probe_ops rvswd_target_x03x_probe = {
+    .read_chip_id = rvswd_target_x03x_probe_chip_id,
+};
+
+// 绑定 CH32X03X 的读写访问宽度和失败恢复策略
+static const struct rvswd_memory_ops rvswd_target_x03x_memory = {
+    .read32 = rvswd_memory_read32_v30x,
+    .write32 = rvswd_memory_write32_direct,
+    .write = rvswd_memory_write_direct,
+};
+
+static const struct rvswd_target_loader_ops rvswd_target_x03x_loader_ops = {
+    .prepare = rvswd_target_x03x_loader_prepare,
+    .execute = rvswd_target_x03x_loader_execute,
+};
+
+// 绑定 CH32X03X 的 Flash、Option Bytes 和保护操作
+static const struct rvswd_target_flash_ops rvswd_target_x03x_flash = {
+    .erase_all = rvswd_flash_ch32_erase_all,
+    .rewrite_page = NULL,
+    .read_protected = rvswd_flash_read_protected,
+    .write_protected = rvswd_flash_write_protected,
+    .set_read_protected = rvswd_flash_set_read_protected,
+    .set_option_bytes = rvswd_flash_set_option_bytes,
+    .read_memory_type = rvswd_flash_read_memory_type,
+    .set_memory_type = rvswd_flash_set_memory_type,
+};
+
+static const struct rvswd_target_control_ops rvswd_target_x03x_control = {
+    .reset_and_halt = rvswd_reset_and_halt,
+    .soft_reset_and_run = rvswd_soft_reset_and_run,
+    .reset_and_run = rvswd_reset_and_run,
 };
 
 // 阶段码写入 operation.memory_code，供 target ports 保留前置失败位置
 static bool rvswd_target_x03x_prepare_write(struct rvswd_operation *operation,
                                             uint32_t address, uint32_t value,
                                             uint8_t error_code) {
-    if (!rvswd_memory_write32(operation, address, value)) {
+    if (!rvswd_memory_write32_slow(operation, address, value)) {
         operation->memory_code = error_code;
         return false;
     }
@@ -106,10 +155,9 @@ static bool rvswd_target_x03x_prepare_write(struct rvswd_operation *operation,
 }
 
 static bool rvswd_target_x03x_prepare_read(
-    struct rvswd_operation *operation,
-    const struct rvswd_target_profile *profile, uint32_t address,
-    uint8_t error_code, uint32_t *value) {
-    if (!rvswd_memory_read32(operation, profile, true, address, value)) {
+    struct rvswd_operation *operation, uint32_t address, uint8_t error_code,
+    uint32_t *value) {
+    if (!rvswd_memory_read32_v30x(operation, address, value)) {
         operation->memory_code = error_code;
         return false;
     }
@@ -123,13 +171,14 @@ bool rvswd_target_x03x_loader_prepare(
     uint32_t rcc_cr_value;
     uint32_t ignored_value;
 
+    (void)profile;
     // 编程阶段复用初始化阶段的目标环境，避免重复改写运行中的 Flash 时钟
     if ((mode & 1u) == 0u) {
         return true;
     }
     // 先保留当前 RCC_CR，再切换到 loader 所需的受控时钟配置
     if (!rvswd_target_x03x_prepare_read(
-            operation, profile, rvswd_target_x03x_rcc_cr_address,
+            operation, rvswd_target_x03x_rcc_cr_address,
             RVSWD_TARGET_X03X_PREPARE_ERROR_RCC_CR, &rcc_cr_value) ||
         !rvswd_target_x03x_prepare_write(
             operation, rvswd_target_x03x_rcc_cr_address, rcc_cr_value,
@@ -156,10 +205,10 @@ bool rvswd_target_x03x_loader_prepare(
             rvswd_target_x03x_flash_control_value,
             RVSWD_TARGET_X03X_PREPARE_ERROR_FLASH_CTLR) ||
         !rvswd_target_x03x_prepare_read(
-            operation, profile, rvswd_target_x03x_flash_status_address,
+            operation, rvswd_target_x03x_flash_status_address,
             RVSWD_TARGET_X03X_PREPARE_ERROR_FLASH_STATR, &ignored_value) ||
         !rvswd_target_x03x_prepare_read(
-            operation, profile, rvswd_target_x03x_flash_address_address,
+            operation, rvswd_target_x03x_flash_address_address,
             RVSWD_TARGET_X03X_PREPARE_ERROR_FLASH_ADDR, &ignored_value)) {
         return false;
     }
@@ -205,19 +254,28 @@ bool rvswd_target_x03x_loader_execute(
 }
 
 static const struct rvswd_target_module rvswd_target_x03x = {
+    .family = WCHLINK_TARGET_FAMILY_X03X,
+    .matches_chip_id = rvswd_target_x03x_matches_chip_id,
     .profile = &rvswd_target_x03x_profile_data,
-    .loader_prepare = rvswd_target_x03x_loader_prepare,
-    .loader_execute = rvswd_target_x03x_loader_execute,
+    .capabilities = &rvswd_target_x03x_capabilities,
+    .probe = &rvswd_target_x03x_probe,
+    .memory = &rvswd_target_x03x_memory,
+    .loader = &rvswd_target_x03x_loader_ops,
+    .flash = &rvswd_target_x03x_flash,
+    .control = &rvswd_target_x03x_control,
 };
 
+// 返回 CH32X03X 族的完整 module 入口
 const struct rvswd_target_module *rvswd_target_x03x_module(void) {
     return &rvswd_target_x03x;
 }
 
+// 返回 CH32X03X 族唯一的静态目标描述
 const struct rvswd_target_profile *rvswd_target_x03x_profile(void) {
     return &rvswd_target_x03x_profile_data;
 }
 
+// 判断 ChipID 是否属于 CH32X03X 族
 bool rvswd_target_x03x_matches_chip_id(uint32_t chip_id) {
     return (chip_id & rvswd_target_x03x_chip_id_mask) ==
            rvswd_target_x03x_chip_id_value;

@@ -49,10 +49,15 @@ FLASH_BACKEND_HEADER_CONSUMERS = {
     "wchlink/flash/rvswd_flash_ch32.h": {
         "src/wchlink/flash/rvswd_flash.c",
         "src/wchlink/flash/rvswd_flash_ch32.c",
+        "src/wchlink/target/rvswd_target_x03x.c",
+        "src/wchlink/target/rvswd_target_l103.c",
+        "src/wchlink/target/rvswd_target_v30x.c",
     },
     "wchlink/flash/rvswd_flash_ch5xx.h": {
         "src/wchlink/flash/rvswd_flash.c",
         "src/wchlink/flash/rvswd_flash_ch5xx.c",
+        "src/wchlink/target/rvswd_target_ch58x.c",
+        "src/wchlink/target/rvswd_target_ch59x.c",
     },
 }
 
@@ -160,6 +165,14 @@ def find_violations() -> list[str]:
     for path in files:
         text = path.read_text(encoding="utf-8")
         relative = path.relative_to(ROOT)
+        if relative.as_posix().startswith("src/wchlink/") and not relative.as_posix().startswith(
+            ("src/wchlink/target/", "src/wchlink/protocol/")
+        ):
+            if re.search(
+                r"WCHLINK_TARGET_FAMILY_|ch5xx_protocol|rvswd_debug_execute",
+                text,
+            ):
+                violations.append(f"公共 WCH-Link 层仍解释目标族行为: {relative}")
         if "rvswd_gpio" in text:
             violations.append(f"旧 facade 符号仍存在: {relative}")
         if relative.as_posix().startswith("src/wchlink/") and "SIZE_MAX" in text:

@@ -78,7 +78,7 @@ enum wchlink_device_mode_command {
 };
 
 struct wchlink_wire_chip_info {
-    bool ch5xx;
+    bool legacy_layout;
     uint32_t flash_size;
     uint32_t uid_low;
     uint32_t uid_high;

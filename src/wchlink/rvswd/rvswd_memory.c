@@ -94,14 +94,10 @@ bool rvswd_memory_write32_direct(
     operation->address = address;
     // X03X 官方 LinkE 使用 Data1、Data0 和 Access Memory 写命令
     // 每次新 abstract 操作先清除上一次可能残留的 cmderr
-    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS,
-                                   0x00000700u)
-             .ok ||
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u).ok ||
         !rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA1, address).ok ||
         !rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, value).ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND,
-                                   0x02210000u)
-             .ok) {
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, 0x02210000u).ok) {
         operation->memory_code = 0xc1u;
         return false;
     }
@@ -110,19 +106,15 @@ bool rvswd_memory_write32_direct(
         return false;
     }
     if (((abstractcs >> 8u) & 0x07u) != 0u) {
-        operation->memory_code =
-            0xc0u | (uint8_t)((abstractcs >> 8u) & 0x07u);
+        operation->memory_code = 0xc0u | (uint8_t)((abstractcs >> 8u) & 0x07u);
         // 清除 cmderr，避免失败状态污染后续 abstract 操作
-        rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTCS,
-                                           0x00000700u);
+        rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u);
         return false;
     }
     return true;
 }
 
-static bool rvswd_memory_write_direct(
-    struct rvswd_operation *operation, uint32_t address,
-    const uint8_t *data, uint32_t length) {
+static bool rvswd_memory_write_direct(struct rvswd_operation *operation, uint32_t address, const uint8_t *data, uint32_t length) {
     for (uint32_t offset = 0u; offset < length; offset += 4u) {
         uint32_t value = ((uint32_t)data[offset + 0u]) |
                          ((uint32_t)data[offset + 1u] << 8u) |
@@ -136,8 +128,7 @@ static bool rvswd_memory_write_direct(
     return true;
 }
 
-static bool rvswd_memory_read32_v30x(struct rvswd_operation *operation,
-                                     uint32_t address, uint32_t *value) {
+static bool rvswd_memory_read32_v30x(struct rvswd_operation *operation, uint32_t address, uint32_t *value) {
     for (uint8_t retry = 0u; retry < rvswd_memory_read_retry_count; ++retry) {
         if (rvswd_memory_read32_v30x_once(operation, address, value)) {
             return true;
@@ -146,10 +137,7 @@ static bool rvswd_memory_read32_v30x(struct rvswd_operation *operation,
     return false;
 }
 
-bool rvswd_memory_read32(struct rvswd_operation *operation,
-                         const struct rvswd_target_profile *profile,
-                         bool target_identified, uint32_t address,
-                         uint32_t *value) {
+bool rvswd_memory_read32(struct rvswd_operation *operation, const struct rvswd_target_profile *profile, bool target_identified, uint32_t address, uint32_t *value) {
     if (value == NULL) {
         return false;
     }
@@ -170,8 +158,7 @@ bool rvswd_memory_read32(struct rvswd_operation *operation,
     return rvswd_memory_read32_synchronized(operation, address, value);
 }
 
-bool rvswd_memory_write32(struct rvswd_operation *operation, uint32_t address,
-                          uint32_t value) {
+bool rvswd_memory_write32(struct rvswd_operation *operation, uint32_t address, uint32_t value) {
     uint32_t abstractcs;
 
     // 使用 x8 保存数据，x9 保存目标地址
@@ -191,10 +178,7 @@ bool rvswd_memory_write32(struct rvswd_operation *operation, uint32_t address,
     return ((abstractcs >> 8u) & 0x07u) == 0u;
 }
 
-static bool rvswd_memory_write_streaming(struct rvswd_operation *operation,
-                                         uint32_t address,
-                                         const uint8_t *data,
-                                         uint32_t length) {
+static bool rvswd_memory_write_streaming(struct rvswd_operation *operation, uint32_t address, const uint8_t *data, uint32_t length) {
     uint32_t hartinfo;
     uint32_t data0_address;
     uint32_t abstractcs;
@@ -202,9 +186,7 @@ static bool rvswd_memory_write_streaming(struct rvswd_operation *operation,
 
     // 通过 Debug Module 的 DATA0/DATA1 地址建立连续写入上下文
     if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTAUTO, 0u).ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS,
-                                   0x00000700u)
-             .ok) {
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u).ok) {
         return false;
     }
     read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_HARTINFO);
@@ -216,15 +198,9 @@ static bool rvswd_memory_write_streaming(struct rvswd_operation *operation,
     data0_address = rvswd_debug_data_address_base | (hartinfo & 0x07ffu);
 
     // x10 指向 DATA0，x11 指向 DATA1，Program Buffer 每次从这两个寄存器取数
-    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF0,
-                                   0x41844100u)
-             .ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF1,
-                                   0x0491c080u)
-             .ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF2,
-                                   0x9002c184u)
-             .ok ||
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF0, 0x41844100u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF1, 0x0491c080u).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_PROGBUF2, 0x9002c184u).ok ||
         !rvswd_debug_write_raw_gpr(operation, 10u, data0_address) ||
         !rvswd_debug_write_raw_gpr(operation, 11u, data0_address + 4u) ||
         !rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA1, address).ok) {
@@ -232,21 +208,11 @@ static bool rvswd_memory_write_streaming(struct rvswd_operation *operation,
     }
 
     // 第一字通过显式 COMMAND 启动，避免 V30X 在 COMMAND 前开启 autoexec
-    if (!rvswd_operation_write_dmi(operation,
-                                   RVSWD_DMI_DATA0,
-                                   ((uint32_t)data[0u]) |
-                                       ((uint32_t)data[1u] << 8u) |
-                                       ((uint32_t)data[2u] << 16u) |
-                                       ((uint32_t)data[3u] << 24u))
-             .ok ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND,
-                                   rvswd_abstract_command_execute)
-             .ok ||
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, ((uint32_t)data[0u]) | ((uint32_t)data[1u] << 8u) | ((uint32_t)data[2u] << 16u) | ((uint32_t)data[3u] << 24u)).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND, rvswd_abstract_command_execute).ok ||
         !rvswd_debug_wait_abstract_idle(operation, &abstractcs) ||
         ((abstractcs >> 8u) & 0x07u) != 0u ||
-        !rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTAUTO,
-                                   rvswd_abstractauto_data0)
-             .ok) {
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTAUTO, rvswd_abstractauto_data0).ok) {
         return false;
     }
 
@@ -259,10 +225,8 @@ static bool rvswd_memory_write_streaming(struct rvswd_operation *operation,
 
         operation->address = address + offset;
         if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, value).ok) {
-            rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTAUTO,
-                                              0u);
-            rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTCS,
-                                              0x00000700u);
+            rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTAUTO, 0u);
+            rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u);
             return false;
         }
     }
@@ -271,10 +235,8 @@ static bool rvswd_memory_write_streaming(struct rvswd_operation *operation,
     if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_ABSTRACTAUTO, 0u).ok ||
         !rvswd_debug_wait_abstract_idle(operation, &abstractcs) ||
         ((abstractcs >> 8u) & 0x07u) != 0u) {
-        rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTAUTO,
-                                          0u);
-        rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTCS,
-                                          0x00000700u);
+        rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTAUTO, 0u);
+        rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u);
         return false;
     }
 
@@ -357,10 +319,7 @@ static bool rvswd_memory_write_slow(struct rvswd_operation *operation,
     return true;
 }
 
-bool rvswd_memory_write(struct rvswd_operation *operation,
-                        const struct rvswd_target_profile *profile,
-                        uint32_t address, const uint8_t *data,
-                        uint32_t length) {
+bool rvswd_memory_write(struct rvswd_operation *operation, const struct rvswd_target_profile *profile, uint32_t address, const uint8_t *data, uint32_t length) {
     bool success;
 
     operation->memory_code = 0u;
@@ -374,17 +333,13 @@ bool rvswd_memory_write(struct rvswd_operation *operation,
     if (profile != NULL &&
         profile->memory_write_mode == RVSWD_MEMORY_WRITE_DIRECT) {
         success = rvswd_memory_write_direct(operation, address, data, length);
-    } else if (profile != NULL &&
-        profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING) {
+    } else if (profile != NULL && profile->memory_write_mode == RVSWD_MEMORY_WRITE_STREAMING) {
         // 目标 profile 支持 autoexec 数据流，先尝试单字 DMI 写入的快速路径
-        success =
-            rvswd_memory_write_streaming(operation, address, data, length);
+        success = rvswd_memory_write_streaming(operation, address, data, length);
         if (!success) {
             // 快速路径失败后清理 abstract 状态，再完整重写当前数据块
-            rvswd_operation_cleanup_write_dmi(operation,
-                                              RVSWD_DMI_ABSTRACTAUTO, 0u);
-            rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTCS,
-                                              0x00000700u);
+            rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTAUTO, 0u);
+            rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u);
             operation->memory_code = 0u;
             operation->address = address;
             operation->abstractcs = 0xffffffffu;

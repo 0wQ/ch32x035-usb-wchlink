@@ -29,9 +29,7 @@ static bool wchlink_command_target_uses_ch5xx_loader(
     return wchlink_target_ports_uses_ch5xx_loader(context->target);
 }
 
-static struct wchlink_session_command_result wchlink_handle_chip_info(
-    struct wchlink_command_context *context, uint8_t *response,
-    size_t capacity) {
+static struct wchlink_session_command_result wchlink_handle_chip_info(struct wchlink_command_context *context, uint8_t *response, size_t capacity) {
     struct rvswd_target_chip_info_result target_info;
     struct wchlink_wire_chip_info wire_info;
 
@@ -40,8 +38,7 @@ static struct wchlink_session_command_result wchlink_handle_chip_info(
     }
     target_info = wchlink_target_ports_read_chip_info(context->target);
     if (!target_info.result.ok) {
-        return wchlink_command_result(WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-                                      0u);
+        return wchlink_command_result(WCHLINK_SESSION_COMMAND_TARGET_FAILED, 0u);
     }
     wire_info = (struct wchlink_wire_chip_info){
         .ch5xx = target_info.info.ch5xx,
@@ -51,46 +48,39 @@ static struct wchlink_session_command_result wchlink_handle_chip_info(
         .uid_tail = target_info.info.uid_tail,
         .chip_id = target_info.info.chip_id,
     };
-    return wchlink_command_result(
-        WCHLINK_SESSION_COMMAND_COMPLETED,
-        wchlink_wire_chip_info(response, capacity, &wire_info));
+    return wchlink_command_result(WCHLINK_SESSION_COMMAND_COMPLETED, wchlink_wire_chip_info(response, capacity, &wire_info));
 }
 
 static struct wchlink_session_command_result wchlink_handle_memory_type(
     struct wchlink_command_context *context, bool extended, bool write,
     const uint8_t *request, size_t request_length, uint8_t *response,
     size_t capacity) {
+
     struct rvswd_target_result target_result;
 
     if (write) {
         if (request_length != 5u) {
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_MALFORMED,
-                wchlink_wire_unsupported(response, capacity,
-                                         WCHLINK_FAMILY_CONTROL));
+                wchlink_wire_unsupported(response, capacity, WCHLINK_FAMILY_CONTROL));
         }
-        target_result = wchlink_target_ports_flash_set_memory_type(
-            context->target, extended, request[4]);
+        target_result = wchlink_target_ports_flash_set_memory_type(context->target, extended, request[4]);
         if (!target_result.ok) {
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-                wchlink_wire_target_error(response, capacity,
-                                          target_result.code));
+                wchlink_wire_target_error(response, capacity, target_result.code));
         }
         return wchlink_command_result(
             WCHLINK_SESSION_COMMAND_COMPLETED,
-            wchlink_wire_command_reply(response, capacity,
-                                       WCHLINK_FAMILY_CONTROL, request[3]));
+            wchlink_wire_command_reply(response, capacity, WCHLINK_FAMILY_CONTROL, request[3]));
     }
 
     if (request_length != 4u) {
         return wchlink_command_result(
             WCHLINK_SESSION_COMMAND_MALFORMED,
-            wchlink_wire_unsupported(response, capacity,
-                                     WCHLINK_FAMILY_CONTROL));
+            wchlink_wire_unsupported(response, capacity, WCHLINK_FAMILY_CONTROL));
     }
-    target_result = wchlink_target_ports_flash_read_memory_type(
-        context->target, extended);
+    target_result = wchlink_target_ports_flash_read_memory_type(context->target, extended);
     if (!target_result.ok) {
         return wchlink_command_result(
             WCHLINK_SESSION_COMMAND_TARGET_FAILED,
@@ -99,18 +89,14 @@ static struct wchlink_session_command_result wchlink_handle_memory_type(
     // 查询回复的第四字节是目标分配编码，不是查询命令编号
     return wchlink_command_result(
         WCHLINK_SESSION_COMMAND_COMPLETED,
-        wchlink_wire_command_reply(response, capacity, WCHLINK_FAMILY_CONTROL,
-                                   (uint8_t)target_result.value));
+        wchlink_wire_command_reply(response, capacity, WCHLINK_FAMILY_CONTROL, (uint8_t)target_result.value));
 }
 
-static struct wchlink_session_command_result wchlink_handle_qe(
-    const uint8_t *request, size_t request_length, uint8_t *response,
-    size_t capacity) {
+static struct wchlink_session_command_result wchlink_handle_qe(const uint8_t *request, size_t request_length, uint8_t *response, size_t capacity) {
     if (request_length != 4u) {
         return wchlink_command_result(
             WCHLINK_SESSION_COMMAND_MALFORMED,
-            wchlink_wire_unsupported(response, capacity,
-                                     WCHLINK_FAMILY_CONTROL));
+            wchlink_wire_unsupported(response, capacity, WCHLINK_FAMILY_CONTROL));
     }
     if (request[3] == WCHLINK_CONTROL_CHECK_QE) {
         // 内置 Code Flash 不需要外部 QE 配置，向主机报告已处于可用状态
@@ -121,8 +107,7 @@ static struct wchlink_session_command_result wchlink_handle_qe(
     // 内置存储没有独立 QE 寄存器，启用请求保持幂等并回显成功子命令
     return wchlink_command_result(
         WCHLINK_SESSION_COMMAND_COMPLETED,
-        wchlink_wire_command_reply(response, capacity, WCHLINK_FAMILY_CONTROL,
-                                   request[3]));
+        wchlink_wire_command_reply(response, capacity, WCHLINK_FAMILY_CONTROL, request[3]));
 }
 
 static struct wchlink_session_command_result wchlink_handle_dmi(
@@ -138,8 +123,7 @@ static struct wchlink_session_command_result wchlink_handle_dmi(
     address = request[3];
     data = wchlink_command_read_be32(&request[4]);
     if (request[8] == WCHLINK_DMI_OPERATION_READ) {
-        if (wchlink_direct_dmi_resume_take_status(
-                &context->direct_dmi_resume, address, &data)) {
+        if (wchlink_direct_dmi_resume_take_status(&context->direct_dmi_resume, address, &data)) {
             result = rvswd_target_result_success();
         } else {
             result = wchlink_target_ports_read_dmi(context->target, address);
@@ -153,31 +137,26 @@ static struct wchlink_session_command_result wchlink_handle_dmi(
             // resume completion 保持当前 DPC，只为缺少轮询的主机完成 WCH 调试握手
             result = wchlink_target_ports_resume_dmi(context->target, data);
             if (result.ok) {
-                wchlink_direct_dmi_resume_store_status(
-                    &context->direct_dmi_resume, result.value);
+                wchlink_direct_dmi_resume_store_status(&context->direct_dmi_resume, result.value);
             }
         } else {
-            result = wchlink_target_ports_write_dmi(context->target, address,
-                                                    data);
+            result = wchlink_target_ports_write_dmi(context->target, address, data);
         }
     } else {
         wchlink_direct_dmi_resume_reset(&context->direct_dmi_resume);
         result = rvswd_target_result_failure(RVSWD_TARGET_RESULT_DMI, 0u, false);
     }
 
-    if (request[8] != WCHLINK_DMI_OPERATION_READ &&
-        request[8] != WCHLINK_DMI_OPERATION_WRITE) {
+    if (request[8] != WCHLINK_DMI_OPERATION_READ && request[8] != WCHLINK_DMI_OPERATION_WRITE) {
         return wchlink_command_result(
             WCHLINK_SESSION_COMMAND_MALFORMED,
-            wchlink_wire_dmi_reply(response, capacity, address, data, false,
-                                   false));
+            wchlink_wire_dmi_reply(response, capacity, address, data, false, false));
     }
     return wchlink_command_result(
         result.ok ? WCHLINK_SESSION_COMMAND_COMPLETED
                   : (result.retryable ? WCHLINK_SESSION_COMMAND_BUSY
                                       : WCHLINK_SESSION_COMMAND_TARGET_FAILED),
-        wchlink_wire_dmi_reply(response, capacity, address, data, result.ok,
-                               result.retryable));
+        wchlink_wire_dmi_reply(response, capacity, address, data, result.ok, result.retryable));
 }
 
 static struct wchlink_session_command_result wchlink_handle_config(
@@ -190,14 +169,12 @@ static struct wchlink_session_command_result wchlink_handle_config(
     if (request_length < 4u || capacity < 4u) {
         return wchlink_command_result(
             WCHLINK_SESSION_COMMAND_MALFORMED,
-            wchlink_wire_unsupported(response, capacity,
-                                     WCHLINK_FAMILY_CONFIG));
+            wchlink_wire_unsupported(response, capacity, WCHLINK_FAMILY_CONFIG));
     }
     if (!wchlink_target_ports_is_connected(context->target)) {
         return wchlink_command_result(
             WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-            wchlink_wire_unsupported(response, capacity,
-                                     WCHLINK_FAMILY_CONFIG));
+            wchlink_wire_unsupported(response, capacity, WCHLINK_FAMILY_CONFIG));
     }
 
     switch (request[3]) {
@@ -212,8 +189,7 @@ static struct wchlink_session_command_result wchlink_handle_config(
             if (!target_result.ok) {
                 return wchlink_command_result(
                     WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-                    wchlink_wire_target_error(response, capacity,
-                                              target_result.code));
+                    wchlink_wire_target_error(response, capacity, target_result.code));
             }
             protected = target_result.value != 0u;
             result = protected ? WCHLINK_CONFIG_READ_PROTECTED
@@ -221,8 +197,7 @@ static struct wchlink_session_command_result wchlink_handle_config(
             break;
         case WCHLINK_CONFIG_DISABLE_PROTECTION:
             if (request_length ==
-                WCHLINK_CONFIG_PAYLOAD_OFFSET +
-                    RVSWD_OPTION_CONFIG_BYTE_COUNT) {
+                WCHLINK_CONFIG_PAYLOAD_OFFSET + RVSWD_OPTION_CONFIG_BYTE_COUNT) {
                 // 扩展解除保护帧携带 USER、DATA0、DATA1 和 WRP0..3
                 target_result = wchlink_target_ports_flash_set_option_bytes(
                     context->target, &request[WCHLINK_CONFIG_PAYLOAD_OFFSET],
@@ -238,16 +213,14 @@ static struct wchlink_session_command_result wchlink_handle_config(
             if (request_length != 4u) {
                 return wchlink_command_result(
                     WCHLINK_SESSION_COMMAND_MALFORMED,
-                    wchlink_wire_unsupported(response, capacity,
-                                             WCHLINK_FAMILY_CONFIG));
+                    wchlink_wire_unsupported(response, capacity, WCHLINK_FAMILY_CONFIG));
             }
             target_result = wchlink_target_ports_flash_set_read_protected(
                 context->target, false);
             if (!target_result.ok) {
                 return wchlink_command_result(
                     WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-                    wchlink_wire_target_error(response, capacity,
-                                              target_result.code));
+                    wchlink_wire_target_error(response, capacity, target_result.code));
             }
             result = request[3];
             break;
@@ -256,16 +229,14 @@ static struct wchlink_session_command_result wchlink_handle_config(
             if (request_length != 4u) {
                 return wchlink_command_result(
                     WCHLINK_SESSION_COMMAND_MALFORMED,
-                    wchlink_wire_unsupported(response, capacity,
-                                             WCHLINK_FAMILY_CONFIG));
+                    wchlink_wire_unsupported(response, capacity, WCHLINK_FAMILY_CONFIG));
             }
             target_result = wchlink_target_ports_flash_set_read_protected(
                 context->target, true);
             if (!target_result.ok) {
                 return wchlink_command_result(
                     WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-                    wchlink_wire_target_error(response, capacity,
-                                              target_result.code));
+                    wchlink_wire_target_error(response, capacity, target_result.code));
             }
             result = request[3];
             break;
@@ -275,8 +246,7 @@ static struct wchlink_session_command_result wchlink_handle_config(
             if (!target_result.ok) {
                 return wchlink_command_result(
                     WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-                    wchlink_wire_target_error(response, capacity,
-                                              target_result.code));
+                    wchlink_wire_target_error(response, capacity, target_result.code));
             }
             protected = target_result.value != 0u;
             result = protected ? WCHLINK_CONFIG_WRITE_PROTECTED
@@ -285,14 +255,12 @@ static struct wchlink_session_command_result wchlink_handle_config(
         default:
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_MALFORMED,
-                wchlink_wire_unsupported(response, capacity,
-                                         WCHLINK_FAMILY_CONFIG));
+                wchlink_wire_unsupported(response, capacity, WCHLINK_FAMILY_CONFIG));
     }
 
     return wchlink_command_result(
         WCHLINK_SESSION_COMMAND_COMPLETED,
-        wchlink_wire_command_reply(response, capacity, WCHLINK_FAMILY_CONFIG,
-                                   result));
+        wchlink_wire_command_reply(response, capacity, WCHLINK_FAMILY_CONFIG, result));
 }
 
 void wchlink_command_reset(struct wchlink_command_context *context) {
@@ -319,16 +287,13 @@ static struct wchlink_session_command_result wchlink_handle_speed(
     if (request_length < 5u) {
         return wchlink_command_result(
             WCHLINK_SESSION_COMMAND_MALFORMED,
-            wchlink_wire_unsupported(response, response_capacity,
-                                     WCHLINK_FAMILY_SPEED));
+            wchlink_wire_unsupported(response, response_capacity, WCHLINK_FAMILY_SPEED));
     }
-    wchlink_target_ports_set_family_hint(context->target,
-                                         request[3]);
+    wchlink_target_ports_set_family_hint(context->target, request[3]);
     wchlink_target_ports_set_speed(context->target, request[4]);
     return wchlink_command_result(
         WCHLINK_SESSION_COMMAND_COMPLETED,
-        wchlink_wire_command_reply(response, response_capacity,
-                                   WCHLINK_FAMILY_SPEED, 1u));
+        wchlink_wire_command_reply(response, response_capacity, WCHLINK_FAMILY_SPEED, 1u));
 }
 
 static struct wchlink_session_command_result wchlink_handle_reset(
@@ -337,46 +302,35 @@ static struct wchlink_session_command_result wchlink_handle_reset(
     if (request_length < 4u) {
         return wchlink_command_result(
             WCHLINK_SESSION_COMMAND_MALFORMED,
-            wchlink_wire_ack(response, response_capacity,
-                             WCHLINK_FAMILY_RESET));
+            wchlink_wire_ack(response, response_capacity, WCHLINK_FAMILY_RESET));
     }
     if (request[3] == WCHLINK_RESET_SOFT &&
         wchlink_target_ports_is_connected(context->target)) {
-        if (!wchlink_target_ports_soft_reset_and_run(
-                 context->target)
-                 .ok) {
+        if (!wchlink_target_ports_soft_reset_and_run(context->target).ok) {
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-                wchlink_wire_unsupported(response, response_capacity,
-                                         WCHLINK_FAMILY_RESET));
+                wchlink_wire_unsupported(response, response_capacity, WCHLINK_FAMILY_RESET));
         }
         return wchlink_command_result(
             WCHLINK_SESSION_COMMAND_COMPLETED,
-            wchlink_wire_command_reply(response, response_capacity,
-                                       WCHLINK_FAMILY_RESET, request[3]));
+            wchlink_wire_command_reply(response, response_capacity, WCHLINK_FAMILY_RESET, request[3]));
     }
-    if (request[3] == WCHLINK_RESET_MRS_RUN &&
-        wchlink_target_ports_is_connected(context->target)) {
-        if (!wchlink_target_ports_reset_and_run(context->target)
-                 .ok) {
+    if (request[3] == WCHLINK_RESET_MRS_RUN && wchlink_target_ports_is_connected(context->target)) {
+        if (!wchlink_target_ports_reset_and_run(context->target).ok) {
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-                wchlink_wire_unsupported(response, response_capacity,
-                                         WCHLINK_FAMILY_RESET));
+                wchlink_wire_unsupported(response, response_capacity, WCHLINK_FAMILY_RESET));
         }
         return wchlink_command_result(
             WCHLINK_SESSION_COMMAND_COMPLETED,
-            wchlink_wire_command_reply(response, response_capacity,
-                                       WCHLINK_FAMILY_RESET, request[3]));
+            wchlink_wire_command_reply(response, response_capacity, WCHLINK_FAMILY_RESET, request[3]));
     }
     if (request[3] == WCHLINK_RESET_NORMAL &&
         wchlink_target_ports_is_connected(context->target) &&
-        !wchlink_target_ports_reset_and_halt(context->target)
-             .ok) {
+        !wchlink_target_ports_reset_and_halt(context->target).ok) {
         return wchlink_command_result(
             WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-            wchlink_wire_unsupported(response, response_capacity,
-                                     WCHLINK_FAMILY_RESET));
+            wchlink_wire_unsupported(response, response_capacity, WCHLINK_FAMILY_RESET));
     }
     return wchlink_command_result(
         WCHLINK_SESSION_COMMAND_COMPLETED,
@@ -387,16 +341,13 @@ static struct wchlink_session_command_result wchlink_connect_result(
     const struct wchlink_command_context *context,
     struct rvswd_target_result target_result, uint8_t *response,
     size_t response_capacity) {
-    struct rvswd_target_info info =
-        wchlink_target_ports_info(context->target);
+    struct rvswd_target_info info = wchlink_target_ports_info(context->target);
     bool connected = target_result.ok && info.connected;
 
     return wchlink_command_result(
         connected && info.family != 0u ? WCHLINK_SESSION_COMMAND_COMPLETED
                                        : WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-        wchlink_wire_connect_reply(
-            response, response_capacity, connected, target_result.code,
-            info.family, info.chip_id));
+        wchlink_wire_connect_reply(response, response_capacity, connected, target_result.code, info.family, info.chip_id));
 }
 
 static struct wchlink_session_command_result wchlink_handle_control(
@@ -413,26 +364,21 @@ static struct wchlink_session_command_result wchlink_handle_control(
         case WCHLINK_CONTROL_CONNECT:
             wchlink_command_reset(context);
             wchlink_command_target_init(context);
-            target_result =
-                wchlink_target_ports_connect(context->target);
-            return wchlink_connect_result(context, target_result, response,
-                                          response_capacity);
+            target_result = wchlink_target_ports_connect(context->target);
+            return wchlink_connect_result(context, target_result, response, response_capacity);
         case WCHLINK_CONTROL_STOP: {
-            bool return_ch5xx_info =
-                context->ch5xx_info_query_seen &&
-                wchlink_command_target_uses_ch5xx_loader(context);
+            bool return_ch5xx_info = context->ch5xx_info_query_seen &&
+                                     wchlink_command_target_uses_ch5xx_loader(context);
             struct wchlink_session_command_result result;
 
             wchlink_command_reset(context);
             if (return_ch5xx_info) {
                 // MRS 在 CH5xx 设置芯片阶段从 STOP 命令读取 20 字节目标信息
-                result = wchlink_handle_chip_info(context, response,
-                                                  response_capacity);
+                result = wchlink_handle_chip_info(context, response, response_capacity);
             } else {
                 result = wchlink_command_result(
                     WCHLINK_SESSION_COMMAND_COMPLETED,
-                    wchlink_wire_ack(response, response_capacity,
-                                     WCHLINK_FAMILY_CONTROL));
+                    wchlink_wire_ack(response, response_capacity, WCHLINK_FAMILY_CONTROL));
             }
             // STOP 已结束目标会话，USB 需为这次最终回复保留独立生命周期
             result.response_policy = WCHLINK_SESSION_RESPONSE_SESSION_END;
@@ -449,10 +395,8 @@ static struct wchlink_session_command_result wchlink_handle_control(
             // MRS 在设置两线速度后立即发起连接，目标调试模块需要短暂稳定时间
             bsp_delay_ms(20u);
             wchlink_command_target_init(context);
-            target_result =
-                wchlink_target_ports_connect(context->target);
-            return wchlink_connect_result(context, target_result, response,
-                                          response_capacity);
+            target_result = wchlink_target_ports_connect(context->target);
+            return wchlink_connect_result(context, target_result, response, response_capacity);
         case WCHLINK_CONTROL_SET_ROMRAM_OLD:
             return wchlink_handle_memory_type(
                 context, false, true, request, request_length, response,
@@ -467,52 +411,42 @@ static struct wchlink_session_command_result wchlink_handle_control(
                 response_capacity);
         case WCHLINK_CONTROL_CHECK_QE:
         case WCHLINK_CONTROL_ENABLE_QE:
-            return wchlink_handle_qe(request, request_length, response,
-                                     response_capacity);
+            return wchlink_handle_qe(request, request_length, response, response_capacity);
         case WCHLINK_CONTROL_CLEAR_CODE_FLASH:
         case WCHLINK_CONTROL_CLEAR_CODE_FLASH_B:
             if (request_length < 5u) {
                 return wchlink_command_result(
                     WCHLINK_SESSION_COMMAND_MALFORMED,
-                    wchlink_wire_unsupported(response, response_capacity,
-                                             WCHLINK_FAMILY_CONTROL));
+                    wchlink_wire_unsupported(response, response_capacity, WCHLINK_FAMILY_CONTROL));
             }
             target_result = rvswd_target_result_success();
             if (!wchlink_target_ports_is_connected(context->target)) {
                 // MRS 直接通过清擦除命令建立目标会话，末字节携带目标 family
-                wchlink_target_ports_set_family_hint(
-                    context->target, request[4]);
+                wchlink_target_ports_set_family_hint(context->target, request[4]);
                 wchlink_command_target_init(context);
-                target_result = wchlink_target_ports_connect(
-                    context->target);
+                target_result = wchlink_target_ports_connect(context->target);
             }
             if (target_result.ok &&
                 wchlink_target_ports_is_connected(context->target)) {
-                target_result = wchlink_target_ports_flash_erase_all(
-                    context->target);
+                target_result = wchlink_target_ports_flash_erase_all(context->target);
             }
             if (!target_result.ok ||
                 !wchlink_target_ports_is_connected(context->target)) {
                 return wchlink_command_result(
                     WCHLINK_SESSION_COMMAND_TARGET_FAILED,
-                    wchlink_wire_target_error(response, response_capacity,
-                                              target_result.code));
+                    wchlink_wire_target_error(response, response_capacity, target_result.code));
             }
             wchlink_transfer_clear_operation(context->transfer);
             // MRS 的全擦命令要求回显原子命令
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_COMPLETED,
-                wchlink_wire_command_reply(
-                    response, response_capacity, WCHLINK_FAMILY_CONTROL,
-                    request[3]));
+                wchlink_wire_command_reply(response, response_capacity, WCHLINK_FAMILY_CONTROL, request[3]));
         case WCHLINK_CONTROL_POWER_3V3_ON:
         case WCHLINK_CONTROL_POWER_5V_ON:
             drv_power_switch_set_enabled(true);
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_COMPLETED,
-                wchlink_wire_command_reply(
-                    response, response_capacity, WCHLINK_FAMILY_CONTROL,
-                    request[3]));
+                wchlink_wire_command_reply(response, response_capacity, WCHLINK_FAMILY_CONTROL, request[3]));
         case WCHLINK_CONTROL_POWER_3V3_OFF:
         case WCHLINK_CONTROL_POWER_5V_OFF:
             wchlink_transfer_invalidate_cache(context->transfer);
@@ -520,16 +454,13 @@ static struct wchlink_session_command_result wchlink_handle_control(
             drv_power_switch_set_enabled(false);
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_COMPLETED,
-                wchlink_wire_command_reply(
-                    response, response_capacity, WCHLINK_FAMILY_CONTROL,
-                    request[3]));
+                wchlink_wire_command_reply(response, response_capacity, WCHLINK_FAMILY_CONTROL, request[3]));
         case WCHLINK_CONTROL_HOLD:
         case WCHLINK_CONTROL_RESET_LOW:
         default:
             return wchlink_command_result(
                 WCHLINK_SESSION_COMMAND_COMPLETED,
-                wchlink_wire_ack(response, response_capacity,
-                                 WCHLINK_FAMILY_CONTROL));
+                wchlink_wire_ack(response, response_capacity, WCHLINK_FAMILY_CONTROL));
     }
 }
 
@@ -539,25 +470,20 @@ struct wchlink_session_command_result wchlink_command_handle_target(
     switch (request[1]) {
         case WCHLINK_FAMILY_DMI:
             if (request_length >= 9u) {
-                return wchlink_handle_dmi(context, request, response,
-                                          response_capacity);
+                return wchlink_handle_dmi(context, request, response, response_capacity);
             }
             break;
         case WCHLINK_FAMILY_CONFIG:
-            return wchlink_handle_config(context, request, request_length,
-                                         response, response_capacity);
+            return wchlink_handle_config(context, request, request_length, response, response_capacity);
         case WCHLINK_FAMILY_INFO:
             return wchlink_handle_info(context, response, response_capacity);
         case WCHLINK_FAMILY_SPEED:
-            return wchlink_handle_speed(context, request, request_length,
-                                        response, response_capacity);
+            return wchlink_handle_speed(context, request, request_length, response, response_capacity);
         case WCHLINK_FAMILY_RESET:
-            return wchlink_handle_reset(context, request, request_length,
-                                        response, response_capacity);
+            return wchlink_handle_reset(context, request, request_length, response, response_capacity);
         case WCHLINK_FAMILY_CONTROL:
             if (request_length >= 4u) {
-                return wchlink_handle_control(context, request, request_length,
-                                              response, response_capacity);
+                return wchlink_handle_control(context, request, request_length, response, response_capacity);
             }
             break;
         default:

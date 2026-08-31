@@ -3,8 +3,8 @@
 #include "bsp/bsp_delay.h"
 #include "bsp/bsp_system.h"
 #include "bsp/bsp_uid.h"
-#include "wchlink/session/wchlink_session.h"
 #include "status/status_led.h"
+#include "wchlink/session/wchlink_session.h"
 
 #include <stdbool.h>
 #include <string.h>

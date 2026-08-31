@@ -2,8 +2,7 @@
 
 #include <stddef.h>
 
-void rvswd_operation_init(struct rvswd_operation *operation,
-                          struct rvswd_transport *transport) {
+void rvswd_operation_init(struct rvswd_operation *operation, struct rvswd_transport *transport) {
     if (operation == NULL) {
         return;
     }
@@ -41,8 +40,7 @@ struct rvswd_transport_result rvswd_operation_write_dmi(
         operation, rvswd_transport_write(operation->transport, address, value));
 }
 
-void rvswd_operation_cleanup_write_dmi(struct rvswd_operation *operation,
-                                       uint8_t address, uint32_t value) {
+void rvswd_operation_cleanup_write_dmi(struct rvswd_operation *operation, uint8_t address, uint32_t value) {
     if (operation == NULL || operation->transport == NULL) {
         return;
     }

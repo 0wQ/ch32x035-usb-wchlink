@@ -7,6 +7,30 @@ add_rules("mode.debug", "mode.release")
 add_rules("plugin.compile_commands.autoupdate", {outputdir = ".vscode"})
 includes("toolchains/wch-riscv/xmake.lua")
 
+-- 解析 Berkeley size 输出，提取 text/data/bss
+local function parse_berkeley_size(size_output)
+    for line in size_output:gmatch("[^\r\n]+") do
+        local text, data, bss = line:match("^%s*(%d+)%s+(%d+)%s+(%d+)%s+%d+%s+%x+%s+")
+        if text and data and bss then
+            return {
+                text = tonumber(text),
+                data = tonumber(data),
+                bss = tonumber(bss)
+            }
+        end
+    end
+    raise("failed to parse berkeley size output")
+end
+
+-- Flash = text + data, RAM = data + bss
+local function print_memory_summary(size_info)
+    local flash_used = size_info.text + size_info.data
+    local ram_used = size_info.data + size_info.bss
+    local function fmt(b) if b >= 1024 then return string.format("%.2f KiB (%d bytes)", b / 1024.0, b) end; return string.format("%d bytes", b) end
+    print(string.format("Flash used: %s", fmt(flash_used)))
+    print(string.format("RAM   used: %s", fmt(ram_used)))
+end
+
 local arch_flags = {"-march=rv32imacxw", "-mabi=ilp32", "-msmall-data-limit=8", "-mno-save-restore"}
 
 target("firmware")
@@ -40,8 +64,38 @@ target("firmware")
         add_ldflags("-flto", {force = true})
     end
 
+    before_build(function (target)
+        -- 构建前打印工具链和 SDK
+        local toolchain = assert(target:toolchain("wch-riscv"))
+        local toolchain_root = toolchain:get("toolchain_root")
+        cprint("${cyan}Using mode:${clear} %s", get_config("mode") or "debug")
+        cprint("${cyan}Using toolchain:${clear} %s", toolchain_root)
+        cprint("${cyan}Using SDK:${clear} sdk/")
+    end)
+
+    before_link(function (target)
+        -- map 文件跟随输出目录生成
+        local mapfile = path.join(target:targetdir(), target:basename() .. ".map")
+        target:add("ldflags", "-Wl,-Map=" .. mapfile, {force = true})
+    end)
+
     after_build(function (target)
         local toolchain = assert(target:toolchain("wch-riscv"))
-        local objcopy = toolchain:get("gcc_prefix") .. "objcopy"
-        os.execv(objcopy, {"-O", "binary", target:targetfile(), path.join(target:targetdir(), "firmware.bin")})
+        local gcc_prefix = toolchain:get("gcc_prefix")
+        local objcopy = gcc_prefix .. "objcopy"
+        local size = gcc_prefix .. "size"
+        local strip = gcc_prefix .. "strip"
+        local targetfile = target:targetfile()
+        local bindir = path.directory(targetfile)
+
+        os.execv(objcopy, {"-O", "binary", targetfile, path.join(bindir, "firmware.bin")})
+
+        print(os.iorunv(size, {"--format=sysv", targetfile}))
+        print_memory_summary(parse_berkeley_size(os.iorunv(size, {"--format=berkeley", targetfile})))
+    end)
+
+    after_clean(function (target)
+        local bindir = target:targetdir()
+        os.rm(path.join(bindir, "firmware.bin"))
+        os.rm(path.join(bindir, target:basename() .. ".map"))
     end)

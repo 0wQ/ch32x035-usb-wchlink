@@ -87,14 +87,26 @@ static inline __attribute__((always_inline)) void rvswd_phy_fast_sample_settle(v
                    "nop\n");
 }
 
+static inline __attribute__((always_inline)) void rvswd_phy_slow_sample_half_period(void) {
+    // 慢档目标响应按官方长帧抓包校准为约 2.1 us 的上升沿间隔
+    __asm volatile(".rept 30\n"
+                   "nop\n"
+                   ".endr\n");
+}
+
+static inline __attribute__((always_inline)) void rvswd_phy_start_half_period(void) {
+    // 起始序列按官方抓包保持约 1 us 的 SWDIO 高电平窗口
+    __asm volatile(".rept 16\n"
+                   "nop\n"
+                   ".endr\n");
+}
+
 static inline __attribute__((always_inline)) void rvswd_phy_half_period(bool fast_timing) {
     if (fast_timing) {
         rvswd_phy_fast_high_period();
         return;
     }
-    __asm volatile(".rept 16\n"
-                   "nop\n"
-                   ".endr\n");
+    rvswd_phy_slow_sample_half_period();
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_clock_low(void) {
@@ -118,7 +130,7 @@ static inline __attribute__((always_inline)) void rvswd_phy_sample_settle(bool f
     if (fast_timing) {
         rvswd_phy_fast_sample_settle();
     } else {
-        rvswd_phy_half_period(false);
+        rvswd_phy_slow_sample_half_period();
     }
 }
 
@@ -163,8 +175,9 @@ void rvswd_phy_gpio_start(bool fast_timing) {
     rvswd_phy_gpio_config_data_output();
     rvswd_phy_clock_high();
     rvswd_phy_data_high();
+    rvswd_phy_start_half_period();
     rvswd_phy_data_low();
-    rvswd_phy_high_period(fast_timing);
+    rvswd_phy_start_half_period();
 }
 
 void rvswd_phy_gpio_stop(bool fast_timing) {

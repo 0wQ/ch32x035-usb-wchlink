@@ -244,12 +244,16 @@ static bool rvswd_target_connect_transport(
     if (ports->module == NULL) {
         // wlink status 使用通用 RISC-V 值 1，未知 family 按官方 LinkE 序列自动识别
         // CH58X 冷启动时 202 个探测帧只返回 BUSY，不能用成功签名决定是否尝试 long mode
+        // 每次会话开始先复位两线接口状态，清除上一次连接遗留的 DTM 管线
+        rvswd_transport_wakeup(transport, true);
+        rvswd_transport_wakeup(transport, false);
         for (uint8_t cycle = 0u;
              cycle < rvswd_target_connect_long_probe_cycle_count; ++cycle) {
             rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
-            // 官方 LinkE 的 202 个长帧使用相同的主机请求，首帧也必须保持写操作奇偶校验
+            // 官方 LinkE 首帧是特殊连接帧（op=0, data=0x19），随后 201 帧为轮询帧（op=1, data=0）
+            // host parity 是 operation 字段的奇偶校验位：op=0 时 parity=0，op=1 时 parity=1
             (void)rvswd_transport_probe_long(
-                transport, 1u, RVSWD_DMI_STATUS, 0u, 1u);
+                transport, 0u, RVSWD_DMI_STATUS, 0x19u, 0u);
             for (uint16_t probe = 0u; probe < 201u; ++probe) {
                 (void)rvswd_transport_probe_long(
                     transport, 1u, RVSWD_DMI_STATUS, 0u, 1u);

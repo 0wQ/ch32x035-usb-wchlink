@@ -4,15 +4,13 @@
 
 #include <ch32x035.h>
 
-// PA2 驱动 SWCLK，PA3 双向承载 SWDIO，PA1 通过 5.1 kOhm 外部电阻控制上拉
+// PA2 驱动 SWCLK，PA3 双向承载 SWDIO
 static const uint32_t rvswd_phy_clock_pin = GPIO_Pin_2;
 static const uint32_t rvswd_phy_data_pin = GPIO_Pin_3;
-static const uint32_t rvswd_phy_data_pullup_pin = GPIO_Pin_1;
 static const uint8_t rvswd_phy_clock_cfg_shift = 8u;
 static const uint8_t rvswd_phy_data_cfg_shift = 12u;
-static const uint8_t rvswd_phy_data_pullup_cfg_shift = 4u;
 static const uint32_t rvswd_phy_clock_mode_output_50mhz = 0x03u;
-static const uint32_t rvswd_phy_pins = GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_3;
+static const uint32_t rvswd_phy_pins = GPIO_Pin_2 | GPIO_Pin_3;
 static const uint8_t rvswd_phy_wakeup_clocks = 100u;
 
 // RVSWD 位时序相关函数统一放入 RAM，避免执行期间受到 Flash 等待周期影响
@@ -26,30 +24,60 @@ __attribute__((section(".highcode"))) void rvswd_phy_gpio_drive_value(bool fast_
 __attribute__((section(".highcode"))) uint32_t rvswd_phy_gpio_sample_value(bool fast_timing, uint8_t bit_count);
 __attribute__((section(".highcode"))) void rvswd_phy_gpio_wakeup(bool fast_timing, bool stop_condition);
 
-static inline __attribute__((always_inline)) void rvswd_phy_half_period(
-    bool fast_timing) {
+static inline __attribute__((always_inline)) void rvswd_phy_fast_half_period(void) {
+    // GPIO 写入和循环控制已经占用多个时钟周期，保留 8 个 NOP 限制快档边沿间距
+    __asm volatile("nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n");
+}
+
+static inline __attribute__((always_inline)) void rvswd_phy_fast_sample_settle(void) {
+    // 目标回复在 SWCLK 上升沿后才稳定，保持实板验证通过的 16 个 NOP 采样延迟
+    __asm volatile("nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n"
+                   "nop\n");
+}
+
+static inline __attribute__((always_inline)) void rvswd_phy_half_period(bool fast_timing) {
     if (fast_timing) {
-        // 快时序目标由 GPIO 写入间隔形成半周期
-        __asm volatile("");
-    } else {
-        __asm volatile(
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n"
-            "nop\n");
+        rvswd_phy_fast_half_period();
+        return;
     }
+    __asm volatile(
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n");
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_clock_low(void) {
@@ -68,20 +96,23 @@ static inline __attribute__((always_inline)) void rvswd_phy_data_high(void) {
     GPIOA->BSHR = rvswd_phy_data_pin;
 }
 
-static inline __attribute__((always_inline)) void rvswd_phy_fast_half_period(void) {
-    // RAM 执行不再依赖 Flash 取指等待，使用固定 NOP 保持快档半周期
-    __asm volatile("nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n");
+static inline __attribute__((always_inline)) void rvswd_phy_sample_settle(bool fast_timing) {
+    // 目标释放 SWDIO 后由内部上拉恢复高电平，采样点放在高相位中部避免读取到前一位
+    if (fast_timing) {
+        rvswd_phy_fast_sample_settle();
+    } else {
+        rvswd_phy_half_period(false);
+    }
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_drive_bit_fast(uint8_t value) {
-    GPIOA->BSHR = (rvswd_phy_clock_pin << 16u) | (value != 0u ? rvswd_phy_data_pin : (rvswd_phy_data_pin << 16u));
+    // 数据在时钟下降沿后单独更新，为目标保留明确的数据建立窗口
+    GPIOA->BSHR = rvswd_phy_clock_pin << 16u;
+    if (value != 0u) {
+        rvswd_phy_data_high();
+    } else {
+        rvswd_phy_data_low();
+    }
     rvswd_phy_fast_half_period();
     GPIOA->BSHR = rvswd_phy_clock_pin;
     rvswd_phy_fast_half_period();
@@ -93,7 +124,7 @@ static inline __attribute__((always_inline)) uint8_t rvswd_phy_sample_bit_fast(v
     GPIOA->BSHR = rvswd_phy_clock_pin << 16u;
     rvswd_phy_fast_half_period();
     GPIOA->BSHR = rvswd_phy_clock_pin;
-    rvswd_phy_fast_half_period();
+    rvswd_phy_sample_settle(true);
     value = (GPIOA->INDR & rvswd_phy_data_pin) != 0u ? 1u : 0u;
     rvswd_phy_fast_half_period();
     return value;
@@ -105,7 +136,7 @@ void rvswd_phy_gpio_config_data_output(void) {
 }
 
 void rvswd_phy_gpio_config_data_input(void) {
-    // turnaround 开始前将锁存置高，释放 PA3 SWDIO，PA1 通过外部电阻提供上拉
+    // turnaround 开始前将锁存置高，释放 PA3 SWDIO，由 PA3 内部上拉保持空闲电平
     GPIOA->BSHR = rvswd_phy_data_pin;
     GPIOA->CFGLR = (GPIOA->CFGLR & ~(0xfu << rvswd_phy_data_cfg_shift)) |
                    (0x08u << rvswd_phy_data_cfg_shift);
@@ -152,7 +183,7 @@ static inline __attribute__((always_inline)) uint8_t rvswd_phy_sample_bit(bool f
     rvswd_phy_clock_low();
     rvswd_phy_half_period(fast_timing);
     rvswd_phy_clock_high();
-    // 上升沿后立即读取目标驱动的 SWDIO 电平
+    rvswd_phy_sample_settle(fast_timing);
     value = (GPIOA->INDR & rvswd_phy_data_pin) != 0u ? 1u : 0u;
     rvswd_phy_half_period(fast_timing);
     return value;
@@ -207,16 +238,30 @@ void rvswd_phy_gpio_sample_range(bool fast_timing, uint8_t *frame,
 }
 
 void rvswd_phy_gpio_drive_value(bool fast_timing, uint32_t value, uint8_t bit_count) {
+    if (fast_timing) {
+        // 在循环外选择快路径，避免每一位重复判断时序档位
+        for (uint8_t bit = bit_count; bit > 0u; --bit) {
+            rvswd_phy_drive_bit_fast((uint8_t)((value >> (bit - 1u)) & 1u));
+        }
+        return;
+    }
     for (uint8_t bit = bit_count; bit > 0u; --bit) {
-        rvswd_phy_drive_bit(fast_timing, (uint8_t)((value >> (bit - 1u)) & 1u));
+        rvswd_phy_drive_bit(false, (uint8_t)((value >> (bit - 1u)) & 1u));
     }
 }
 
 uint32_t rvswd_phy_gpio_sample_value(bool fast_timing, uint8_t bit_count) {
     uint32_t value = 0u;
 
+    if (fast_timing) {
+        // 长帧读取沿用短帧快路径的采样窗口，并消除逐位档位判断
+        for (uint8_t bit = 0u; bit < bit_count; ++bit) {
+            value = (value << 1u) | rvswd_phy_sample_bit_fast();
+        }
+        return value;
+    }
     for (uint8_t bit = 0u; bit < bit_count; ++bit) {
-        value = (value << 1u) | rvswd_phy_sample_bit(fast_timing);
+        value = (value << 1u) | rvswd_phy_sample_bit(false);
     }
     return value;
 }
@@ -240,23 +285,18 @@ void rvswd_phy_gpio_wakeup(bool fast_timing, bool stop_condition) {
 
 void rvswd_phy_gpio_init(void) {
     RCC->APB2PCENR |= RCC_APB2Periph_GPIOA;
-    // PA1 通过 5.1 kOhm 外部电阻给 PA3 SWDIO 提供上拉，首帧前保持高电平
-    GPIOA->BSHR = rvswd_phy_data_pullup_pin | rvswd_phy_clock_pin | rvswd_phy_data_pin;
+    GPIOA->BSHR = rvswd_phy_clock_pin | rvswd_phy_data_pin;
     GPIOA->CFGLR = (GPIOA->CFGLR & ~((0xfu << rvswd_phy_data_cfg_shift) |
-                                     (0xfu << rvswd_phy_clock_cfg_shift) |
-                                     (0xfu << rvswd_phy_data_pullup_cfg_shift))) |
+                                     (0xfu << rvswd_phy_clock_cfg_shift))) |
                    (0x08u << rvswd_phy_data_cfg_shift) |
-                   (rvswd_phy_clock_mode_output_50mhz << rvswd_phy_clock_cfg_shift) |
-                   (0x01u << rvswd_phy_data_pullup_cfg_shift);
+                   (rvswd_phy_clock_mode_output_50mhz << rvswd_phy_clock_cfg_shift);
 }
 
 void rvswd_phy_gpio_disconnect(void) {
     GPIOA->BSHR = rvswd_phy_pins;
-    // 会话结束后释放 PA1 上拉控制和两根调试线，目标断电时禁止经 IO 反向供电
+    // 会话结束后释放两根调试线，目标断电时禁止经 IO 反向供电
     GPIOA->CFGLR = (GPIOA->CFGLR & ~((0xfu << rvswd_phy_data_cfg_shift) |
-                                     (0xfu << rvswd_phy_clock_cfg_shift) |
-                                     (0xfu << rvswd_phy_data_pullup_cfg_shift))) |
+                                     (0xfu << rvswd_phy_clock_cfg_shift))) |
                    (0x04u << rvswd_phy_data_cfg_shift) |
-                   (0x04u << rvswd_phy_clock_cfg_shift) |
-                   (0x04u << rvswd_phy_data_pullup_cfg_shift);
+                   (0x04u << rvswd_phy_clock_cfg_shift);
 }

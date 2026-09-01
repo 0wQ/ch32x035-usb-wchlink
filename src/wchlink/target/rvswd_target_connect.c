@@ -14,7 +14,6 @@
 // 连接实现封装唤醒、Debug Module 解锁、halt 和身份探测
 // 所有 helper 保持文件私有，调用者只观察 target ports 的连接结果
 static const uint32_t rvswd_debug_unlock = 0x5aa50400u;
-static const uint8_t rvswd_long_status_ok = 0u;
 
 static void rvswd_target_connect_reset_identity(
     struct wchlink_target_ports *ports) {
@@ -237,34 +236,21 @@ static bool rvswd_target_connect_transport(
 
     rvswd_transport_set_fast_timing(transport, false);
     if (ports->module == NULL) {
-        struct rvswd_transport_probe_result probe_result;
-        uint16_t long_signature_count = 0u;
-
         // wlink status 使用通用 RISC-V 值 1，未知 family 按官方 LinkE 序列自动识别
-        // 自动识别先发送一个探测帧和 201 个轮询帧，再回到 short frame 连接 CH32
+        // CH58X 冷启动时 202 个探测帧只返回 BUSY，不能用成功签名决定是否尝试 long mode
         rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
         // V30X 的长帧把 host parity 设为 operation 的奇偶校验位，CH58X/CH59X 长帧则固定为 0
         (void)rvswd_transport_probe_long(transport, 0u, RVSWD_DMI_STATUS, 0x19u, 0u);
         for (uint16_t probe = 0u; probe < 201u; ++probe) {
-            probe_result = rvswd_transport_probe_long(transport, 1u, RVSWD_DMI_STATUS, 0u, 1u);
-            if (probe_result.address == RVSWD_DMI_STATUS &&
-                probe_result.status == rvswd_long_status_ok &&
-                (probe_result.value & 0x0fu) == 2u) {
-                ++long_signature_count;
-            }
+            (void)rvswd_transport_probe_long(transport, 1u, RVSWD_DMI_STATUS, 0u, 1u);
+        }
+        // 已知 CH58X 路径可从冷启动直接建立 long-mode 连接，失败后再探测 short-mode 目标
+        if (rvswd_target_connect_known_mode(ports, operation)) {
+            return true;
         }
         rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_SHORT);
         if (rvswd_target_connect_short_autodetect(ports, operation)) {
             return true;
-        }
-        if (long_signature_count >= 8u) {
-            uint8_t short_error = ports->connect_error;
-
-            rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
-            if (rvswd_target_connect_known_mode(ports, operation)) {
-                return true;
-            }
-            ports->connect_error = short_error;
         }
         return false;
     }

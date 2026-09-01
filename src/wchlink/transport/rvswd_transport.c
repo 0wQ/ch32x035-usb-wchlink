@@ -33,35 +33,31 @@ void rvswd_transport_disconnect(struct rvswd_transport *transport) {
     rvswd_phy_gpio_disconnect();
 }
 
-void rvswd_transport_set_packet_mode(struct rvswd_transport *transport,
-                                     enum rvswd_packet_mode mode) {
+void rvswd_transport_set_packet_mode(struct rvswd_transport *transport, enum rvswd_packet_mode mode) {
     if (transport != NULL) {
         transport->packet_mode = mode;
     }
 }
 
-enum rvswd_packet_mode rvswd_transport_packet_mode(
-    const struct rvswd_transport *transport) {
+enum rvswd_packet_mode rvswd_transport_packet_mode(const struct rvswd_transport *transport) {
     return transport == NULL ? RVSWD_PACKET_SHORT : transport->packet_mode;
 }
 
-void rvswd_transport_set_fast_timing(struct rvswd_transport *transport,
-                                     bool enabled) {
+void rvswd_transport_set_fast_timing(struct rvswd_transport *transport, bool enabled) {
     if (transport != NULL) {
         transport->fast_timing = enabled;
     }
 }
 
-void rvswd_transport_wakeup(struct rvswd_transport *transport,
-                            bool stop_condition) {
+void rvswd_transport_wakeup(struct rvswd_transport *transport, bool stop_condition) {
     if (transport != NULL) {
         rvswd_phy_gpio_wakeup(transport->fast_timing, stop_condition);
         bsp_delay_us(rvswd_transport_interframe_guard_us);
     }
 }
 
-struct rvswd_transport_probe_result rvswd_transport_probe_long(
-    struct rvswd_transport *transport, uint8_t operation, uint8_t address,
+struct rvswd_transport_probe_result rvswd_transport_probe_long(struct rvswd_transport *transport,
+                                                               uint8_t operation, uint8_t address,
     uint32_t value, uint8_t host_parity) {
     struct rvswd_transport_probe_result result = {0};
 
@@ -76,11 +72,9 @@ struct rvswd_transport_probe_result rvswd_transport_probe_long(
     rvswd_phy_gpio_drive_value(transport->fast_timing, operation, 2u);
     rvswd_phy_gpio_drive_value(transport->fast_timing, host_parity, 1u);
     rvswd_phy_gpio_config_data_input();
-    result.address = (uint8_t)
-        rvswd_phy_gpio_sample_value(transport->fast_timing, 7u);
+    result.address = (uint8_t)rvswd_phy_gpio_sample_value(transport->fast_timing, 7u);
     result.value = rvswd_phy_gpio_sample_value(transport->fast_timing, 32u);
-    result.status = (uint8_t)
-        rvswd_phy_gpio_sample_value(transport->fast_timing, 2u);
+    result.status = (uint8_t)rvswd_phy_gpio_sample_value(transport->fast_timing, 2u);
     (void)rvswd_phy_gpio_sample_value(transport->fast_timing, 1u);
     rvswd_phy_gpio_config_data_output();
     rvswd_phy_gpio_stop(transport->fast_timing);
@@ -91,8 +85,7 @@ struct rvswd_transport_probe_result rvswd_transport_probe_long(
 }
 
 static bool rvswd_transport_transaction(struct rvswd_transport *transport,
-                                        const uint8_t *host, uint8_t *target,
-                                        bool read) {
+                                        const uint8_t *host, uint8_t *target, bool read) {
     __disable_irq();
     rvswd_phy_gpio_start(transport->fast_timing);
     rvswd_phy_gpio_drive_range(transport->fast_timing, host, 0u, 9u);
@@ -127,8 +120,7 @@ struct rvswd_transport_result rvswd_transport_write(
     }
     if (rvswd_transport_packet_mode(transport) == RVSWD_PACKET_LONG) {
         for (uint8_t retry = 0u; retry < rvswd_transport_write_retry_count; ++retry) {
-            struct rvswd_transport_probe_result probe =
-                rvswd_transport_probe_long(transport, 2u, address, value, 0u);
+            struct rvswd_transport_probe_result probe = rvswd_transport_probe_long(transport, 2u, address, value, 0u);
 
             result.status = probe.status;
             if (probe.status == rvswd_transport_long_status_ok) {
@@ -185,8 +177,7 @@ struct rvswd_transport_result rvswd_transport_read(
     }
     if (rvswd_transport_packet_mode(transport) == RVSWD_PACKET_LONG) {
         for (uint8_t retry = 0u; retry < rvswd_transport_read_retry_count; ++retry) {
-            struct rvswd_transport_probe_result probe =
-                rvswd_transport_probe_long(transport, 1u, address, 0u, 0u);
+            struct rvswd_transport_probe_result probe = rvswd_transport_probe_long(transport, 1u, address, 0u, 0u);
 
             result.status = probe.status;
             if (probe.status == rvswd_transport_long_status_ok) {
@@ -225,8 +216,7 @@ struct rvswd_transport_result rvswd_transport_read(
             continue;
         }
         result.value = rvswd_frame_unpack_data(target);
-        if (rvswd_frame_get_bit(target, 46u) !=
-            rvswd_frame_xor_bits(result.value)) {
+        if (rvswd_frame_get_bit(target, 46u) != rvswd_frame_xor_bits(result.value)) {
             result.retryable = true;
             bsp_delay_us(rvswd_transport_error_delay_us);
             continue;

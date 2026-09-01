@@ -6,6 +6,7 @@
 #include "drv/drv_ws2816c.h"
 #include "status/status_led.h"
 #include "wchlink/usb/wchlink_usb.h"
+#include "wchlink/transport/rvswd_phy_gpio.h"
 
 #include <ch32x035_misc.h>
 #include <system_ch32x035.h>
@@ -68,6 +69,7 @@ int main(void) {
     drv_button_init();
     bsp_delay_init();
     bsp_delay_ms(10u);
+    rvswd_phy_gpio_init();
     drv_power_switch_set_enabled(true);
     wchlink_usb_init();
     drv_ws2816c_init();

@@ -14,6 +14,9 @@
 // 连接实现封装唤醒、Debug Module 解锁、halt 和身份探测
 // 所有 helper 保持文件私有，调用者只观察 target ports 的连接结果
 static const uint32_t rvswd_debug_unlock = 0x5aa50400u;
+static const uint8_t rvswd_target_connect_short_probe_count = 20u;
+static const uint8_t rvswd_target_connect_long_probe_cycle_count = 4u;
+static const uint32_t rvswd_target_connect_probe_interval_us = 1000u;
 
 static void rvswd_target_connect_reset_identity(
     struct wchlink_target_ports *ports) {
@@ -169,26 +172,29 @@ static bool rvswd_target_connect_short_autodetect(
     ports->connect_error = 0u;
     rvswd_target_connect_reset_identity(ports);
 
-    for (uint8_t attempt = 0u; attempt < 3u; ++attempt) {
+    for (uint8_t attempt = 0u;
+         attempt < rvswd_target_connect_short_probe_count; ++attempt) {
         uint32_t dmstatus;
         uint64_t halt_start;
         bool halted = false;
         struct rvswd_transport_result read_result;
 
-        // 官方 V307 抓包中最后一个 long STOP 到首个 short START 约为 212 us
-        bsp_delay_us(200u);
-        // 初始化帧的即时状态属于 DMI 管线，继续发送官方序列并以最终 halt 状态验收
-        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_SHADOW, rvswd_debug_unlock).ok) {
-            ports->connect_error = 0xa1u;
-            continue;
-        }
-        if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_WCH_CONFIG, rvswd_debug_unlock).ok) {
-            ports->connect_error = 0xa2u;
-            continue;
-        }
-        read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_STATUS);
+        // 官方抓包中最后一个 long STOP 到首个 short START 约为 212 us
+        bsp_delay_us(600u);
+        // BUSY 是当前管线结果，三笔不同地址请求必须连续推进，不能在 transport 内重发
+        (void)rvswd_transport_probe_short(
+            &ports->transport, false, RVSWD_DMI_WCH_SHADOW,
+            rvswd_debug_unlock);
+        (void)rvswd_transport_probe_short(
+            &ports->transport, false, RVSWD_DMI_WCH_CONFIG,
+            rvswd_debug_unlock);
+        read_result = rvswd_transport_probe_short(
+            &ports->transport, true, RVSWD_DMI_STATUS, 0u);
         if (!read_result.ok) {
             ports->connect_error = 0xa3u;
+            if (attempt + 1u < rvswd_target_connect_short_probe_count) {
+                bsp_delay_us(rvswd_target_connect_probe_interval_us);
+            }
             continue;
         }
         dmstatus = read_result.value;
@@ -238,21 +244,28 @@ static bool rvswd_target_connect_transport(
     if (ports->module == NULL) {
         // wlink status 使用通用 RISC-V 值 1，未知 family 按官方 LinkE 序列自动识别
         // CH58X 冷启动时 202 个探测帧只返回 BUSY，不能用成功签名决定是否尝试 long mode
+        for (uint8_t cycle = 0u;
+             cycle < rvswd_target_connect_long_probe_cycle_count; ++cycle) {
+            rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
+            // 官方 LinkE 的 202 个长帧使用相同的主机请求，首帧也必须保持写操作奇偶校验
+            (void)rvswd_transport_probe_long(
+                transport, 1u, RVSWD_DMI_STATUS, 0u, 1u);
+            for (uint16_t probe = 0u; probe < 201u; ++probe) {
+                (void)rvswd_transport_probe_long(
+                    transport, 1u, RVSWD_DMI_STATUS, 0u, 1u);
+            }
+            rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_SHORT);
+            if (rvswd_target_connect_short_autodetect(ports, operation)) {
+                return true;
+            }
+            // 官方无目标抓包在每组短帧后约等待 1 ms，再开始下一组 long 探测
+            if (cycle + 1u < rvswd_target_connect_long_probe_cycle_count) {
+                bsp_delay_us(rvswd_target_connect_probe_interval_us);
+            }
+        }
+        // 自动探测失败后仍保留已知 long-mode 目标的连接路径
         rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);
-        // V30X 的长帧把 host parity 设为 operation 的奇偶校验位，CH58X/CH59X 长帧则固定为 0
-        (void)rvswd_transport_probe_long(transport, 0u, RVSWD_DMI_STATUS, 0x19u, 0u);
-        for (uint16_t probe = 0u; probe < 201u; ++probe) {
-            (void)rvswd_transport_probe_long(transport, 1u, RVSWD_DMI_STATUS, 0u, 1u);
-        }
-        // 已知 CH58X 路径可从冷启动直接建立 long-mode 连接，失败后再探测 short-mode 目标
-        if (rvswd_target_connect_known_mode(ports, operation)) {
-            return true;
-        }
-        rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_SHORT);
-        if (rvswd_target_connect_short_autodetect(ports, operation)) {
-            return true;
-        }
-        return false;
+        return rvswd_target_connect_known_mode(ports, operation);
     }
     return rvswd_target_connect_known_mode(ports, operation);
 }

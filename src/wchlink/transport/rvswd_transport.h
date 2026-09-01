@@ -62,19 +62,13 @@ struct rvswd_transport_result {
 
 void rvswd_transport_init(struct rvswd_transport *transport);
 void rvswd_transport_disconnect(struct rvswd_transport *transport);
-void rvswd_transport_set_packet_mode(struct rvswd_transport *transport,
-                                     enum rvswd_packet_mode mode);
-enum rvswd_packet_mode rvswd_transport_packet_mode(
-    const struct rvswd_transport *transport);
-void rvswd_transport_set_fast_timing(struct rvswd_transport *transport,
-                                     bool enabled);
-void rvswd_transport_wakeup(struct rvswd_transport *transport,
-                            bool stop_condition);
+void rvswd_transport_set_packet_mode(struct rvswd_transport *transport, enum rvswd_packet_mode mode);
+enum rvswd_packet_mode rvswd_transport_packet_mode(const struct rvswd_transport *transport);
+void rvswd_transport_set_fast_timing(struct rvswd_transport *transport, bool enabled);
+void rvswd_transport_wakeup(struct rvswd_transport *transport, bool stop_condition);
 
-struct rvswd_transport_result rvswd_transport_read(
-    struct rvswd_transport *transport, uint8_t address);
-struct rvswd_transport_result rvswd_transport_write(
-    struct rvswd_transport *transport, uint8_t address, uint32_t value);
-struct rvswd_transport_probe_result rvswd_transport_probe_long(
-    struct rvswd_transport *transport, uint8_t operation, uint8_t address,
-    uint32_t value, uint8_t host_parity);
+struct rvswd_transport_result rvswd_transport_read(struct rvswd_transport *transport, uint8_t address);
+struct rvswd_transport_result rvswd_transport_write(struct rvswd_transport *transport, uint8_t address, uint32_t value);
+// 执行一次短帧交换并返回原始状态，连接探测使用该接口推进 DMI 管线
+struct rvswd_transport_result rvswd_transport_probe_short(struct rvswd_transport *transport, bool read, uint8_t address, uint32_t value);
+struct rvswd_transport_probe_result rvswd_transport_probe_long(struct rvswd_transport *transport, uint8_t operation, uint8_t address, uint32_t value, uint8_t host_parity);

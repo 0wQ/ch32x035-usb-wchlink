@@ -24,16 +24,47 @@ __attribute__((section(".highcode"))) void rvswd_phy_gpio_drive_value(bool fast_
 __attribute__((section(".highcode"))) uint32_t rvswd_phy_gpio_sample_value(bool fast_timing, uint8_t bit_count);
 __attribute__((section(".highcode"))) void rvswd_phy_gpio_wakeup(bool fast_timing, bool stop_condition);
 
-static inline __attribute__((always_inline)) void rvswd_phy_fast_half_period(void) {
-    // GPIO 写入和循环控制已经占用多个时钟周期，保留 8 个 NOP 限制快档边沿间距
-    __asm volatile("nop\n"
+static inline __attribute__((always_inline)) void rvswd_phy_fast_low_period(void) {
+    // 快档保留低相位约为高相位两倍，避免速度切换改变时钟方向
+    __asm volatile(".rept 16\n"
                    "nop\n"
+                   ".endr\n");
+}
+
+static inline __attribute__((always_inline)) void rvswd_phy_fast_high_period(void) {
+    __asm volatile(".rept 8\n"
                    "nop\n"
+                   ".endr\n");
+}
+
+static inline __attribute__((always_inline)) void rvswd_phy_slow_low_period(void) {
+    // 48 MHz 下按抓包实测基准校准为低电平约 2 us
+    __asm volatile(".rept 92\n"
                    "nop\n"
+                   ".endr\n");
+}
+
+static inline __attribute__((always_inline)) void rvswd_phy_slow_high_period(void) {
+    // 48 MHz 下按抓包实测基准校准为高电平约 1 us
+    __asm volatile(".rept 42\n"
                    "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n");
+                   ".endr\n");
+}
+
+static inline __attribute__((always_inline)) void rvswd_phy_low_period(bool fast_timing) {
+    if (fast_timing) {
+        rvswd_phy_fast_low_period();
+        return;
+    }
+    rvswd_phy_slow_low_period();
+}
+
+static inline __attribute__((always_inline)) void rvswd_phy_high_period(bool fast_timing) {
+    if (fast_timing) {
+        rvswd_phy_fast_high_period();
+        return;
+    }
+    rvswd_phy_slow_high_period();
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_fast_sample_settle(void) {
@@ -58,26 +89,12 @@ static inline __attribute__((always_inline)) void rvswd_phy_fast_sample_settle(v
 
 static inline __attribute__((always_inline)) void rvswd_phy_half_period(bool fast_timing) {
     if (fast_timing) {
-        rvswd_phy_fast_half_period();
+        rvswd_phy_fast_high_period();
         return;
     }
-    __asm volatile(
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n");
+    __asm volatile(".rept 16\n"
+                   "nop\n"
+                   ".endr\n");
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_clock_low(void) {
@@ -113,20 +130,20 @@ static inline __attribute__((always_inline)) void rvswd_phy_drive_bit_fast(uint8
     } else {
         rvswd_phy_data_low();
     }
-    rvswd_phy_fast_half_period();
+    rvswd_phy_fast_low_period();
     GPIOA->BSHR = rvswd_phy_clock_pin;
-    rvswd_phy_fast_half_period();
+    rvswd_phy_fast_high_period();
 }
 
 static inline __attribute__((always_inline)) uint8_t rvswd_phy_sample_bit_fast(void) {
     uint8_t value;
 
     GPIOA->BSHR = rvswd_phy_clock_pin << 16u;
-    rvswd_phy_fast_half_period();
+    rvswd_phy_half_period(true);
     GPIOA->BSHR = rvswd_phy_clock_pin;
     rvswd_phy_sample_settle(true);
     value = (GPIOA->INDR & rvswd_phy_data_pin) != 0u ? 1u : 0u;
-    rvswd_phy_fast_half_period();
+    rvswd_phy_half_period(true);
     return value;
 }
 
@@ -146,9 +163,8 @@ void rvswd_phy_gpio_start(bool fast_timing) {
     rvswd_phy_gpio_config_data_output();
     rvswd_phy_clock_high();
     rvswd_phy_data_high();
-    rvswd_phy_half_period(fast_timing);
     rvswd_phy_data_low();
-    rvswd_phy_half_period(fast_timing);
+    rvswd_phy_high_period(fast_timing);
 }
 
 void rvswd_phy_gpio_stop(bool fast_timing) {
@@ -156,11 +172,11 @@ void rvswd_phy_gpio_stop(bool fast_timing) {
     rvswd_phy_gpio_config_data_output();
     rvswd_phy_clock_low();
     rvswd_phy_data_low();
-    rvswd_phy_half_period(fast_timing);
+    rvswd_phy_low_period(fast_timing);
     rvswd_phy_clock_high();
-    rvswd_phy_half_period(fast_timing);
+    rvswd_phy_high_period(fast_timing);
     rvswd_phy_data_high();
-    rvswd_phy_half_period(fast_timing);
+    rvswd_phy_high_period(fast_timing);
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_drive_bit(
@@ -172,9 +188,9 @@ static inline __attribute__((always_inline)) void rvswd_phy_drive_bit(
     } else {
         rvswd_phy_data_low();
     }
-    rvswd_phy_half_period(fast_timing);
+    rvswd_phy_low_period(fast_timing);
     rvswd_phy_clock_high();
-    rvswd_phy_half_period(fast_timing);
+    rvswd_phy_high_period(fast_timing);
 }
 
 static inline __attribute__((always_inline)) uint8_t rvswd_phy_sample_bit(bool fast_timing) {
@@ -273,9 +289,9 @@ void rvswd_phy_gpio_wakeup(bool fast_timing, bool stop_condition) {
     rvswd_phy_data_high();
     for (uint8_t clock = 0u; clock < rvswd_phy_wakeup_clocks; ++clock) {
         rvswd_phy_clock_low();
-        rvswd_phy_half_period(fast_timing);
+        rvswd_phy_low_period(fast_timing);
         rvswd_phy_clock_high();
-        rvswd_phy_half_period(fast_timing);
+        rvswd_phy_high_period(fast_timing);
     }
     if (stop_condition) {
         rvswd_phy_gpio_stop(fast_timing);

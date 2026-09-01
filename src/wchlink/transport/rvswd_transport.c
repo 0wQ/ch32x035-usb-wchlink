@@ -58,7 +58,7 @@ void rvswd_transport_wakeup(struct rvswd_transport *transport, bool stop_conditi
 
 struct rvswd_transport_probe_result rvswd_transport_probe_long(struct rvswd_transport *transport,
                                                                uint8_t operation, uint8_t address,
-    uint32_t value, uint8_t host_parity) {
+                                                               uint32_t value, uint8_t host_parity) {
     struct rvswd_transport_probe_result result = {0};
 
     if (transport == NULL) {
@@ -111,8 +111,48 @@ static bool rvswd_transport_transaction(struct rvswd_transport *transport,
     return true;
 }
 
-struct rvswd_transport_result rvswd_transport_write(
-    struct rvswd_transport *transport, uint8_t address, uint32_t value) {
+struct rvswd_transport_result rvswd_transport_probe_short(struct rvswd_transport *transport,
+                                                          bool read, uint8_t address, uint32_t value) {
+    struct rvswd_transport_result result = {0};
+    uint8_t frame[7] = {0};
+    uint8_t target[7] = {0};
+
+    if (transport == NULL ||
+        rvswd_transport_packet_mode(transport) != RVSWD_PACKET_SHORT) {
+        return result;
+    }
+    if (read) {
+        rvswd_frame_pack_read(frame, address);
+    } else {
+        rvswd_frame_pack_write(frame, address, value);
+    }
+    if (!rvswd_transport_transaction(transport, frame, target, read)) {
+        return result;
+    }
+
+    result.status = rvswd_frame_unpack_handshake(target);
+    if (result.status == rvswd_transport_status_busy) {
+        result.retryable = true;
+        return result;
+    }
+    if (!rvswd_frame_status_is_ok(result.status)) {
+        return result;
+    }
+    if (!read) {
+        result.ok = true;
+        return result;
+    }
+    result.value = rvswd_frame_unpack_data(target);
+    if (rvswd_frame_get_bit(target, 46u) != rvswd_frame_xor_bits(result.value)) {
+        result.retryable = true;
+        return result;
+    }
+    result.ok = true;
+    return result;
+}
+
+struct rvswd_transport_result rvswd_transport_write(struct rvswd_transport *transport,
+                                                    uint8_t address, uint32_t value) {
     struct rvswd_transport_result result = {0};
 
     if (transport == NULL) {

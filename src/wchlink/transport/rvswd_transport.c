@@ -60,24 +60,27 @@ struct rvswd_transport_probe_result rvswd_transport_probe_long(struct rvswd_tran
                                                                uint8_t operation, uint8_t address,
                                                                uint32_t value, uint8_t host_parity) {
     struct rvswd_transport_probe_result result = {0};
+    bool fast_timing;
 
     if (transport == NULL) {
         return result;
     }
 
+    // 在进入不可打断的长帧前固定本次会话的时序档位，保证整帧不会跨档位执行
+    fast_timing = transport->fast_timing;
     __disable_irq();
-    rvswd_phy_gpio_start(transport->fast_timing);
-    rvswd_phy_gpio_drive_value(transport->fast_timing, address & 0x7fu, 7u);
-    rvswd_phy_gpio_drive_value(transport->fast_timing, value, 32u);
-    rvswd_phy_gpio_drive_value(transport->fast_timing, operation, 2u);
-    rvswd_phy_gpio_drive_value(transport->fast_timing, host_parity, 1u);
+    rvswd_phy_gpio_start(fast_timing);
+    rvswd_phy_gpio_drive_value(fast_timing, address & 0x7fu, 7u);
+    rvswd_phy_gpio_drive_value(fast_timing, value, 32u);
+    rvswd_phy_gpio_drive_value(fast_timing, operation, 2u);
+    rvswd_phy_gpio_drive_value(fast_timing, host_parity, 1u);
     rvswd_phy_gpio_config_data_input();
-    result.address = (uint8_t)rvswd_phy_gpio_sample_value(transport->fast_timing, 7u);
-    result.value = rvswd_phy_gpio_sample_value(transport->fast_timing, 32u);
-    result.status = (uint8_t)rvswd_phy_gpio_sample_value(transport->fast_timing, 2u);
-    (void)rvswd_phy_gpio_sample_value(transport->fast_timing, 1u);
+    result.address = (uint8_t)rvswd_phy_gpio_sample_value(fast_timing, 7u);
+    result.value = rvswd_phy_gpio_sample_value(fast_timing, 32u);
+    result.status = (uint8_t)rvswd_phy_gpio_sample_value(fast_timing, 2u);
+    (void)rvswd_phy_gpio_sample_value(fast_timing, 1u);
     rvswd_phy_gpio_config_data_output();
-    rvswd_phy_gpio_stop(transport->fast_timing);
+    rvswd_phy_gpio_stop(fast_timing);
     __enable_irq();
     bsp_delay_us(rvswd_transport_interframe_guard_us);
 

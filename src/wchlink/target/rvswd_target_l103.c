@@ -75,7 +75,7 @@ static const struct rvswd_target_capabilities rvswd_target_l103_capabilities = {
 static bool rvswd_target_l103_probe_chip_id(
     struct rvswd_operation *operation, uint32_t *chip_id) {
     return chip_id != NULL &&
-           rvswd_memory_read32_synchronized(operation,
+           rvswd_memory_read32_v30x(operation,
                                             rvswd_target_l103_identity.chip_id_address,
                                             chip_id);
 }
@@ -150,9 +150,9 @@ static bool rvswd_target_l103_loader_execute(
     return true;
 }
 
-// 绑定 CH32L103 的同步读取和流式写入路径
+// 绑定 CH32L103 的直接读取和流式写入路径
 static const struct rvswd_memory_ops rvswd_target_l103_memory = {
-    .read32 = rvswd_memory_read32_synchronized,
+    .read32 = rvswd_memory_read32_v30x,
     .write32 = rvswd_memory_write32_slow,
     .write = rvswd_memory_write_streaming_retry,
 };

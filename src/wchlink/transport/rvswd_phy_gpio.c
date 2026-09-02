@@ -9,7 +9,7 @@ static const uint32_t rvswd_phy_clock_pin = GPIO_Pin_2;
 static const uint32_t rvswd_phy_data_pin = GPIO_Pin_3;
 static const uint8_t rvswd_phy_clock_cfg_shift = 8u;
 static const uint8_t rvswd_phy_data_cfg_shift = 12u;
-static const uint32_t rvswd_phy_clock_mode_output_50mhz = 0x03u;
+static const uint32_t rvswd_phy_output_mode_50mhz = 0x03u;
 static const uint32_t rvswd_phy_pins = GPIO_Pin_2 | GPIO_Pin_3;
 static const uint8_t rvswd_phy_wakeup_clocks = 100u;
 
@@ -25,14 +25,20 @@ __attribute__((section(".highcode"))) uint32_t rvswd_phy_gpio_sample_value(bool 
 __attribute__((section(".highcode"))) void rvswd_phy_gpio_wakeup(bool fast_timing, bool stop_condition);
 
 static inline __attribute__((always_inline)) void rvswd_phy_fast_low_period(void) {
-    // 快档保留低相位约为高相位两倍，避免速度切换改变时钟方向
-    __asm volatile(".rept 16\n"
+    __asm volatile(".rept 4\n"
                    "nop\n"
                    ".endr\n");
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_fast_high_period(void) {
-    __asm volatile(".rept 8\n"
+    __asm volatile(".rept 2\n"
+                   "nop\n"
+                   ".endr\n");
+}
+
+static inline __attribute__((always_inline)) void rvswd_phy_fast_sample_settle(void) {
+    // 目标回复在 SWCLK 上升沿后建立，采样点保留实板验证通过的等待窗口
+    __asm volatile(".rept 16\n"
                    "nop\n"
                    ".endr\n");
 }
@@ -67,34 +73,16 @@ static inline __attribute__((always_inline)) void rvswd_phy_high_period(bool fas
     rvswd_phy_slow_high_period();
 }
 
-static inline __attribute__((always_inline)) void rvswd_phy_fast_sample_settle(void) {
-    // 目标回复在 SWCLK 上升沿后才稳定，保持实板验证通过的 16 个 NOP 采样延迟
-    __asm volatile("nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n"
-                   "nop\n");
-}
-
 static inline __attribute__((always_inline)) void rvswd_phy_slow_sample_half_period(void) {
-    // 慢档目标响应按官方长帧抓包校准为约 2.1 us 的上升沿间隔
+    // 慢档目标回复按官方长帧抓包保留约 2.1 us 的上升沿间隔
     __asm volatile(".rept 30\n"
                    "nop\n"
                    ".endr\n");
 }
 
-static inline __attribute__((always_inline)) void rvswd_phy_start_half_period(void) {
+static inline __attribute__((always_inline)) void rvswd_phy_start_half_period(
+    bool fast_timing) {
+    (void)fast_timing;
     // 起始序列按官方抓包保持约 1 us 的 SWDIO 高电平窗口
     __asm volatile(".rept 16\n"
                    "nop\n"
@@ -103,14 +91,14 @@ static inline __attribute__((always_inline)) void rvswd_phy_start_half_period(vo
 
 static inline __attribute__((always_inline)) void rvswd_phy_half_period(bool fast_timing) {
     if (fast_timing) {
-        rvswd_phy_fast_high_period();
+        rvswd_phy_fast_sample_settle();
         return;
     }
     rvswd_phy_slow_sample_half_period();
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_clock_low(void) {
-    GPIOA->BSHR = rvswd_phy_clock_pin << 16u;
+    GPIOA->BCR = rvswd_phy_clock_pin;
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_clock_high(void) {
@@ -118,7 +106,7 @@ static inline __attribute__((always_inline)) void rvswd_phy_clock_high(void) {
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_data_low(void) {
-    GPIOA->BSHR = rvswd_phy_data_pin << 16u;
+    GPIOA->BCR = rvswd_phy_data_pin;
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_data_high(void) {
@@ -126,7 +114,7 @@ static inline __attribute__((always_inline)) void rvswd_phy_data_high(void) {
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_sample_settle(bool fast_timing) {
-    // 目标释放 SWDIO 后由内部上拉恢复高电平，采样点放在高相位中部避免读取到前一位
+    // 目标回复位在时钟上升沿后建立，读取前先完成当前档位的高相位等待
     if (fast_timing) {
         rvswd_phy_fast_sample_settle();
     } else {
@@ -135,8 +123,8 @@ static inline __attribute__((always_inline)) void rvswd_phy_sample_settle(bool f
 }
 
 static inline __attribute__((always_inline)) void rvswd_phy_drive_bit_fast(uint8_t value) {
-    // 数据在时钟下降沿后单独更新，为目标保留明确的数据建立窗口
-    GPIOA->BSHR = rvswd_phy_clock_pin << 16u;
+    // 官方 LinkE 在低相位内更新数据，时钟下降沿先于数据边沿
+    GPIOA->BCR = rvswd_phy_clock_pin;
     if (value != 0u) {
         rvswd_phy_data_high();
     } else {
@@ -150,18 +138,18 @@ static inline __attribute__((always_inline)) void rvswd_phy_drive_bit_fast(uint8
 static inline __attribute__((always_inline)) uint8_t rvswd_phy_sample_bit_fast(void) {
     uint8_t value;
 
-    GPIOA->BSHR = rvswd_phy_clock_pin << 16u;
+    // 目标在上升沿后驱动 SWDIO，采样点固定在高相位等待结束处
+    GPIOA->BCR = rvswd_phy_clock_pin;
     rvswd_phy_half_period(true);
     GPIOA->BSHR = rvswd_phy_clock_pin;
     rvswd_phy_sample_settle(true);
     value = (GPIOA->INDR & rvswd_phy_data_pin) != 0u ? 1u : 0u;
-    rvswd_phy_half_period(true);
     return value;
 }
 
 void rvswd_phy_gpio_config_data_output(void) {
     GPIOA->CFGLR = (GPIOA->CFGLR & ~(0xfu << rvswd_phy_data_cfg_shift)) |
-                   (0x01u << rvswd_phy_data_cfg_shift);
+                   (rvswd_phy_output_mode_50mhz << rvswd_phy_data_cfg_shift);
 }
 
 void rvswd_phy_gpio_config_data_input(void) {
@@ -175,14 +163,13 @@ void rvswd_phy_gpio_start(bool fast_timing) {
     rvswd_phy_gpio_config_data_output();
     rvswd_phy_clock_high();
     rvswd_phy_data_high();
-    rvswd_phy_start_half_period();
+    rvswd_phy_start_half_period(fast_timing);
     rvswd_phy_data_low();
-    rvswd_phy_start_half_period();
+    rvswd_phy_start_half_period(fast_timing);
 }
 
 void rvswd_phy_gpio_stop(bool fast_timing) {
-    // 采样结束时 SWCLK 仍为高，先接管数据线，再结束当前位
-    rvswd_phy_gpio_config_data_output();
+    // 调用方在结束采样前已接管 SWDIO，直接输出停止条件，避免每帧重复配置 GPIO 模式
     rvswd_phy_clock_low();
     rvswd_phy_data_low();
     rvswd_phy_low_period(fast_timing);
@@ -194,7 +181,7 @@ void rvswd_phy_gpio_stop(bool fast_timing) {
 
 static inline __attribute__((always_inline)) void rvswd_phy_drive_bit(
     bool fast_timing, uint8_t value) {
-    // 先拉低时钟，再更新数据，给 V30X 保留完整的数据建立窗口
+    // 数据在低相位内更新，为目标保留完整的数据建立窗口
     rvswd_phy_clock_low();
     if (value != 0u) {
         rvswd_phy_data_high();
@@ -209,12 +196,12 @@ static inline __attribute__((always_inline)) void rvswd_phy_drive_bit(
 static inline __attribute__((always_inline)) uint8_t rvswd_phy_sample_bit(bool fast_timing) {
     uint8_t value;
 
+    // 先产生下降沿和上升沿，再在高相位末端读取目标回复位
     rvswd_phy_clock_low();
     rvswd_phy_half_period(fast_timing);
     rvswd_phy_clock_high();
     rvswd_phy_sample_settle(fast_timing);
     value = (GPIOA->INDR & rvswd_phy_data_pin) != 0u ? 1u : 0u;
-    rvswd_phy_half_period(fast_timing);
     return value;
 }
 
@@ -318,7 +305,7 @@ void rvswd_phy_gpio_init(void) {
     GPIOA->CFGLR = (GPIOA->CFGLR & ~((0xfu << rvswd_phy_data_cfg_shift) |
                                      (0xfu << rvswd_phy_clock_cfg_shift))) |
                    (0x08u << rvswd_phy_data_cfg_shift) |
-                   (rvswd_phy_clock_mode_output_50mhz << rvswd_phy_clock_cfg_shift);
+                   (rvswd_phy_output_mode_50mhz << rvswd_phy_clock_cfg_shift);
 }
 
 void rvswd_phy_gpio_disconnect(void) {

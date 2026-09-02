@@ -74,8 +74,25 @@ static bool rvswd_target_connect_identify_module(
 static bool rvswd_target_connect_identify(
     struct wchlink_target_ports *ports, struct rvswd_operation *operation) {
     const struct rvswd_target_module *hint = ports->module;
+    const struct rvswd_target_module *dmi_hint = NULL;
     const enum rvswd_packet_mode packet_mode =
         rvswd_transport_packet_mode(operation->transport);
+
+    // 官方 LinkE 先读取 DMI ChipID，再按结果选择目标族，避免无关 module 先发起身份访问
+    {
+        struct rvswd_transport_result read_result =
+            rvswd_operation_read_dmi(operation, RVSWD_DMI_WCH_CHIP_ID);
+
+        if (read_result.ok && read_result.value != 0u) {
+            dmi_hint = rvswd_target_registry_module_from_chip_id(
+                read_result.value);
+            if (dmi_hint != NULL &&
+                rvswd_target_connect_identify_module(
+                    ports, operation, dmi_hint, false)) {
+                return true;
+            }
+        }
+    }
 
     if (hint != NULL && hint->probe != NULL && hint->capabilities != NULL &&
         hint->capabilities->packet_mode == packet_mode &&
@@ -88,7 +105,7 @@ static bool rvswd_target_connect_identify(
         const struct rvswd_target_module *module =
             rvswd_target_registry_module_at(index);
 
-        if (module != hint && module->probe != NULL &&
+        if (module != hint && module != dmi_hint && module->probe != NULL &&
             module->capabilities != NULL &&
             module->capabilities->packet_mode == packet_mode &&
             rvswd_target_connect_identify_module(ports, operation, module,
@@ -244,9 +261,6 @@ static bool rvswd_target_connect_transport(
     if (ports->module == NULL) {
         // wlink status 使用通用 RISC-V 值 1，未知 family 按官方 LinkE 序列自动识别
         // CH58X 冷启动时 202 个探测帧只返回 BUSY，不能用成功签名决定是否尝试 long mode
-        // 每次会话开始先复位两线接口状态，清除上一次连接遗留的 DTM 管线
-        rvswd_transport_wakeup(transport, true);
-        rvswd_transport_wakeup(transport, false);
         for (uint8_t cycle = 0u;
              cycle < rvswd_target_connect_long_probe_cycle_count; ++cycle) {
             rvswd_transport_set_packet_mode(transport, RVSWD_PACKET_LONG);

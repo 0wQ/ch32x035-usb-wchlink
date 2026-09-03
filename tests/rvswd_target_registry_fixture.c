@@ -99,6 +99,24 @@ bool rvswd_memory_write32_slow(struct rvswd_operation *operation,
     return rvswd_memory_write32(operation, address, value);
 }
 
+// fixture 不模拟 Program Buffer，强制 CH32V20X 连续写入回退到已验证的 Access Memory 路径
+bool rvswd_memory_write_streaming(struct rvswd_operation *operation,
+                                  uint32_t address, const uint8_t *data,
+                                  uint32_t length) {
+    (void)operation;
+    (void)address;
+    (void)data;
+    (void)length;
+    return false;
+}
+
+void rvswd_operation_cleanup_write_dmi(struct rvswd_operation *operation,
+                                       uint8_t address, uint32_t value) {
+    (void)operation;
+    (void)address;
+    (void)value;
+}
+
 bool rvswd_memory_write32_direct(struct rvswd_operation *operation,
                                  uint32_t address, uint32_t value) {
     return rvswd_memory_write32(operation, address, value);
@@ -326,6 +344,7 @@ static void assert_v20x_identity_and_chip_info(
     assert(module->capabilities->packet_mode == RVSWD_PACKET_SHORT);
     assert(module->capabilities->chip_info_layout ==
            RVSWD_TARGET_CHIP_INFO_ESIG);
+    assert(module->capabilities->memory_streaming);
     assert(module->probe != NULL);
     assert(module->probe->read_chip_id != NULL);
     assert(module->profile != NULL);
@@ -363,7 +382,7 @@ static void assert_v20x_identity_and_chip_info(
     assert(module->control->reset_and_run != NULL);
 }
 
-// CH32V203 loader 上传每字只写 DATA1、DATA0 和 Access Memory，不插入 ABSTRACTCS 事务
+// CH32V203 单字 Access Memory 写不插入 ABSTRACTCS 事务
 static void assert_v20x_memory_write_sequence(
     const struct rvswd_target_module *module) {
     static const uint8_t expected_addresses[] = {
@@ -376,6 +395,28 @@ static void assert_v20x_memory_write_sequence(
 
     rvswd_test_dmi_write_count = 0u;
     assert(module->memory->write32(&operation, 0x20001000u, 0x12345678u));
+    assert(rvswd_test_dmi_write_count == sizeof(expected_addresses) /
+                                             sizeof(expected_addresses[0]));
+    for (size_t index = 0u; index < rvswd_test_dmi_write_count; ++index) {
+        assert(rvswd_test_dmi_writes[index].address == expected_addresses[index]);
+        assert(rvswd_test_dmi_writes[index].value == expected_values[index]);
+    }
+}
+
+// fixture 不实现 Program Buffer，连续写入失败后必须清理状态并完整回退到三笔 Access Memory 写
+static void assert_v20x_memory_streaming_fallback(
+    const struct rvswd_target_module *module) {
+    static const uint8_t data[] = {0x78u, 0x56u, 0x34u, 0x12u};
+    static const uint8_t expected_addresses[] = {
+        RVSWD_DMI_DATA1, RVSWD_DMI_DATA0, RVSWD_DMI_COMMAND,
+    };
+    static const uint32_t expected_values[] = {
+        0x20001000u, 0x12345678u, 0x02210000u,
+    };
+    struct rvswd_operation operation = {0};
+
+    rvswd_test_dmi_write_count = 0u;
+    assert(module->memory->write(&operation, 0x20001000u, data, sizeof(data)));
     assert(rvswd_test_dmi_write_count == sizeof(expected_addresses) /
                                              sizeof(expected_addresses[0]));
     for (size_t index = 0u; index < rvswd_test_dmi_write_count; ++index) {
@@ -488,6 +529,7 @@ int main(void) {
     }
     assert_v20x_erase_sequence(module);
     assert_v20x_memory_write_sequence(module);
+    assert_v20x_memory_streaming_fallback(module);
     rvswd_test_memory_chip_id = 0x2080051cu;
     assert(!module->probe->read_chip_id(&operation, &chip_id));
     assert(rvswd_target_registry_module_from_chip_id(0x30700528u) ==

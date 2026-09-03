@@ -91,7 +91,7 @@ static const struct rvswd_target_profile rvswd_target_v20x_profile_data = {
 static const struct rvswd_target_capabilities rvswd_target_v20x_capabilities = {
     .packet_mode = RVSWD_PACKET_SHORT,
     .chip_info_layout = RVSWD_TARGET_CHIP_INFO_ESIG,
-    .memory_streaming = false,
+    .memory_streaming = true,
 };
 
 // 官方 WCH-LinkE 在 DMI ChipID 后通过 Data1、Access Memory 和 Data0 复核固定身份地址
@@ -133,7 +133,7 @@ static bool rvswd_target_v20x_write32_access_memory(
     return true;
 }
 
-// loader 的 code 和 data 区都以 32 位逐字写入，loader execute 负责 Flash 操作结果
+// 逐字 Access Memory 写作为连续写入不可用时的回退路径，loader execute 负责 Flash 操作结果
 static bool rvswd_target_v20x_write_access_memory(
     struct rvswd_operation *operation, uint32_t address, const uint8_t *data,
     uint32_t length) {
@@ -159,11 +159,30 @@ static bool rvswd_target_v20x_write_access_memory(
     return true;
 }
 
-// 官方 CH32V203 loader 下载和数据写入均使用 Access Memory 的逐字直接路径
+// CH32V203 的 Debug Module 具备 Program Buffer 和 DATA0 autoexec 能力，优先用连续写入减少每字两笔 DMI
+// 连续写入中断时可能已更新部分 RAM，清理 autoexec 后完整重写当前块，RAM 写入具备幂等性
+static bool rvswd_target_v20x_write_streaming_or_access_memory(
+    struct rvswd_operation *operation, uint32_t address, const uint8_t *data,
+    uint32_t length) {
+    if (rvswd_memory_write_streaming(operation, address, data, length)) {
+        return true;
+    }
+
+    rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTAUTO, 0u);
+    rvswd_operation_cleanup_write_dmi(operation, RVSWD_DMI_ABSTRACTCS, 0x00000700u);
+    operation->memory_code = 0u;
+    operation->address = address;
+    operation->abstractcs = 0xffffffffu;
+    operation->dmi_status = 0u;
+    operation->retryable = false;
+    return rvswd_target_v20x_write_access_memory(operation, address, data, length);
+}
+
+// loader code 和数据块优先使用连续写入，单字访问仍保持官方 Access Memory 语义
 static const struct rvswd_memory_ops rvswd_target_v20x_memory = {
     .read32 = rvswd_memory_read32_access_memory,
     .write32 = rvswd_target_v20x_write32_access_memory,
-    .write = rvswd_target_v20x_write_access_memory,
+    .write = rvswd_target_v20x_write_streaming_or_access_memory,
 };
 
 // MRS 的旧、新 ROM/RAM 命令都将 USER[7:6] 解释为索引，写入时再扩展为 USER[7:5]

@@ -38,6 +38,10 @@ bool rvswd_memory_write32_direct(struct rvswd_operation *operation,
 bool rvswd_memory_write_direct(struct rvswd_operation *operation,
                                uint32_t address, const uint8_t *data,
                                uint32_t length);
+// 连续写入通过 AbstractAuto 将后续 DATA0 写直接转换为目标内存写，调用方负责选择可用的目标族
+bool rvswd_memory_write_streaming(struct rvswd_operation *operation,
+                                  uint32_t address, const uint8_t *data,
+                                  uint32_t length);
 bool rvswd_memory_write_streaming_retry(struct rvswd_operation *operation,
                                         uint32_t address,
                                         const uint8_t *data,

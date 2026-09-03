@@ -3,6 +3,7 @@
 .LSOverride
 
 .xmake
+.cache/
 build
 
 .vscode/.browse.c_cpp.db*

@@ -1,0 +1,89 @@
+name: Build firmware
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TOOLCHAIN_VERSION: V240
+  TOOLCHAIN_URL: https://github.com/0wQ/wch-toolchain/releases/download/V240/MRS_Toolchain_Linux_X64_V240.tar.xz
+  TOOLCHAIN_ROOT: ${{ github.workspace }}/.cache/wch-toolchain/Toolchain/RISC-V Embedded GCC12
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Restore WCH toolchain cache
+        id: toolchain-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/wch-toolchain
+          key: wch-toolchain-${{ env.TOOLCHAIN_VERSION }}-linux-x64-gcc12
+
+      - name: Download and extract WCH RISC-V toolchain
+        if: steps.toolchain-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/wch-toolchain
+          curl --fail --location --retry 3 --retry-delay 2 \
+            "$TOOLCHAIN_URL" \
+            --output /tmp/wch-toolchain.tar.xz
+          tar -xJf /tmp/wch-toolchain.tar.xz --wildcards \
+            -C .cache/wch-toolchain \
+            'Toolchain/RISC-V Embedded GCC12/*'
+          test -x "$TOOLCHAIN_ROOT/bin/riscv-wch-elf-gcc"
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: '2.9.8'
+
+      - name: Build release firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          export WCH_TOOLCHAIN_ROOT="$TOOLCHAIN_ROOT"
+          xmake f -m release -y
+          xmake -r
+          test -s build/release/firmware.bin
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ github.sha }}
+          path: build/release/firmware.bin
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish GitHub Release asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" build/release/firmware.bin --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" build/release/firmware.bin \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi

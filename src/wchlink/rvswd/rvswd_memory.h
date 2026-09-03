@@ -23,8 +23,8 @@ struct rvswd_memory_ops {
 // 公共内存层只提供访问算法，目标 module 在 operation 中绑定具体算法
 bool rvswd_memory_read32_synchronized(struct rvswd_operation *operation,
                                       uint32_t address, uint32_t *value);
-bool rvswd_memory_read32_v30x(struct rvswd_operation *operation,
-                              uint32_t address, uint32_t *value);
+bool rvswd_memory_read32_access_memory(struct rvswd_operation *operation,
+                                       uint32_t address, uint32_t *value);
 bool rvswd_memory_read32(struct rvswd_operation *operation,
                          const struct rvswd_target_profile *profile,
                          bool target_identified, uint32_t address,

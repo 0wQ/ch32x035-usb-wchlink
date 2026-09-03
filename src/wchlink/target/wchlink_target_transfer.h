@@ -40,9 +40,6 @@ bool wchlink_target_ports_loader_repeats_initialize(
     const struct wchlink_target_ports *ports);
 uint32_t wchlink_target_ports_loader_data_length(
     const struct wchlink_target_ports *ports, uint32_t length);
-bool wchlink_target_ports_loader_flash_range_valid(
-    const struct wchlink_target_ports *ports, uint32_t address,
-    uint32_t length);
 struct rvswd_target_result wchlink_target_ports_read_memory32(
     struct wchlink_target_ports *ports, uint32_t address);
 struct rvswd_target_result wchlink_target_ports_write_loader_code(

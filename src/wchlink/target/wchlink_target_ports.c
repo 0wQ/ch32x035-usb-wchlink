@@ -96,10 +96,6 @@ void wchlink_target_ports_refresh_info(struct wchlink_target_ports *ports) {
         loader != NULL && loader->partial_write_supported;
     ports->info.loader_variable_length =
         loader != NULL && loader->variable_length;
-    ports->info.code_flash_size =
-        profile == NULL ? 0u : profile->code_flash_size;
-    ports->info.code_flash_base =
-        profile == NULL ? 0u : profile->code_flash_base;
     ports->info.memory_streaming =
         ports->module != NULL && ports->module->capabilities != NULL &&
         ports->module->capabilities->memory_streaming;
@@ -274,23 +270,6 @@ uint32_t wchlink_target_ports_loader_data_length(
         length = (length + (page_size - 1u)) & ~(page_size - 1u);
     }
     return length;
-}
-
-bool wchlink_target_ports_loader_flash_range_valid(
-    const struct wchlink_target_ports *ports, uint32_t address,
-    uint32_t length) {
-    const struct rvswd_target_profile *profile =
-        wchlink_target_ports_current_profile(ports);
-
-    if (profile == NULL || profile->code_flash_size == 0u) {
-        return true;
-    }
-    return profile->code_flash_base != 0u &&
-           address >= profile->code_flash_base &&
-           address - profile->code_flash_base < profile->code_flash_size &&
-           length <= profile->code_flash_size &&
-           address - profile->code_flash_base <=
-               profile->code_flash_size - length;
 }
 
 struct rvswd_target_chip_info_result wchlink_target_ports_read_chip_info(

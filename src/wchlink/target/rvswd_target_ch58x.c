@@ -56,7 +56,6 @@ static const struct rvswd_target_profile rvswd_target_ch58x_profile_data = {
     .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,
     .memory_type_supported = false,
     .option_base = 0u,
-    .code_flash_base = 0x08000000u,
 };
 
 static const struct rvswd_target_capabilities rvswd_target_ch58x_capabilities = {

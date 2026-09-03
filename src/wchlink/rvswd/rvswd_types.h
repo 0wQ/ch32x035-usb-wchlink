@@ -23,6 +23,7 @@ enum rvswd_packet_mode {
 };
 
 enum rvswd_target_chip_info_layout {
+    RVSWD_TARGET_CHIP_INFO_UNSUPPORTED,
     RVSWD_TARGET_CHIP_INFO_ESIG,
     RVSWD_TARGET_CHIP_INFO_LEGACY,
 };
@@ -79,7 +80,6 @@ struct rvswd_target_profile {
     enum rvswd_option_write_mode option_write;
     bool memory_type_supported;
     uint32_t option_base;
-    // Code Flash 起始地址和可用容量，loader 编程块越界时前置拒绝
-    uint32_t code_flash_base;
-    uint32_t code_flash_size;
+    // 不在 target profile 保存 Code Flash 起始地址和容量，烧录地址由主机请求传入
+    // 当前官方流程不由 Link 下位在 loader 执行前预校验容量，实际容量由 chip info 返回
 };

@@ -6,6 +6,7 @@
 #include "wchlink/target/rvswd_target_ch59x.h"
 #include "wchlink/target/rvswd_target_l103.h"
 #include "wchlink/target/rvswd_target_registry.h"
+#include "wchlink/target/rvswd_target_v20x.h"
 #include "wchlink/target/rvswd_target_v30x.h"
 #include "wchlink/target/rvswd_target_x03x.h"
 
@@ -13,15 +14,45 @@
 #include <stddef.h>
 #include <stdint.h>
 
+static uint32_t rvswd_test_memory_chip_id;
+static uint64_t rvswd_test_time_us;
+static uint8_t rvswd_test_v20x_status_reads;
+static uint8_t rvswd_test_v20x_reset_count;
+static bool rvswd_test_v20x_reset_success;
+static size_t rvswd_test_write_count;
+static struct {
+    uint32_t address;
+    uint32_t value;
+} rvswd_test_writes[8];
+
 void bsp_delay_us(uint32_t delay_us) {
-    (void)delay_us;
+    rvswd_test_time_us += delay_us;
+}
+
+uint64_t bsp_time_us(void) {
+    return rvswd_test_time_us;
 }
 
 static bool rvswd_test_memory_read32(struct rvswd_operation *operation,
                                      uint32_t address, uint32_t *value) {
     (void)operation;
-    (void)address;
-    (void)value;
+    if (value != NULL && address == 0x1ffff704u) {
+        *value = rvswd_test_memory_chip_id;
+    } else if (value != NULL && address == 0x1ffff7e0u) {
+        *value = 0xffff0040u;
+    } else if (value != NULL && address == 0x1ffff7e8u) {
+        *value = 0x490dabcd;
+    } else if (value != NULL && address == 0x1ffff7ecu) {
+        *value = 0xb359be7fu;
+    } else if (value != NULL && address == 0x1ffff7f0u) {
+        *value = 0xe339e339u;
+    } else if (value != NULL && address == 0x4002201cu) {
+        *value = 0u;
+    } else if (value != NULL && address == 0x40022010u) {
+        *value = rvswd_test_write_count < 5u ? 0u : 4u;
+    } else if (value != NULL && address == 0x4002200cu) {
+        *value = rvswd_test_v20x_status_reads++ == 0u ? 1u : 0x20u;
+    }
     return true;
 }
 
@@ -30,16 +61,28 @@ bool rvswd_memory_read32_synchronized(struct rvswd_operation *operation,
     return rvswd_test_memory_read32(operation, address, value);
 }
 
-bool rvswd_memory_read32_v30x(struct rvswd_operation *operation,
-                              uint32_t address, uint32_t *value) {
+bool rvswd_memory_read32_access_memory(struct rvswd_operation *operation,
+                                       uint32_t address, uint32_t *value) {
+    return rvswd_test_memory_read32(operation, address, value);
+}
+
+bool rvswd_memory_read32(struct rvswd_operation *operation,
+                         const struct rvswd_target_profile *profile,
+                         bool target_identified, uint32_t address,
+                         uint32_t *value) {
+    (void)profile;
+    (void)target_identified;
     return rvswd_test_memory_read32(operation, address, value);
 }
 
 bool rvswd_memory_write32(struct rvswd_operation *operation, uint32_t address,
-                           uint32_t value) {
+                          uint32_t value) {
     (void)operation;
-    (void)address;
-    (void)value;
+    assert(rvswd_test_write_count < sizeof(rvswd_test_writes) /
+                                       sizeof(rvswd_test_writes[0]));
+    rvswd_test_writes[rvswd_test_write_count].address = address;
+    rvswd_test_writes[rvswd_test_write_count].value = value;
+    rvswd_test_write_count++;
     return true;
 }
 
@@ -175,7 +218,8 @@ bool rvswd_flash_set_memory_type(struct rvswd_operation *operation,
 
 bool rvswd_reset_and_halt(struct rvswd_operation *operation) {
     (void)operation;
-    return true;
+    rvswd_test_v20x_reset_count++;
+    return rvswd_test_v20x_reset_success;
 }
 
 bool rvswd_soft_reset_and_run(struct rvswd_operation *operation) {
@@ -232,7 +276,7 @@ struct rvswd_transport_result rvswd_operation_read_dmi(
     struct rvswd_operation *operation, uint8_t address) {
     (void)operation;
     (void)address;
-    return (struct rvswd_transport_result){.ok = true};
+    return (struct rvswd_transport_result){.ok = true, .value = 0u};
 }
 
 struct rvswd_transport_result rvswd_operation_write_dmi(
@@ -263,9 +307,93 @@ static void assert_module_operations(
     assert(module->control->reset_and_run != NULL);
 }
 
+// CH32V203 fixture 锁定身份、ESIG、loader contract 和受限的配置能力
+static void assert_v20x_identity_and_chip_info(
+    const struct rvswd_target_module *module) {
+    assert(module != NULL);
+    assert(module->capabilities != NULL);
+    assert(module->capabilities->packet_mode == RVSWD_PACKET_SHORT);
+    assert(module->capabilities->chip_info_layout ==
+           RVSWD_TARGET_CHIP_INFO_ESIG);
+    assert(module->probe != NULL);
+    assert(module->probe->read_chip_id != NULL);
+    assert(module->profile != NULL);
+    assert(module->profile->identity != NULL);
+    assert(module->profile->identity->esig_flash_size_address == 0x1ffff7e0u);
+    assert(module->profile->identity->esig_uid_low_address == 0x1ffff7e8u);
+    assert(module->profile->identity->esig_uid_high_address == 0x1ffff7ecu);
+    assert(module->profile->identity->esig_uid_tail_address == 0x1ffff7f0u);
+    assert(module->memory != NULL);
+    assert(module->memory->read32 != NULL);
+    assert(module->memory->write32 != NULL);
+    assert(module->memory->write != NULL);
+    assert(module->profile->loader != NULL);
+    assert(module->profile->loader->code_address == 0x20000000u);
+    assert(module->profile->loader->data_address == 0x20001000u);
+    assert(module->profile->loader->stack_top == 0x20002800u);
+    assert(module->profile->loader->checksum_address == 0x20002010u);
+    assert(module->profile->loader->initialize_mode == 0x01u);
+    assert(module->profile->loader->program_verify_mode == 0x1cu);
+    assert(!module->profile->loader->repeat_initialize);
+    assert(module->loader != NULL);
+    assert(module->loader->prepare != NULL);
+    assert(module->loader->execute != NULL);
+    assert(module->flash != NULL);
+    assert(module->flash->erase_all != NULL);
+    assert(module->flash->read_protected != NULL);
+    assert(module->flash->write_protected != NULL);
+    assert(module->flash->set_read_protected == NULL);
+    assert(module->flash->set_option_bytes == NULL);
+    assert(module->flash->read_memory_type != NULL);
+    assert(module->flash->set_memory_type == NULL);
+    assert(module->control != NULL);
+    assert(module->control->reset_and_halt != NULL);
+    assert(module->control->soft_reset_and_run != NULL);
+    assert(module->control->reset_and_run != NULL);
+}
+
+// CH32V203 全擦不在启动前等待 STATR.BSY，完成后才等待该位清零
+static void assert_v20x_erase_sequence(
+    const struct rvswd_target_module *module) {
+    static const uint32_t expected_addresses[] = {
+        0x40022004u, 0x40022004u, 0x40022024u, 0x40022024u,
+        0x40022010u, 0x40022010u, 0x40022010u,
+    };
+    static const uint32_t expected_values[] = {
+        0x45670123u, 0xcdef89abu, 0x45670123u, 0xcdef89abu,
+        0x00000004u, 0x00000044u, 0x00000000u,
+    };
+    struct rvswd_operation operation = {.memory = module->memory};
+
+    rvswd_test_time_us = 0u;
+    rvswd_test_v20x_status_reads = 0u;
+    rvswd_test_v20x_reset_count = 0u;
+    rvswd_test_v20x_reset_success = true;
+    rvswd_test_write_count = 0u;
+    assert(module->flash->erase_all(&operation, module->profile));
+    assert(rvswd_test_v20x_status_reads == 2u);
+    assert(rvswd_test_v20x_reset_count == 1u);
+    assert(rvswd_test_write_count == sizeof(expected_addresses) /
+                                         sizeof(expected_addresses[0]));
+    for (size_t index = 0u; index < rvswd_test_write_count; ++index) {
+        assert(rvswd_test_writes[index].address == expected_addresses[index]);
+        assert(rvswd_test_writes[index].value == expected_values[index]);
+    }
+
+    rvswd_test_v20x_status_reads = 0u;
+    rvswd_test_v20x_reset_count = 0u;
+    rvswd_test_v20x_reset_success = false;
+    rvswd_test_write_count = 0u;
+    assert(!module->flash->erase_all(&operation, module->profile));
+    assert(operation.flash_code == 0x1fu);
+    assert(rvswd_test_v20x_reset_count == 1u);
+}
+
 int main(void) {
     const struct rvswd_target_module *module;
     const struct rvswd_target_profile *profile;
+    struct rvswd_operation operation = {0};
+    uint32_t chip_id = 0u;
 
     module = rvswd_target_registry_module_from_chip_id(0x03510611u);
     assert(module != NULL);
@@ -280,6 +408,8 @@ int main(void) {
     assert(rvswd_target_registry_module_from_family(
                WCHLINK_TARGET_FAMILY_CH32L10X) == rvswd_target_l103_module());
     assert(rvswd_target_registry_module_from_family(
+               WCHLINK_TARGET_FAMILY_CH32V20X) == rvswd_target_v20x_module());
+    assert(rvswd_target_registry_module_from_family(
                WCHLINK_TARGET_FAMILY_CH32V30X) == rvswd_target_v30x_module());
     assert(rvswd_target_registry_module_from_family(
                WCHLINK_TARGET_FAMILY_CH58X) == rvswd_target_ch58x_module());
@@ -287,6 +417,32 @@ int main(void) {
                WCHLINK_TARGET_FAMILY_CH59X) == rvswd_target_ch59x_module());
     assert(rvswd_target_registry_module_from_chip_id(0x10320710u) ==
            rvswd_target_l103_module());
+    assert(rvswd_target_registry_module_from_chip_id(0x20310510u) ==
+           rvswd_target_v20x_module());
+    assert(rvswd_target_registry_module_from_chip_id(0x2034051cu) ==
+           rvswd_target_v20x_module());
+    assert(rvswd_target_registry_module_from_chip_id(0x2080051cu) == NULL);
+    module = rvswd_target_v20x_module();
+    rvswd_test_memory_chip_id = 0x20310510u;
+    assert(module->probe->read_chip_id(&operation, &chip_id));
+    assert(chip_id == rvswd_test_memory_chip_id);
+    operation.memory = module->memory;
+    {
+        bool protected = true;
+        uint8_t memory_type = 0xffu;
+
+        assert(module->flash->read_protected(&operation, module->profile,
+                                             &protected));
+        assert(!protected);
+        assert(module->flash->read_memory_type(
+            &operation, module->profile, false, &memory_type));
+        assert(memory_type == 0u);
+        assert(!module->flash->read_memory_type(
+            &operation, module->profile, true, &memory_type));
+    }
+    assert_v20x_erase_sequence(module);
+    rvswd_test_memory_chip_id = 0x2080051cu;
+    assert(!module->probe->read_chip_id(&operation, &chip_id));
     assert(rvswd_target_registry_module_from_chip_id(0x30700528u) ==
            rvswd_target_v30x_module());
     assert(rvswd_target_registry_module_from_chip_id(0x82000000u) ==
@@ -297,7 +453,12 @@ int main(void) {
 
     for (size_t index = 0u;
          index < rvswd_target_registry_module_count(); ++index) {
-        assert_module_operations(rvswd_target_registry_module_at(index));
+        module = rvswd_target_registry_module_at(index);
+        if (module == rvswd_target_v20x_module()) {
+            assert_v20x_identity_and_chip_info(module);
+        } else {
+            assert_module_operations(module);
+        }
     }
 
     profile = module->profile;

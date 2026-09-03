@@ -95,6 +95,7 @@ def run_target_registry_fixture() -> None:
                 str(project / "src/wchlink/target/rvswd_target_registry.c"),
                 str(project / "src/wchlink/target/rvswd_target_x03x.c"),
                 str(project / "src/wchlink/target/rvswd_target_l103.c"),
+                str(project / "src/wchlink/target/rvswd_target_v20x.c"),
                 str(project / "src/wchlink/target/rvswd_target_v30x.c"),
                 str(project / "src/wchlink/target/rvswd_target_ch58x.c"),
                 str(project / "src/wchlink/target/rvswd_target_ch59x.c"),

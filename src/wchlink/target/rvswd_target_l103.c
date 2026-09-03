@@ -62,7 +62,6 @@ static const struct rvswd_target_profile rvswd_target_l103_profile_data = {
     .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,
     .memory_type_supported = false,
     .option_base = 0x1ffff800u,
-    .code_flash_base = 0x08000000u,
 };
 
 static const struct rvswd_target_capabilities rvswd_target_l103_capabilities = {
@@ -75,7 +74,7 @@ static const struct rvswd_target_capabilities rvswd_target_l103_capabilities = {
 static bool rvswd_target_l103_probe_chip_id(
     struct rvswd_operation *operation, uint32_t *chip_id) {
     return chip_id != NULL &&
-           rvswd_memory_read32_v30x(operation,
+           rvswd_memory_read32_access_memory(operation,
                                             rvswd_target_l103_identity.chip_id_address,
                                             chip_id);
 }
@@ -152,7 +151,7 @@ static bool rvswd_target_l103_loader_execute(
 
 // 绑定 CH32L103 的直接读取和流式写入路径
 static const struct rvswd_memory_ops rvswd_target_l103_memory = {
-    .read32 = rvswd_memory_read32_v30x,
+    .read32 = rvswd_memory_read32_access_memory,
     .write32 = rvswd_memory_write32_slow,
     .write = rvswd_memory_write_streaming_retry,
 };

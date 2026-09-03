@@ -333,21 +333,6 @@ uint32_t wchlink_target_ports_loader_data_length(
     return length;
 }
 
-bool wchlink_target_ports_loader_flash_range_valid(
-    const struct wchlink_target_ports *target, uint32_t address,
-    uint32_t length) {
-    uint32_t base;
-    uint32_t size;
-
-    if (target == NULL || target->info.code_flash_size == 0u) {
-        return true;
-    }
-    base = target->info.code_flash_base;
-    size = target->info.code_flash_size;
-    return base != 0u && address >= base && address - base < size &&
-           length <= size && address - base <= size - length;
-}
-
 struct rvswd_target_chip_info_result wchlink_target_ports_read_chip_info(
     struct wchlink_target_ports *target) {
     struct rvswd_target_chip_info_result chip_info = {

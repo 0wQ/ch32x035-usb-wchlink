@@ -61,7 +61,6 @@ static const struct rvswd_target_profile rvswd_target_v30x_profile_data = {
     .option_write = RVSWD_OPTION_WRITE_HALFWORD,
     .memory_type_supported = true,
     .option_base = 0x1ffff800u,
-    .code_flash_base = 0x08000000u,
 };
 
 static const struct rvswd_target_capabilities rvswd_target_v30x_capabilities = {
@@ -82,7 +81,7 @@ static bool rvswd_target_v30x_probe_chip_id(
         return true;
     }
     return chip_id != NULL &&
-           rvswd_memory_read32_v30x(operation,
+           rvswd_memory_read32_access_memory(operation,
                                     rvswd_target_v30x_identity.chip_id_address,
                                     chip_id);
 }
@@ -142,7 +141,7 @@ static bool rvswd_target_v30x_loader_execute(
 
 // 绑定 CH32V30X 的访问算法和流式写入恢复路径
 static const struct rvswd_memory_ops rvswd_target_v30x_memory = {
-    .read32 = rvswd_memory_read32_v30x,
+    .read32 = rvswd_memory_read32_access_memory,
     .write32 = rvswd_memory_write32_slow,
     .write = rvswd_memory_write_streaming_retry,
 };

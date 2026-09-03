@@ -577,16 +577,6 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
             bool success;
             struct rvswd_target_result result;
 
-            // 编程块越过 Code Flash 边界时前置拒绝，loader 在物理边界外会挂死
-            if (!wchlink_target_ports_loader_flash_range_valid(
-                    transfer->target, execute.address, execute.length)) {
-                wchlink_transfer_set_reply(transfer, 0x03u);
-                transfer->write_address = 0u;
-                transfer->write_remaining = 0u;
-                transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
-                return;
-            }
-
             // target port 按锁定 profile 写入可选 checksum 并执行 loader
             result =
                 wchlink_target_ports_execute_loader(transfer->target, &execute);

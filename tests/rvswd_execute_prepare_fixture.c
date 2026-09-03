@@ -15,8 +15,8 @@ struct prepare_operation {
 static struct prepare_operation operations[16];
 static size_t operation_count;
 
-bool rvswd_memory_read32_v30x(struct rvswd_operation *operation,
-                              uint32_t address, uint32_t *value) {
+bool rvswd_memory_read32_access_memory(struct rvswd_operation *operation,
+                                       uint32_t address, uint32_t *value) {
     uint32_t read_value = address == 0x40021000u ? 0x6b83u : 0xffffffffu;
 
     (void)operation;

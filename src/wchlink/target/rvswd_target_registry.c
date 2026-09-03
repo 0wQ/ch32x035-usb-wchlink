@@ -4,12 +4,13 @@
 #include "wchlink/target/rvswd_target_ch58x.h"
 #include "wchlink/target/rvswd_target_ch59x.h"
 #include "wchlink/target/rvswd_target_l103.h"
+#include "wchlink/target/rvswd_target_v20x.h"
 #include "wchlink/target/rvswd_target_v30x.h"
 #include "wchlink/target/rvswd_target_x03x.h"
 
 #include <stddef.h>
 
-enum { RVSWD_TARGET_REGISTRY_MODULE_COUNT = 5u };
+enum { RVSWD_TARGET_REGISTRY_MODULE_COUNT = 6u };
 
 // 按真实 ChipID 调用各族 matcher，未知目标不回退到其他 profile
 const struct rvswd_target_module *rvswd_target_registry_module_from_chip_id(
@@ -54,10 +55,12 @@ const struct rvswd_target_module *rvswd_target_registry_module_at(
         case 1u:
             return rvswd_target_l103_module();
         case 2u:
-            return rvswd_target_v30x_module();
+            return rvswd_target_v20x_module();
         case 3u:
-            return rvswd_target_ch58x_module();
+            return rvswd_target_v30x_module();
         case 4u:
+            return rvswd_target_ch58x_module();
+        case 5u:
             return rvswd_target_ch59x_module();
         default:
             return NULL;

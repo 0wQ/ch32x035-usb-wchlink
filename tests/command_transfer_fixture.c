@@ -55,9 +55,6 @@ static struct rvswd_target_info wchlink_test_info(
         .loader_length_mode_mask = x03x ? 0x08u : 0u,
         .loader_repeat_initialize = !x03x,
         .partial_write_supported = legacy_loader,
-        .code_flash_size =
-            x03x ? 0xf800u : 0u,
-        .code_flash_base = 0x08000000u,
         .connected = true,
         .memory_streaming = memory_streaming,
         .loader_variable_length = legacy_loader,
@@ -1342,41 +1339,6 @@ static void wchlink_test_transfer_error_repeat_and_abort(void) {
     assert(finish.abstractcs == 0xffffffffu);
 }
 
-static void wchlink_test_transfer_flash_address_bounds(void) {
-    const struct rvswd_target_info info = wchlink_test_info(
-        0x03510611u, WCHLINK_TARGET_FAMILY_X03X,
-        WCHLINK_TEST_LOADER_DEFAULT, true);
-    const uint8_t packet[] = {0x01u, 0x02u, 0x03u, 0x04u};
-    const uint32_t valid_end = 0x08000000u + 0xf800u;
-    const uint32_t addresses[] = {
-        0x07ffffffu,
-        valid_end - sizeof(packet),
-        valid_end,
-        0xfffffffcu,
-    };
-    struct wchlink_transfer_finish_result finish;
-    struct wchlink_test_execute execute;
-    struct wchlink_test_fixture fixture;
-
-    // 低地址、尾端刚好对齐和高地址溢出都必须在 loader 执行前判定
-    for (size_t index = 0u; index < sizeof(addresses) / sizeof(addresses[0]);
-         ++index) {
-        wchlink_test_fixture_init(&fixture, info, true);
-        wchlink_transfer_prepare_write(&fixture.transfer, addresses[index],
-                                       sizeof(packet));
-        finish = wchlink_test_finish_default_loader(
-            &fixture, addresses[index], sizeof(packet));
-        assert(finish.status == WCHLINK_TRANSFER_FINISH_READY);
-        assert(wchlink_transfer_start_flash(&fixture.transfer, 0x02u));
-        wchlink_transfer_write_data(&fixture.transfer, packet, sizeof(packet));
-        assert(wchlink_test_take_status(&fixture.transfer) ==
-               (index == 1u ? 0x04u : 0x03u));
-        assert(wchlink_test_target_last_execute(&fixture.target, &execute));
-        assert(execute.mode == (index == 1u ? 0x0cu : 0x01u));
-        assert(execute.address == (index == 1u ? addresses[index] : 0u));
-    }
-}
-
 static void wchlink_test_transfer_abort_pending_data_in(void) {
     const struct rvswd_target_info info = wchlink_test_info(
         0x03510611u, WCHLINK_TARGET_FAMILY_X03X,
@@ -1428,7 +1390,6 @@ int main(void) {
     wchlink_test_transfer_partial_write();
     wchlink_test_transfer_bidirectional_activity();
     wchlink_test_transfer_error_repeat_and_abort();
-    wchlink_test_transfer_flash_address_bounds();
     wchlink_test_transfer_abort_pending_data_in();
     return 0;
 }

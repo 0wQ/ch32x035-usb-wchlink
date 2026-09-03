@@ -51,6 +51,7 @@ FLASH_BACKEND_HEADER_CONSUMERS = {
         "src/wchlink/flash/rvswd_flash_ch32.c",
         "src/wchlink/target/rvswd_target_x03x.c",
         "src/wchlink/target/rvswd_target_l103.c",
+        "src/wchlink/target/rvswd_target_v20x.c",
         "src/wchlink/target/rvswd_target_v30x.c",
     },
     "wchlink/flash/rvswd_flash_ch58x_59x.h": {

@@ -65,12 +65,12 @@ bool rvswd_memory_read32_synchronized(
     *value = read_result.value;
     return true;
 }
-static bool rvswd_memory_read32_v30x_once(
+static bool rvswd_memory_read32_access_memory_once(
     struct rvswd_operation *operation, uint32_t address, uint32_t *value) {
     struct rvswd_transport_result read_result;
 
     operation->memory_code = 0u;
-    // V30X 官方 LinkE 使用 Data1 传地址，Access Memory 命令直接返回 Data0
+    // 官方 WCH-LinkE 用 Data1 传地址，Access Memory 命令将读取结果放入 Data0
     if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA1, address).ok) {
         operation->memory_code = 0xb1u;
         return false;
@@ -136,12 +136,12 @@ bool rvswd_memory_write_direct(struct rvswd_operation *operation, uint32_t addre
     return true;
 }
 
-bool rvswd_memory_read32_v30x(struct rvswd_operation *operation, uint32_t address, uint32_t *value) {
+bool rvswd_memory_read32_access_memory(struct rvswd_operation *operation, uint32_t address, uint32_t *value) {
     if (value == NULL) {
         return false;
     }
     for (uint8_t retry = 0u; retry < rvswd_memory_read_retry_count; ++retry) {
-        if (rvswd_memory_read32_v30x_once(operation, address, value)) {
+        if (rvswd_memory_read32_access_memory_once(operation, address, value)) {
             return true;
         }
     }

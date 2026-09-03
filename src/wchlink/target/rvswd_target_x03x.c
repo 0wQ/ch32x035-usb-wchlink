@@ -89,8 +89,6 @@ static const struct rvswd_target_profile rvswd_target_x03x_profile_data = {
     .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,
     .memory_type_supported = false,
     .option_base = 0x1ffff800u,
-    .code_flash_base = 0x08000000u,
-    .code_flash_size = 0xf800u,
 };
 
 static const struct rvswd_target_capabilities rvswd_target_x03x_capabilities = {
@@ -103,7 +101,7 @@ static const struct rvswd_target_capabilities rvswd_target_x03x_capabilities = {
 static bool rvswd_target_x03x_probe_chip_id(
     struct rvswd_operation *operation, uint32_t *chip_id) {
     return chip_id != NULL &&
-           rvswd_memory_read32_v30x(operation,
+           rvswd_memory_read32_access_memory(operation,
                                     rvswd_target_x03x_identity.chip_id_address,
                                     chip_id);
 }
@@ -115,7 +113,7 @@ static const struct rvswd_target_probe_ops rvswd_target_x03x_probe = {
 
 // 绑定 CH32X03X 的读写访问宽度和失败恢复策略
 static const struct rvswd_memory_ops rvswd_target_x03x_memory = {
-    .read32 = rvswd_memory_read32_v30x,
+    .read32 = rvswd_memory_read32_access_memory,
     .write32 = rvswd_memory_write32_direct,
     .write = rvswd_memory_write_direct,
 };
@@ -157,7 +155,7 @@ static bool rvswd_target_x03x_prepare_write(struct rvswd_operation *operation,
 static bool rvswd_target_x03x_prepare_read(
     struct rvswd_operation *operation, uint32_t address, uint8_t error_code,
     uint32_t *value) {
-    if (!rvswd_memory_read32_v30x(operation, address, value)) {
+    if (!rvswd_memory_read32_access_memory(operation, address, value)) {
         operation->memory_code = error_code;
         return false;
     }

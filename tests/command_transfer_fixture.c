@@ -40,6 +40,7 @@ static struct rvswd_target_info wchlink_test_info(
     bool memory_streaming) {
     bool legacy_loader = loader == WCHLINK_TEST_LOADER_LEGACY;
     bool x03x = family == WCHLINK_TARGET_FAMILY_X03X;
+    bool l103 = loader == WCHLINK_TEST_LOADER_L103;
 
     return (struct rvswd_target_info){
         .chip_id = chip_id,
@@ -50,7 +51,7 @@ static struct rvswd_target_info wchlink_test_info(
         .loader_prepared_mode = x03x || legacy_loader ? 0x01u : 0x03u,
         .loader_program_mode = x03x ? 0x0cu : 0x08u,
         .loader_verify_mode = 0x10u,
-        .loader_program_verify_mode = x03x ? 0x1cu : legacy_loader ? 0x08u : 0x18u,
+        .loader_program_verify_mode = x03x || l103 ? 0x1cu : legacy_loader ? 0x08u : 0x18u,
         .loader_checksum_mode_mask = 0x10u,
         .loader_length_mode_mask = x03x ? 0x08u : 0u,
         .loader_repeat_initialize = !x03x,
@@ -1159,6 +1160,33 @@ static void wchlink_test_transfer_l103_checksum(void) {
     assert(wchlink_test_target_load(&fixture.target, 0x20002010u, checksum,
                                     sizeof(checksum)));
     assert(memcmp(checksum, packet, sizeof(packet)) == 0);
+    {
+        struct wchlink_test_execute execute;
+
+        assert(wchlink_test_target_last_execute(&fixture.target, &execute));
+        assert(execute.mode == 0x10u);
+    }
+}
+
+// CH32L103 的 program+verify 需要同时传递 program 与 checksum mode
+static void wchlink_test_transfer_l103_program_verify(void) {
+    const struct rvswd_target_info info = wchlink_test_info(
+        0x10300500u, WCHLINK_TARGET_FAMILY_CH32L10X,
+        WCHLINK_TEST_LOADER_L103, true);
+    const uint8_t packet[] = {0x01u, 0x02u, 0x03u, 0x04u};
+    struct wchlink_test_fixture fixture;
+    struct wchlink_transfer_finish_result finish;
+    struct wchlink_test_execute execute;
+
+    wchlink_test_fixture_init(&fixture, info, true);
+    finish = wchlink_test_finish_default_loader(&fixture, 0x08000000u,
+                                                sizeof(packet));
+    assert(finish.status == WCHLINK_TRANSFER_FINISH_READY);
+    assert(wchlink_transfer_start_flash(&fixture.transfer, 0x04u));
+    wchlink_transfer_write_data(&fixture.transfer, packet, sizeof(packet));
+    assert(wchlink_test_take_status(&fixture.transfer) == 0x04u);
+    assert(wchlink_test_target_last_execute(&fixture.target, &execute));
+    assert(execute.mode == 0x1cu);
 }
 
 static void wchlink_test_transfer_v30x_checksum(void) {
@@ -1385,6 +1413,7 @@ int main(void) {
     wchlink_test_transfer_chunk_boundary();
     wchlink_test_transfer_ch58x_59x_padding();
     wchlink_test_transfer_l103_checksum();
+    wchlink_test_transfer_l103_program_verify();
     wchlink_test_transfer_v30x_checksum();
     wchlink_test_transfer_x035_checksum();
     wchlink_test_transfer_partial_write();

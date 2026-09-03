@@ -16,6 +16,7 @@
 
 static uint32_t rvswd_test_memory_chip_id;
 static uint64_t rvswd_test_time_us;
+static uint8_t rvswd_test_memory_type_encoded;
 static uint8_t rvswd_test_v20x_status_reads;
 static uint8_t rvswd_test_v20x_reset_count;
 static bool rvswd_test_v20x_reset_success;
@@ -24,6 +25,11 @@ static struct {
     uint32_t address;
     uint32_t value;
 } rvswd_test_writes[8];
+static size_t rvswd_test_dmi_write_count;
+static struct {
+    uint8_t address;
+    uint32_t value;
+} rvswd_test_dmi_writes[6];
 
 void bsp_delay_us(uint32_t delay_us) {
     rvswd_test_time_us += delay_us;
@@ -46,6 +52,8 @@ static bool rvswd_test_memory_read32(struct rvswd_operation *operation,
         *value = 0xb359be7fu;
     } else if (value != NULL && address == 0x1ffff7f0u) {
         *value = 0xe339e339u;
+    } else if (value != NULL && address == 0x1ffff800u) {
+        *value = 0xc03f5aa5u;
     } else if (value != NULL && address == 0x4002201cu) {
         *value = 0u;
     } else if (value != NULL && address == 0x40022010u) {
@@ -202,7 +210,7 @@ bool rvswd_flash_read_memory_type(struct rvswd_operation *operation,
     (void)operation;
     (void)profile;
     (void)extended;
-    *memory_type = 0u;
+    *memory_type = rvswd_test_memory_type_encoded;
     return true;
 }
 
@@ -212,7 +220,7 @@ bool rvswd_flash_set_memory_type(struct rvswd_operation *operation,
     (void)operation;
     (void)profile;
     (void)extended;
-    (void)memory_type;
+    rvswd_test_memory_type_encoded = memory_type;
     return true;
 }
 
@@ -276,14 +284,17 @@ struct rvswd_transport_result rvswd_operation_read_dmi(
     struct rvswd_operation *operation, uint8_t address) {
     (void)operation;
     (void)address;
-    return (struct rvswd_transport_result){.ok = true, .value = 0u};
+    return (struct rvswd_transport_result){.ok = true};
 }
 
 struct rvswd_transport_result rvswd_operation_write_dmi(
     struct rvswd_operation *operation, uint8_t address, uint32_t value) {
     (void)operation;
-    (void)address;
-    (void)value;
+    assert(rvswd_test_dmi_write_count <
+           sizeof(rvswd_test_dmi_writes) / sizeof(rvswd_test_dmi_writes[0]));
+    rvswd_test_dmi_writes[rvswd_test_dmi_write_count].address = address;
+    rvswd_test_dmi_writes[rvswd_test_dmi_write_count].value = value;
+    rvswd_test_dmi_write_count++;
     return (struct rvswd_transport_result){.ok = true};
 }
 
@@ -307,7 +318,7 @@ static void assert_module_operations(
     assert(module->control->reset_and_run != NULL);
 }
 
-// CH32V203 fixture 锁定身份、ESIG、loader contract 和受限的配置能力
+// CH32V203 fixture 锁定身份、ESIG、loader contract 和已确认的 ROM/RAM 配置能力
 static void assert_v20x_identity_and_chip_info(
     const struct rvswd_target_module *module) {
     assert(module != NULL);
@@ -342,14 +353,35 @@ static void assert_v20x_identity_and_chip_info(
     assert(module->flash->erase_all != NULL);
     assert(module->flash->read_protected != NULL);
     assert(module->flash->write_protected != NULL);
-    assert(module->flash->set_read_protected == NULL);
+    assert(module->flash->set_read_protected != NULL);
     assert(module->flash->set_option_bytes == NULL);
     assert(module->flash->read_memory_type != NULL);
-    assert(module->flash->set_memory_type == NULL);
+    assert(module->flash->set_memory_type != NULL);
     assert(module->control != NULL);
     assert(module->control->reset_and_halt != NULL);
     assert(module->control->soft_reset_and_run != NULL);
     assert(module->control->reset_and_run != NULL);
+}
+
+// CH32V203 loader 上传每字只写 DATA1、DATA0 和 Access Memory，不插入 ABSTRACTCS 事务
+static void assert_v20x_memory_write_sequence(
+    const struct rvswd_target_module *module) {
+    static const uint8_t expected_addresses[] = {
+        RVSWD_DMI_DATA1, RVSWD_DMI_DATA0, RVSWD_DMI_COMMAND,
+    };
+    static const uint32_t expected_values[] = {
+        0x20001000u, 0x12345678u, 0x02210000u,
+    };
+    struct rvswd_operation operation = {0};
+
+    rvswd_test_dmi_write_count = 0u;
+    assert(module->memory->write32(&operation, 0x20001000u, 0x12345678u));
+    assert(rvswd_test_dmi_write_count == sizeof(expected_addresses) /
+                                             sizeof(expected_addresses[0]));
+    for (size_t index = 0u; index < rvswd_test_dmi_write_count; ++index) {
+        assert(rvswd_test_dmi_writes[index].address == expected_addresses[index]);
+        assert(rvswd_test_dmi_writes[index].value == expected_values[index]);
+    }
 }
 
 // CH32V203 全擦不在启动前等待 STATR.BSY，完成后才等待该位清零
@@ -417,6 +449,11 @@ int main(void) {
                WCHLINK_TARGET_FAMILY_CH59X) == rvswd_target_ch59x_module());
     assert(rvswd_target_registry_module_from_chip_id(0x10320710u) ==
            rvswd_target_l103_module());
+    module = rvswd_target_l103_module();
+    assert(module->profile != NULL);
+    assert(module->profile->loader != NULL);
+    // 官方 CH32L103 program+verify loader 调用使用 mode 0x1c
+    assert(module->profile->loader->program_verify_mode == 0x1cu);
     assert(rvswd_target_registry_module_from_chip_id(0x20310510u) ==
            rvswd_target_v20x_module());
     assert(rvswd_target_registry_module_from_chip_id(0x2034051cu) ==
@@ -435,12 +472,22 @@ int main(void) {
                                              &protected));
         assert(!protected);
         assert(module->flash->read_memory_type(
+            &operation, module->profile, true, &memory_type));
+        assert(memory_type == 0u);
+        assert(module->flash->read_memory_type(
             &operation, module->profile, false, &memory_type));
         assert(memory_type == 0u);
-        assert(!module->flash->read_memory_type(
-            &operation, module->profile, true, &memory_type));
+        assert(module->flash->set_memory_type(
+            &operation, module->profile, true, 2u));
+        assert(rvswd_test_memory_type_encoded == 5u);
+        assert(module->flash->set_memory_type(
+            &operation, module->profile, false, 2u));
+        assert(rvswd_test_memory_type_encoded == 5u);
+        assert(!module->flash->set_memory_type(
+            &operation, module->profile, true, 4u));
     }
     assert_v20x_erase_sequence(module);
+    assert_v20x_memory_write_sequence(module);
     rvswd_test_memory_chip_id = 0x2080051cu;
     assert(!module->probe->read_chip_id(&operation, &chip_id));
     assert(rvswd_target_registry_module_from_chip_id(0x30700528u) ==

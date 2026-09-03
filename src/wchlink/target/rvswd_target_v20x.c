@@ -83,9 +83,9 @@ static const struct rvswd_target_profile rvswd_target_v20x_profile_data = {
     .loader = &rvswd_target_v20x_loader,
     .loader_clears_debug_unlock = false,
     .erase_unlock = RVSWD_FLASH_UNLOCK_MAIN_AND_FAST,
-    .option_write = RVSWD_OPTION_WRITE_FAST_BUFFER,
-    .memory_type_supported = false,
-    .option_base = 0u,
+    .option_write = RVSWD_OPTION_WRITE_HALFWORD,
+    .memory_type_supported = true,
+    .option_base = 0x1ffff800u,
 };
 
 static const struct rvswd_target_capabilities rvswd_target_v20x_capabilities = {
@@ -113,32 +113,95 @@ static const struct rvswd_target_probe_ops rvswd_target_v20x_probe = {
     .read_chip_id = rvswd_target_v20x_probe_chip_id,
 };
 
+// CH32V203 的 Access Memory 写由三条 DMI transaction 组成，逐字 ABSTRACTCS 轮询会阻塞下载
+// 后续 loader execute 和主机校验负责确认整块数据已经被目标正确处理
+static bool rvswd_target_v20x_write32_access_memory(
+    struct rvswd_operation *operation, uint32_t address, uint32_t value) {
+    if (operation == NULL) {
+        return false;
+    }
+    operation->memory_code = 0u;
+    operation->address = address;
+    if (!rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA1, address).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_DATA0, value).ok ||
+        !rvswd_operation_write_dmi(operation, RVSWD_DMI_COMMAND,
+                                   0x02210000u)
+             .ok) {
+        operation->memory_code = 0xc1u;
+        return false;
+    }
+    return true;
+}
+
+// loader 的 code 和 data 区都以 32 位逐字写入，loader execute 负责 Flash 操作结果
+static bool rvswd_target_v20x_write_access_memory(
+    struct rvswd_operation *operation, uint32_t address, const uint8_t *data,
+    uint32_t length) {
+    if (operation == NULL || data == NULL || length == 0u ||
+        (address & 3u) != 0u || (length & 3u) != 0u) {
+        if (operation != NULL) {
+            operation->memory_code = 0xefu;
+            operation->address = address;
+        }
+        return false;
+    }
+    for (uint32_t offset = 0u; offset < length; offset += 4u) {
+        uint32_t value = (uint32_t)data[offset] |
+                         ((uint32_t)data[offset + 1u] << 8u) |
+                         ((uint32_t)data[offset + 2u] << 16u) |
+                         ((uint32_t)data[offset + 3u] << 24u);
+
+        if (!rvswd_target_v20x_write32_access_memory(
+                operation, address + offset, value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // 官方 CH32V203 loader 下载和数据写入均使用 Access Memory 的逐字直接路径
 static const struct rvswd_memory_ops rvswd_target_v20x_memory = {
     .read32 = rvswd_memory_read32_access_memory,
-    .write32 = rvswd_memory_write32_direct,
-    .write = rvswd_memory_write_direct,
+    .write32 = rvswd_target_v20x_write32_access_memory,
+    .write = rvswd_target_v20x_write_access_memory,
 };
 
-// 旧版 WCH-Link 查询把零分配值作为 CH32V20X 会话元数据，不访问或修改目标配置
+// MRS 的旧、新 ROM/RAM 命令都将 USER[7:6] 解释为索引，写入时再扩展为 USER[7:5]
 static bool rvswd_target_v20x_read_memory_type(
     struct rvswd_operation *operation,
     const struct rvswd_target_profile *profile, bool extended,
     uint8_t *memory_type) {
-    (void)profile;
-    if (operation == NULL || memory_type == NULL || extended) {
+    uint32_t option_word;
+
+    (void)extended;
+    if (operation == NULL || memory_type == NULL ||
+        profile == NULL || profile->option_base == 0u ||
+        !rvswd_memory_read32(operation, profile, true, profile->option_base,
+                             &option_word)) {
         return false;
     }
-    operation->flash_code = 0u;
-    *memory_type = 0u;
+    *memory_type = (uint8_t)((option_word >> 22u) & 0x03u);
     return true;
+}
+
+// MRS 的旧、新写入命令均传入逻辑索引，写入前转换为 USER[7:5] 的奇数编码
+static bool rvswd_target_v20x_set_memory_type(
+    struct rvswd_operation *operation,
+    const struct rvswd_target_profile *profile, bool extended,
+    uint8_t memory_type) {
+    (void)extended;
+    if (memory_type > 3u) {
+        return false;
+    }
+    return rvswd_flash_set_memory_type(
+        operation, profile, true, (uint8_t)(memory_type * 2u + 1u));
 }
 
 // 记录 CH32V20X loader 前置写入的阶段错误，失败时返回给主机的错误端点
 static bool rvswd_target_v20x_prepare_write(
     struct rvswd_operation *operation, uint32_t address, uint32_t value,
     uint8_t error_code) {
-    if (!rvswd_memory_write32_direct(operation, address, value)) {
+    if (!rvswd_target_v20x_write32_access_memory(operation, address, value)) {
         operation->memory_code = error_code;
         return false;
     }
@@ -297,16 +360,16 @@ cleanup:
     return success;
 }
 
-// 主机在擦除前读取 WRP 寄存器确认写保护，Option Bytes 写入和内存分配仍未确认
+// CH32V203 的读保护写入复用已验证的半字 Option Bytes 流程，任意配置写入仍未确认
 static const struct rvswd_target_flash_ops rvswd_target_v20x_flash = {
     .erase_all = rvswd_target_v20x_erase_all,
     .rewrite_page = NULL,
     .read_protected = rvswd_flash_read_protected,
     .write_protected = rvswd_flash_write_protected,
-    .set_read_protected = NULL,
+    .set_read_protected = rvswd_flash_set_read_protected,
     .set_option_bytes = NULL,
     .read_memory_type = rvswd_target_v20x_read_memory_type,
-    .set_memory_type = NULL,
+    .set_memory_type = rvswd_target_v20x_set_memory_type,
 };
 
 static const struct rvswd_target_control_ops rvswd_target_v20x_control = {

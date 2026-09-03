@@ -8,7 +8,7 @@
 
 #include <ch32x035.h>
 
-// retry 和 delay 由 transport 统一执行，frame 和 PHY 不保存策略副本
+// transport 只处理帧收发和 DMI BUSY 重试，抽象命令完成由调用方按目标语义确认
 static const uint8_t rvswd_transport_status_busy = 3u;
 static const uint8_t rvswd_transport_long_status_ok = 0u;
 static const uint8_t rvswd_transport_long_status_busy = 3u;
@@ -17,7 +17,6 @@ static const uint8_t rvswd_transport_read_retry_count = 64u;
 static const uint32_t rvswd_transport_busy_delay_us = 100u;
 static const uint32_t rvswd_transport_error_delay_us = 50u;
 static const uint32_t rvswd_transport_interframe_guard_us = 0u;
-static const uint32_t rvswd_transport_abstract_command_delay_us = 100u;
 
 void rvswd_transport_init(struct rvswd_transport *transport) {
     if (transport == NULL) {
@@ -167,9 +166,6 @@ struct rvswd_transport_result rvswd_transport_write(struct rvswd_transport *tran
 
             result.status = probe.status;
             if (probe.status == rvswd_transport_long_status_ok) {
-                if (address == RVSWD_DMI_COMMAND) {
-                    bsp_delay_us(rvswd_transport_abstract_command_delay_us);
-                }
                 result.ok = true;
                 return result;
             }
@@ -194,9 +190,6 @@ struct rvswd_transport_result rvswd_transport_write(struct rvswd_transport *tran
         }
         result.status = rvswd_frame_unpack_handshake(target);
         if (rvswd_frame_status_is_ok(result.status)) {
-            if (address == RVSWD_DMI_COMMAND) {
-                bsp_delay_us(rvswd_transport_abstract_command_delay_us);
-            }
             result.ok = true;
             return result;
         }

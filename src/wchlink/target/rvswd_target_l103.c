@@ -44,7 +44,8 @@ static const struct rvswd_target_loader_profile rvswd_target_l103_loader = {
     .prepared_mode = 0x03u,
     .program_mode = 0x08u,
     .verify_mode = 0x10u,
-    .program_verify_mode = 0x18u,
+    // 官方 CH32L103 loader 在程序并校验时要求 program 位与 checksum 位同时置位
+    .program_verify_mode = 0x1cu,
     .checksum_mode_mask = 0x10u,
     .length_mode_mask = 0u,
     .repeat_initialize = true,

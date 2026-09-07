@@ -293,7 +293,7 @@ static bool rvswd_target_v20x_erase_all(
     uint32_t control;
     uint32_t status;
     uint32_t idle_control;
-    uint64_t start;
+    uint32_t start;
     bool erase_started = false;
     bool success = false;
 

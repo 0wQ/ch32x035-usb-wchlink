@@ -22,7 +22,7 @@ static void ws2816c_show_startup_effect(void) {
     };
 
     for (size_t index = 0u; index < sizeof(colors) / sizeof(colors[0]); ++index) {
-        uint64_t deadline;
+        uint32_t deadline;
 
         drv_ws2816c_write(&colors[index], 1u);
         deadline = bsp_time_ms() + WS2816C_EFFECT_STEP_MS;
@@ -36,9 +36,9 @@ static void ws2816c_show_startup_effect(void) {
 static void process_button(void) {
     static bool stable_pressed;
     static bool sampled_pressed;
-    static uint64_t sample_changed_at;
+    static uint32_t sample_changed_at;
     bool pressed = drv_button_is_pressed();
-    uint64_t now_ms = bsp_time_ms();
+    uint32_t now_ms = bsp_time_ms();
 
     if (pressed != sampled_pressed) {
         sampled_pressed = pressed;

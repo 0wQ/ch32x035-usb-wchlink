@@ -165,7 +165,7 @@ static volatile bool wchlink_request_armed;
 static volatile bool wchlink_response_pending;
 static volatile bool wchlink_response_recovery_pending;
 static volatile bool wchlink_response_expiring;
-static uint64_t wchlink_response_deadline_us;
+static uint32_t wchlink_response_deadline_us;
 static volatile bool wchlink_data_in_pending;
 static volatile bool wchlink_data_out_active;
 static volatile bool wchlink_data_out_pending;

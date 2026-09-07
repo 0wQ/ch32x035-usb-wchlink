@@ -192,7 +192,7 @@ static bool rvswd_target_connect_short_autodetect(
     for (uint8_t attempt = 0u;
          attempt < rvswd_target_connect_short_probe_count; ++attempt) {
         uint32_t dmstatus;
-        uint64_t halt_start;
+        uint32_t halt_start;
         bool halted = false;
         struct rvswd_transport_result read_result;
 

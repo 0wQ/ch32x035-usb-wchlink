@@ -9,5 +9,5 @@ void bsp_delay_us(uint32_t us);
 void bsp_delay_ms(uint32_t ms);
 
 // 返回自初始化以来的单调时间
-uint64_t bsp_time_us(void);
-uint64_t bsp_time_ms(void);
+uint32_t bsp_time_us(void);
+uint32_t bsp_time_ms(void);

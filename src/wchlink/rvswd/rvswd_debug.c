@@ -9,7 +9,7 @@ static const uint32_t rvswd_debug_resume_poll_interval_us = 10u;
 static const uint32_t rvswd_debug_resume_timeout_us = 3000u;
 
 bool rvswd_debug_wait_abstract_idle_timeout(struct rvswd_operation *operation, uint32_t *abstractcs, uint32_t timeout_us) {
-    uint64_t start = bsp_time_us();
+    uint32_t start = bsp_time_us();
 
     do {
         struct rvswd_transport_result read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_ABSTRACTCS);
@@ -105,7 +105,7 @@ bool rvswd_debug_read_raw_gpr(struct rvswd_operation *operation, uint8_t regno, 
 }
 
 bool rvswd_debug_wait_dmstatus(struct rvswd_operation *operation, uint32_t mask, bool set, uint32_t timeout_ms) {
-    uint64_t start = bsp_time_us();
+    uint32_t start = bsp_time_us();
 
     do {
         struct rvswd_transport_result read_result = rvswd_operation_read_dmi(operation, RVSWD_DMI_STATUS);
@@ -117,7 +117,7 @@ bool rvswd_debug_wait_dmstatus(struct rvswd_operation *operation, uint32_t mask,
             return true;
         }
         bsp_delay_us(100u);
-    } while ((bsp_time_us() - start) < (uint64_t)timeout_ms * 1000u);
+        } while ((bsp_time_us() - start) < timeout_ms * 1000u);
 
     return false;
 }
@@ -129,7 +129,7 @@ bool rvswd_debug_halt(struct rvswd_operation *operation) {
 
 bool rvswd_debug_resume(struct rvswd_operation *operation, uint32_t dmcontrol, uint32_t *dmstatus) {
     const uint32_t idle_control = dmcontrol & ~RVSWD_DMCONTROL_RESUMEREQ;
-    uint64_t start;
+    uint32_t start;
 
     if (operation == NULL || dmstatus == NULL ||
         (dmcontrol & (RVSWD_DMCONTROL_DMACTIVE | RVSWD_DMCONTROL_RESUMEREQ)) != (RVSWD_DMCONTROL_DMACTIVE | RVSWD_DMCONTROL_RESUMEREQ) ||

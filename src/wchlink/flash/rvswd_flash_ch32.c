@@ -34,7 +34,7 @@ bool rvswd_flash_ch32_wait_ready(
     struct rvswd_operation *operation,
     const struct rvswd_target_profile *profile, uint32_t *status,
     uint8_t read_error, uint8_t timeout_error) {
-    uint64_t start = bsp_time_us();
+    uint32_t start = bsp_time_us();
 
     do {
         if (!rvswd_memory_read32(operation, profile, true,

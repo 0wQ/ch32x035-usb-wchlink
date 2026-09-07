@@ -45,8 +45,11 @@ struct wchlink_transfer {
     uint8_t partial_write_length;
     uint8_t partial_write_data[WCHLINK_TRANSFER_PACKET_CAPACITY];
     uint8_t partial_write_page[WCHLINK_TRANSFER_PACKET_CAPACITY];
-    uint8_t partial_cache[WCHLINK_TRANSFER_CHUNK_CAPACITY];
-    uint8_t flash_chunk_data[WCHLINK_TRANSFER_CHUNK_CAPACITY];
+    // MRS 的烧录阶段和调试断点阶段互斥，共用一块 4 KiB 工作区
+    union {
+        uint8_t partial_cache[WCHLINK_TRANSFER_CHUNK_CAPACITY];
+        uint8_t flash_chunk_data[WCHLINK_TRANSFER_CHUNK_CAPACITY];
+    } transfer_chunk;
     bool partial_cache_valid;
     bool data_reply_pending;
     uint8_t data_reply_status;

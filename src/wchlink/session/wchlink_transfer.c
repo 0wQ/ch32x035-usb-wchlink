@@ -59,7 +59,7 @@ static void wchlink_transfer_cache_range(struct wchlink_transfer *transfer,
     if (end > WCHLINK_TRANSFER_CHUNK_CAPACITY) {
         end = WCHLINK_TRANSFER_CHUNK_CAPACITY;
     }
-    memcpy(&transfer->partial_cache[start], data, end - start);
+    memcpy(&transfer->transfer_chunk.partial_cache[start], data, end - start);
 }
 
 static bool wchlink_transfer_rewrite_partial_page(
@@ -81,7 +81,7 @@ static bool wchlink_transfer_rewrite_partial_page(
         uint32_t cache_offset = page_address - sector_address;
 
         memcpy(transfer->partial_write_page,
-               &transfer->partial_cache[cache_offset],
+               &transfer->transfer_chunk.partial_cache[cache_offset],
                WCHLINK_TRANSFER_PACKET_CAPACITY);
     } else {
         // 没有下载缓存时只回读目标页，不扩展为整个 4 KiB 扇区
@@ -117,7 +117,7 @@ static bool wchlink_transfer_rewrite_partial_page(
     if (transfer->partial_cache_valid && sector_address == 0u) {
         uint32_t cache_offset = page_address - sector_address;
 
-        memcpy(&transfer->partial_cache[cache_offset],
+        memcpy(&transfer->transfer_chunk.partial_cache[cache_offset],
                transfer->partial_write_page, WCHLINK_TRANSFER_PACKET_CAPACITY);
     }
     return true;
@@ -210,7 +210,8 @@ void wchlink_transfer_prepare_write(struct wchlink_transfer *transfer,
         return;
     }
     wchlink_transfer_clear_operation(transfer);
-    memset(transfer->partial_cache, 0xff, sizeof(transfer->partial_cache));
+    memset(transfer->transfer_chunk.partial_cache, 0xff,
+           sizeof(transfer->transfer_chunk.partial_cache));
     transfer->partial_cache_valid = true;
     transfer->write_address = address;
     transfer->write_remaining = length;
@@ -333,6 +334,8 @@ struct wchlink_transfer_finish_result wchlink_transfer_finish_loader(
             : WCHLINK_TARGET_LOADER_PROGRAM;
     transfer->out_state = WCHLINK_TRANSFER_OUT_FLASH;
     transfer->flash_openocd_mode = true;
+    // Flash loader 接管共享工作区，旧 partial cache 必须回读后再使用
+    transfer->partial_cache_valid = false;
     transfer->flash_data_received = 0u;
     transfer->flash_transfer_received = 0u;
     transfer->flash_transfer_length = 0u;
@@ -355,6 +358,8 @@ bool wchlink_transfer_start_flash(struct wchlink_transfer *transfer,
     transfer->flash_transfer_length = 0u;
     transfer->flash_checksum = 0u;
     transfer->flash_openocd_mode = false;
+    // Flash loader 接管共享工作区，旧 partial cache 必须回读后再使用
+    transfer->partial_cache_valid = false;
     if (command == 0x02u) {
         transfer->flash_loader_operation = WCHLINK_TARGET_LOADER_PROGRAM;
     } else if (command == 0x03u) {
@@ -499,7 +504,7 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
                 if (wchlink_target_ports_loader_uses_streaming(
                         transfer->target)) {
                     // 连续写入目标每个 4 KiB chunk 只建立一次 RVSWD 上下文
-                    memcpy(&transfer->flash_chunk_data
+                    memcpy(&transfer->transfer_chunk.flash_chunk_data
                                 [transfer->flash_transfer_received],
                            data, write_length);
                 } else {
@@ -537,7 +542,8 @@ void wchlink_transfer_write_data(struct wchlink_transfer *transfer,
             struct rvswd_target_result result =
                 wchlink_target_ports_write_loader_data(
                     transfer->target, 0u,
-                    transfer->flash_chunk_data, transfer->flash_chunk_length);
+                    transfer->transfer_chunk.flash_chunk_data,
+                    transfer->flash_chunk_length);
 
             if (!result.ok) {
                 transfer->out_state = WCHLINK_TRANSFER_OUT_IDLE;
